@@ -39,7 +39,8 @@ Version 1 ships three collectors:
 - **hardware** — CPU model, logical CPU count, total memory, CUDA version, and
   NVIDIA GPUs. Missing `/proc` files use `Unknown`/`0`; a missing `nvidia-smi`
   yields an empty GPU list. No volatile fields (clocks, temperatures, uptime).
-- **packages** — installed Dpkg packages (name to version), plus sorted
+- **packages** — installed Dpkg packages (including held packages), keyed by
+  `name:architecture` when architecture metadata is present, plus sorted
   `manual`, `auto`, and `held` selections from `apt-mark`. Missing Dpkg or
   `apt-mark` marks the collector `unavailable`.
 
@@ -117,7 +118,9 @@ being skipped.
 
 The former `scans/` directory is no longer read and is left untouched; there is
 no migration. LION does not silently skip damaged files or fall back to older
-records.
+records. Existing history with unqualified package names remains readable; the
+first scan with architecture-qualified names records this representation change.
+The `manual`, `auto`, and `held` lists retain the names returned by `apt-mark`.
 
 ## Development
 

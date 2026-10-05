@@ -197,3 +197,39 @@ def test_unreadable_non_head_entry_still_fails_scan(monkeypatch: pytest.MonkeyPa
     (get_history_dir() / "zzz-broken.toml").write_text("broken = [")
     with pytest.raises(HistoryError, match=r"zzz-broken\.toml"):
         save_state(_host(hostname="server"))
+
+
+@pytest.mark.parametrize(
+    ("older", "newer"),
+    [
+        ("2026-10-05T22:00:00+02:00", "2026-10-05T21:00:00+00:00"),
+        ("2026-10-05T20:00:00Z", "2026-10-05T20:00:00.500000+00:00"),
+        ("2026-10-05T22:00:00+02:00", "2026-10-05T20:00:00+00:00"),
+    ],
+)
+def test_scan_and_status_choose_same_head(monkeypatch: pytest.MonkeyPatch, older: str, newer: str) -> None:
+    """Confirmation selects by instant, with filename ties, regardless of encoding."""
+    get_history_dir().mkdir(parents=True)
+    old_path = _write_entry("a.toml", older, older)
+    new_path = _write_entry("b.toml", newer, newer)
+    before = old_path.read_bytes()
+    expected = load_latest()
+    assert expected is not None
+    assert expected.erstscan == newer
+    _freeze(monkeypatch, T2 + timedelta(hours=1))
+    outcome = save_state(_host())
+    assert outcome.event == "confirmed"
+    assert outcome.path == new_path
+    assert outcome.snapshot.erstscan == expected.erstscan
+    assert old_path.read_bytes() == before
+
+
+@pytest.mark.parametrize("stamp", ["not-a-timestamp", "2026-10-05T20:00:00", 5])
+def test_scan_rejects_invalid_selection_timestamp(monkeypatch: pytest.MonkeyPatch, stamp: object) -> None:
+    """Invalid head-selection timestamps fail with the offending path."""
+    _freeze(monkeypatch, T0, T1)
+    save_state(_host())
+    path = get_history_dir() / "invalid-time.toml"
+    path.write_text(tomli_w.dumps({"zuletzt_bestaetigt": stamp}))
+    with pytest.raises(HistoryError, match=r"invalid-time\.toml"):
+        save_state(_host())

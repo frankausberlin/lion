@@ -119,3 +119,26 @@ def test_empty_selection(monkeypatch: pytest.MonkeyPatch) -> None:
     result = packages.COLLECTOR.collect()
     assert result.status == CollectorStatus.OK
     assert result.data["manual"] == result.data["auto"] == result.data["held"] == []
+
+
+@pytest.mark.parametrize("selection", ["install", "hold", "deinstall"])
+def test_installed_selection_preserves_version(monkeypatch: pytest.MonkeyPatch, selection: str) -> None:
+    """Selection changes must not remove a still-installed package."""
+    packages.DPKG_STATUS.write_text(f"Package: bash\nStatus: {selection} ok installed\nVersion: 5.2\n")
+    _apt(monkeypatch, {"showhold": "bash\n"} if selection == "hold" else {})
+    result = packages.COLLECTOR.collect()
+    assert result.data["installed"] == {"bash": "5.2"}
+
+
+def test_multiarch_versions_remain_distinct(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Co-installed architectures retain independent, stable identities."""
+    blocks = [
+        f"Package: libfoo\nStatus: install ok installed\nArchitecture: {arch}\nVersion: 1.0\n"
+        for arch in ["amd64", "i386"]
+    ]
+    _apt(monkeypatch, {})
+    for ordered in [blocks, list(reversed(blocks))]:
+        packages.DPKG_STATUS.write_text("\n".join(ordered))
+        assert packages.COLLECTOR.collect().data["installed"] == {"libfoo:amd64": "1.0", "libfoo:i386": "1.0"}
+    packages.DPKG_STATUS.write_text(blocks[0])
+    assert packages.COLLECTOR.collect().data["installed"] == {"libfoo:amd64": "1.0"}
