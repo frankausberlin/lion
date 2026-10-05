@@ -6,6 +6,8 @@ import pytest
 from typer.testing import CliRunner
 
 from repolion.cli import app
+from repolion.scan import SystemInfo
+from repolion.storage import save_scan
 
 
 @pytest.fixture(autouse=True)
@@ -56,3 +58,26 @@ def test_status() -> None:
 
     assert result.exit_code == 0
     assert "No scan found." in result.stdout
+
+
+def test_status_with_existing_scan() -> None:
+    """Show the latest stored scan."""
+    system_info = SystemInfo(
+        distribution="Test Linux",
+        distribution_version="1.0",
+        kernel="6.0.0-test",
+        architecture="x86_64",
+        hostname="lion-test",
+        cpu_model="Test CPU",
+        cpu_logical_cores=8,
+        memory_total_bytes=16 * 1024**3,
+    )
+    save_scan(system_info)
+
+    result = runner.invoke(app, ["status"])
+
+    assert result.exit_code == 0
+    assert "Test Linux 1.0" in result.stdout
+    assert "6.0.0-test" in result.stdout
+    assert "Test CPU" in result.stdout
+    assert "16 GiB" in result.stdout
