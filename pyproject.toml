@@ -1,7 +1,7 @@
 [project]
 name = "repolion"
 version = "0.1.0" # project-version
-description = "Add your description here"
+description = "LION (Linux Operator Nerd): collect, store, and inspect Linux system information."
 readme = "README.md"
 authors = [
     { name = "Frank Bloecher", email = "58914204+frankausberlin@users.noreply.github.com" },
@@ -47,6 +47,9 @@ venv = ".venv"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra -q"
+
+[tool.coverage.report]
+fail_under = 90
 
 [tool.bumpversion]
 current_version = "0.1.0"
