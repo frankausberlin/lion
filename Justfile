@@ -41,4 +41,4 @@ bump part="patch":
 
 # Run the installed command
 run:
-    uv run repolion
+    uv run lion

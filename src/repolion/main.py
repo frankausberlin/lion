@@ -1,9 +1,11 @@
 """Entry point for repolion."""
 
+from repolion.cli import app
+
 
 def main() -> None:
-    """Run the repolion application."""
-    print("Hello from repolion!")
+    """Run the LION command-line interface."""
+    app()
 
 
 if __name__ == "__main__":

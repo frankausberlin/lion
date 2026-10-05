@@ -1,16 +1,16 @@
 [project]
 name = "repolion"
-version = "0.1.0"  # project-version
+version = "0.1.0" # project-version
 description = "Add your description here"
 readme = "README.md"
 authors = [
-    { name = "Frank Bloecher", email = "58914204+frankausberlin@users.noreply.github.com" }
+    { name = "Frank Bloecher", email = "58914204+frankausberlin@users.noreply.github.com" },
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["tomli-w>=1.2.0", "typer>=0.27.2"]
 
 [project.scripts]
-repolion = "repolion.main:main"
+lion = "repolion.main:main"
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
