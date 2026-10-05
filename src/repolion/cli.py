@@ -5,20 +5,19 @@ from typing import Annotated, NoReturn
 
 import typer
 
-from repolion.scan import SystemInfo, scan_system
-from repolion.storage import load_latest_scan, load_scan, save_scan
+from repolion.diff import diff_collectors, render
+from repolion.paths import get_data_dir
+from repolion.state.collector import collect_state
+from repolion.state.registry import COLLECTORS
+from repolion.storage import load_latest, save_state
 
 app = typer.Typer(name="lion", help="Linux Operator Nerd.")
 
-
-def _render_system(info: SystemInfo) -> None:
-    typer.echo(f"Host:    {info.hostname}")
-    typer.echo(f"OS:      {info.distribution} {info.distribution_version}")
-    typer.echo(f"Kernel:  {info.kernel}")
-    typer.echo(f"Arch:    {info.architecture}")
-    typer.echo(f"CPU:     {info.cpu_model}")
-    typer.echo(f"Cores:   {info.cpu_logical_cores}")
-    typer.echo(f"Memory:  {info.memory_total_bytes // (1024**3)} GiB")
+_EVENTS = {
+    "created": "Zustand angelegt",
+    "confirmed": "Zeitstempel aktualisiert",
+    "appended": "Neuer Zustand gespeichert",
+}
 
 
 def _fail(exc: OSError | ValueError) -> NoReturn:
@@ -27,34 +26,56 @@ def _fail(exc: OSError | ValueError) -> NoReturn:
 
 
 @app.command()
-def scan(json_output: Annotated[bool, typer.Option("--json", help="Output the saved scan as JSON.")] = False) -> None:
-    """Scan the local Linux system and save the result."""
+def scan(json_output: Annotated[bool, typer.Option("--json", help="Output the result as JSON.")] = False) -> None:
+    """Collect the current state and persist it into the history."""
     try:
-        info = scan_system()
-        path = save_scan(system_info=info)
-        if json_output:
-            typer.echo(json.dumps(load_scan(path).to_dict()))
-        else:
-            _render_system(info)
-            typer.echo(f"Saved:   {path}")
-    except (OSError, ValueError) as exc:
-        _fail(exc)
-
-
-@app.command()
-def status(
-    json_output: Annotated[bool, typer.Option("--json", help="Output the latest scan as JSON.")] = False,
-) -> None:
-    """Show the latest saved system status without running a new scan."""
-    try:
-        latest_scan = load_latest_scan()
+        state = collect_state(COLLECTORS)
+        outcome = save_state(state)
     except (OSError, ValueError) as exc:
         _fail(exc)
 
     if json_output:
-        typer.echo(json.dumps(latest_scan.to_dict() if latest_scan else None))
-    elif latest_scan is None:
-        typer.echo("No scan found. Run 'lion scan' first.")
+        payload: dict[str, object] = {
+            "ereignis": outcome.event,
+            "pfad": str(outcome.path),
+            "zustand": outcome.snapshot.to_toml_dict(),
+        }
+        typer.echo(json.dumps(payload))
     else:
-        typer.echo(f"Last scan: {latest_scan.timestamp}")
-        _render_system(latest_scan.system)
+        typer.echo(f"{_EVENTS[outcome.event]}: {outcome.path}")
+
+
+@app.command()
+def status(json_output: Annotated[bool, typer.Option("--json", help="Output the comparison as JSON.")] = False) -> None:
+    """Compare the current state with the latest stored state without writing."""
+    try:
+        state = collect_state(COLLECTORS)
+        latest = load_latest()
+    except (OSError, ValueError) as exc:
+        _fail(exc)
+
+    if latest is None:
+        if json_output:
+            typer.echo("null")
+        else:
+            typer.echo("Kein Zustand gespeichert. Führe 'lion scan' aus.")
+        if (get_data_dir() / "scans").is_dir():
+            typer.echo(
+                "Hinweis: Alte Zustände unter 'scans/' werden nicht mehr gelesen; "
+                "führe 'lion scan' für einen neuen Verlauf aus.",
+                err=True,
+            )
+        return
+
+    diff = diff_collectors(latest.collectors, state)
+    if json_output:
+        payload: dict[str, object] = {
+            "geaendert": bool(diff),
+            "seit": latest.zuletzt_bestaetigt,
+            "unterschiede": diff,
+        }
+        typer.echo(json.dumps(payload))
+    elif not diff:
+        typer.echo(f"Seit dem letzten Scan am {latest.zuletzt_bestaetigt} hat sich nichts geändert.")
+    else:
+        typer.echo(render(diff))

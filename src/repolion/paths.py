@@ -15,6 +15,6 @@ def get_data_dir() -> Path:
     return base / "lion"
 
 
-def get_scans_dir() -> Path:
-    """Return the LION scans directory."""
-    return get_data_dir() / "scans"
+def get_history_dir() -> Path:
+    """Return the LION state history directory."""
+    return get_data_dir() / "history"

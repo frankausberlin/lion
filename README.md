@@ -1,7 +1,8 @@
 # lion
 
-**LION — Linux Operator Nerd** collects basic Linux system information, saves
-snapshots, and shows the latest saved state for people, scripts, and agents.
+**LION — Linux Operator Nerd** collects the machine state through small
+collectors, keeps a history of distinct states, and compares the current state
+with the latest stored one for people, scripts, and agents.
 The project and CLI are named `lion`; the repository and Python distribution/import
 package remain `repolion`.
 
@@ -11,18 +12,55 @@ Requires Linux and Python 3.12 or newer.
 
 ```bash
 uv sync
-uv run lion scan             # collect, display and save a scan
-uv run lion status           # display the latest saved scan; does not rescan
+uv run lion scan             # collect the current state and save it
+uv run lion status           # compare the current state with the latest saved one
 uv run lion --help
 ```
 
 No initialization step is needed. `scan` creates its data directory automatically.
-The former `lion init` command has been removed.
 
-Scans include hostname, distribution/version, kernel, architecture, CPU model,
-logical CPU count, and total memory. Missing CPU/distribution details appear as
-`Unknown`; missing or malformed memory readings and unavailable CPU counts use `0`.
-The human-readable memory value is rounded down to whole GiB.
+## Collectors
+
+Each collector lives with its dataclass in `src/repolion/state/<collector>.py`
+and returns a section with a `status` (`ok`, `unavailable`, or `error`), an
+`error` message, and its data. A failing collector never aborts the whole
+capture: an exception is stored as an `error` section.
+
+Shared types (`CollectorStatus`, `CollectorResult`, `Collector`, and
+`collect_state`) live in `src/repolion/state/collector.py`, and
+`src/repolion/state/tools.py` provides the shared external-tool runner. The
+ordered registry is `src/repolion/state/registry.py`, the persisted `Snapshot`
+model is `src/repolion/state/model.py`, `storage.py` owns the history, and
+`diff.py` builds and renders the comparison.
+
+Version 1 ships three collectors:
+
+- **host** — hostname, distribution/version, kernel, architecture.
+- **hardware** — CPU model, logical CPU count, total memory, CUDA version, and
+  NVIDIA GPUs. Missing `/proc` files use `Unknown`/`0`; a missing `nvidia-smi`
+  yields an empty GPU list. No volatile fields (clocks, temperatures, uptime).
+- **packages** — installed Dpkg packages (name to version), plus sorted
+  `manual`, `auto`, and `held` selections from `apt-mark`. Missing Dpkg or
+  `apt-mark` marks the collector `unavailable`.
+
+## Comparison model
+
+`scan` writes and `status` only reads. A state has two timestamps: `erstscan`
+(first observation) and `zuletzt_bestaetigt` (last unchanged confirmation).
+
+- No stored state → a new entry is created (`created`).
+- Identical collector data → the latest entry's `zuletzt_bestaetigt` is
+  refreshed in place (`confirmed`); no new file is written.
+- Any difference → a new entry is appended (`appended`). The previous entry is
+  kept, so the history records every distinct state.
+
+Two states are compared using a canonical serialization of the `collectors`
+section only; the timestamps do not participate, but each collector's `status`
+and `error` do. Returning states are not reactivated.
+
+`status` groups the difference per collector with `+` (added), `-` (removed),
+and `~` (changed) lines. If nothing changed, it says so; if no state exists, it
+tells you to run `lion scan`.
 
 ## JSON output
 
@@ -31,46 +69,55 @@ uv run lion scan --json
 uv run lion status --json
 ```
 
-Both commands output a single JSON value on stdout using the same structure as the
-saved TOML record:
+`scan --json` outputs a single JSON object on stdout:
 
 ```json
 {
-  "scan": {"timestamp": "2026-10-05T20:00:00.123456+00:00"},
-  "system": {
-    "distribution": "Example Linux",
-    "distribution_version": "1.0",
-    "kernel": "6.0.0",
-    "architecture": "x86_64",
-    "hostname": "workstation",
-    "cpu_model": "Example CPU",
-    "cpu_logical_cores": 8,
-    "memory_total_bytes": 17179869184
+  "ereignis": "created",
+  "pfad": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
+  "zustand": {
+    "schema_version": 1,
+    "erstscan": "2026-10-05T20:00:00.123456+00:00",
+    "zuletzt_bestaetigt": "2026-10-05T20:00:00.123456+00:00",
+    "collectors": {"host": {"status": "ok", "error": "", "hostname": "workstation"}}
   }
 }
 ```
 
-`scan --json` still saves the scan; its timestamp and fields match that saved record.
-With no saved scans, `status --json` outputs `null` and exits successfully.
-Operational or invalid-scan errors go to stderr with exit code `1` and no JSON on
-stdout. Memory is an integer byte count, and timestamps include a UTC offset.
+`status --json` outputs the comparison:
+
+```json
+{
+  "geaendert": true,
+  "seit": "2026-10-05T20:00:00.123456+00:00",
+  "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
+}
+```
+
+With no stored state, `status --json` outputs `null` and exits successfully.
+Operational or invalid-state errors go to stderr with exit code `1` and no JSON
+on stdout. Because there is no interactive prompt, non-interactive CI and script
+use is safe.
 
 ## Storage and compatibility
 
-Scans are TOML files under `$XDG_DATA_HOME/lion/scans`, defaulting to
-`~/.local/share/lion/scans`.
+The state history is TOML files under `$XDG_DATA_HOME/lion/history`, defaulting
+to `~/.local/share/lion/history`. New records use UTC timestamps and are named
+after their `erstscan`.
 
-New records use UTC timestamps. Filenames include microseconds and a random suffix.
-A completed temporary file is atomically published using a hard link, without
-replacing any existing scan. This requires a filesystem supporting hard links;
-publication failures are reported rather than falling back to an unsafe write.
+New entries are published with a hard link so an existing entry is never
+overwritten; only refreshing `zuletzt_bestaetigt` rewrites the latest file, and
+it does so atomically via `os.replace`. This requires a filesystem supporting
+hard links.
 
-Existing scans with local timezone offsets remain readable. `status` compares the
-stored timestamps, so a daylight-saving clock change does not reverse their order.
-If timestamps are identical, filenames provide a deterministic tie-breaker.
-All `.toml` scans are validated: any unreadable or invalid scan stops `status` with
-its path in the error message. LION does not silently skip damaged files and report
-an older scan as current. Temporary files are ignored.
+Every `.toml` entry is strictly validated (`schema_version = 1`, UTC offsets on
+both timestamps, a valid `status` per collector). Any unreadable or invalid
+entry stops `status` with its path in the error message instead of silently
+being skipped.
+
+The former `scans/` directory is no longer read and is left untouched; there is
+no migration. LION does not silently skip damaged files or fall back to older
+records.
 
 ## Development
 
@@ -81,9 +128,11 @@ just fix        # auto-fix lint issues
 just check      # full quality gate
 ```
 
-Tests cover fixture-based Linux readings, legacy timestamps, collisions, publication
-failures, invalid stored data, and text/JSON CLI behavior. CLI smoke tests also
-exercise the local Linux system.
+Tests cover fixture-based collector readings, the history comparison model
+(create/confirm/append, dedup on status change, invalid entries), the diff and
+rendering, and text/JSON CLI behavior. Collector tools (`nvidia-smi`,
+`apt-mark`, Dpkg) are exercised through fixtures and mocks so the suite also
+passes on machines without them.
 
 ## Release
 

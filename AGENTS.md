@@ -75,3 +75,43 @@ just audit       # dependency vulnerability scan
 ## Project-Specific Rules
 
 <!-- Add project-local rules below. Keep the managed contract unchanged. -->
+
+### LION Architecture
+
+- `src/repolion/state/` holds the collector framework: `collector.py` defines the
+  shared `CollectorStatus`, `CollectorResult`, `Collector`, and `collect_state`
+  (no collector imports, to avoid cycles); `tools.py` provides the shared
+  external-tool runner `run_tool`; each collector (`host.py`, `hardware.py`,
+  `packages.py`) keeps its frozen dataclass next to a private `_collect()` and
+  exports `COLLECTOR`; `registry.py` exposes the ordered `COLLECTORS`; `model.py`
+  defines the persisted `Snapshot` and its strict validation plus
+  `canonical_collectors`.
+- `storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
+  (`~/.local/share/lion/history`): `load_latest`, `save_state`
+  (`created`/`confirmed`/`appended`), and `SaveOutcome`.
+- `diff.py` provides `diff_collectors` and `render`; `cli.py` implements
+  `scan` (writes) and `status` (reads only) with `--json`. The former
+  `scan.py` and `scans/` directory are gone.
+- Collector contract: never let one collector abort the capture, use `status`
+  `unavailable`/`error` plus an `error` message instead, and never store
+  volatile fields (clocks, temperatures, uptime).
+
+### LION Invariants
+
+- `scan` writes, `status` never writes and only compares.
+- Two states are equal when `canonical_collectors` matches (timestamps excluded,
+  each collector's `status`/`error` included).
+- New history entries are published with `os.link` and never overwrite; only the
+  latest entry's `zuletzt_bestaetigt` refresh uses `os.replace`. Collision
+  filenames use a `~NNNN` suffix so they sort after the base name and the
+  newest-entry tie-break stays correct.
+- `load_latest`/`status` validate every entry and fail loudly with the file path;
+  `scan` parses every entry but validates only the newest head, so an unreadable
+  or syntactically invalid file still fails. Never skip entries silently.
+- External tools (`nvidia-smi`, `apt-mark`, Dpkg) are environment-dependent and
+  are exercised through fixtures/mocks in tests.
+
+### Tooling Notes
+
+- `pyproject.toml` sets ruff `extend-exclude = [".kilo"]` so agent artifacts
+  (plans, worktrees) are not linted or formatted.

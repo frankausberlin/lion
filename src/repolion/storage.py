@@ -1,118 +1,162 @@
-"""Persist and load LION system scans."""
+"""Persist and load the LION state history.
+
+``scan`` writes here: it creates a new entry, confirms the latest entry, or
+appends a new distinct state. ``status`` never writes and only reads.
+"""
 
 import os
 import tomllib
-from collections.abc import Mapping
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import NamedTemporaryFile
-from typing import cast
-from uuid import uuid4
+from typing import Literal, cast
 
 import tomli_w
 
-from repolion.paths import get_scans_dir
-from repolion.scan import SystemInfo
+from repolion.paths import get_history_dir
+from repolion.state.model import Snapshot, canonical_collectors
+
+Event = Literal["created", "confirmed", "appended"]
 
 
-class ScanError(ValueError):
-    """A stored scan cannot be read or validated."""
+class HistoryError(ValueError):
+    """A stored state cannot be read or validated."""
 
 
 @dataclass(frozen=True)
-class ScanRecord:
-    """Complete LION scan."""
+class SaveOutcome:
+    """Result of persisting a freshly collected state."""
 
-    timestamp: str
-    system: SystemInfo
-
-    def to_dict(self) -> dict[str, object]:
-        """Return the shared TOML and JSON representation."""
-        return {"scan": {"timestamp": self.timestamp}, "system": asdict(self.system)}
+    event: Event
+    path: Path
+    snapshot: Snapshot
 
 
-def save_scan(system_info: SystemInfo) -> Path:
-    """Publish a complete UTC scan atomically without overwriting another scan."""
-    scans_dir = get_scans_dir()
-    scans_dir.mkdir(parents=True, exist_ok=True)
-    now = datetime.now(UTC)
-    record = ScanRecord(now.isoformat(), system_info)
-    # A hard link publishes the complete file and fails if the destination exists.
-    # Both paths are on the same filesystem; temporary files are never scan candidates.
-    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=scans_dir, suffix=".tmp", delete=False) as file:
-        temporary = Path(file.name)
-        try:
-            file.write(tomli_w.dumps(record.to_dict()))
-            file.flush()
-            os.fsync(file.fileno())
-            while True:
-                path = scans_dir / f"{now.strftime('%Y-%m-%dT%H-%M-%S.%fZ')}-{uuid4().hex}.toml"
-                try:
-                    os.link(temporary, path)
-                except FileExistsError:
-                    continue
-                return path
-        finally:
-            temporary.unlink(missing_ok=True)
+def _entry_paths() -> list[Path]:
+    """Return the history entry paths in a stable order."""
+    history_dir = get_history_dir()
+    if not history_dir.exists():
+        return []
+    return sorted(history_dir.glob("*.toml"))
 
 
-def _table(value: object) -> Mapping[str, object]:
-    if not isinstance(value, dict):
-        raise ValueError("expected a table")
-    return cast(Mapping[str, object], value)
-
-
-def _text(data: Mapping[str, object], key: str) -> str:
-    value = data[key]
-    if not isinstance(value, str):
-        raise ValueError(f"{key} must be a string")
-    return value
-
-
-def _count(data: Mapping[str, object], key: str) -> int:
-    value = data[key]
-    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
-        raise ValueError(f"{key} must be a non-negative integer")
-    return value
-
-
-def load_scan(path: Path) -> ScanRecord:
-    """Read and validate a scan, reporting its path on failure."""
+def _parse(path: Path) -> dict[str, object]:
+    """Parse one history entry, naming its path on failure."""
     try:
         with path.open("rb") as file:
-            data = cast(dict[str, object], tomllib.load(file))
-        timestamp = _text(_table(data["scan"]), "timestamp")
-        if datetime.fromisoformat(timestamp).utcoffset() is None:
-            raise ValueError("timestamp must include a timezone")
-        system = _table(data["system"])
-        return ScanRecord(
-            timestamp=timestamp,
-            system=SystemInfo(
-                distribution=_text(system, "distribution"),
-                distribution_version=_text(system, "distribution_version"),
-                kernel=_text(system, "kernel"),
-                architecture=_text(system, "architecture"),
-                hostname=_text(system, "hostname"),
-                cpu_model=_text(system, "cpu_model"),
-                cpu_logical_cores=_count(system, "cpu_logical_cores"),
-                memory_total_bytes=_count(system, "memory_total_bytes"),
-            ),
-        )
+            return cast("dict[str, object]", tomllib.load(file))
+    except (OSError, ValueError) as exc:
+        raise HistoryError(f"Cannot load state '{path}': {exc}") from exc
+
+
+def _load_entry(path: Path) -> Snapshot:
+    """Parse and strictly validate one entry, naming its path on failure."""
+    try:
+        return Snapshot.from_toml_dict(_parse(path))
     except (OSError, ValueError, KeyError) as exc:
-        raise ScanError(f"Cannot load scan '{path}': {exc}") from exc
+        raise HistoryError(f"Cannot load state '{path}': {exc}") from exc
 
 
-def load_latest_scan() -> ScanRecord | None:
-    """Select by stored instant, including legacy scans with local UTC offsets.
+def _selection_key(item: tuple[str, Path, Snapshot]) -> tuple[datetime, str]:
+    return (datetime.fromisoformat(item[2].zuletzt_bestaetigt), item[0])
 
-    Invalid files fail explicitly: silently skipping them could hide the newest scan.
-    Equal timestamps are resolved deterministically by filename.
+
+def load_latest() -> Snapshot | None:
+    """Load and validate every entry, returning the newest by confirmation time.
+
+    Invalid entries fail explicitly: silently skipping them could hide the
+    newest state. Equal ``zuletzt_bestaetigt`` values are resolved by filename.
     """
-    scans_dir = get_scans_dir()
-    if not scans_dir.exists():
+    entries = [(path.name, path, _load_entry(path)) for path in _entry_paths()]
+    if not entries:
         return None
-    records = [(path.name, load_scan(path)) for path in scans_dir.glob("*.toml")]
-    if not records:
+    return max(entries, key=_selection_key)[2]
+
+
+def _load_head_for_write() -> tuple[Path, Snapshot] | None:
+    """Select the newest entry for writing, validating only the head.
+
+    ``save_state`` does not need the full history: it only compares against and
+    possibly refreshes the newest entry. Every entry is still parsed (so an
+    unreadable or syntactically invalid file fails with its path), but the
+    recursive collector validation runs only for the selected head.
+    """
+    candidates: list[tuple[str, Path]] = []
+    for path in _entry_paths():
+        stamp = _parse(path).get("zuletzt_bestaetigt")
+        if not isinstance(stamp, str):
+            raise HistoryError(f"Cannot load state '{path}': zuletzt_bestaetigt must be a string")
+        candidates.append((stamp, path))
+    if not candidates:
         return None
-    return max(records, key=lambda item: (datetime.fromisoformat(item[1].timestamp), item[0]))[1]
+    _stamp, path = max(candidates, key=lambda item: (item[0], item[1].name))
+    return path, _load_entry(path)
+
+
+def _stage(directory: Path, snapshot: Snapshot) -> Path:
+    """Write and fsync a complete entry to a temporary file in ``directory``."""
+    directory.mkdir(parents=True, exist_ok=True)
+    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=directory, suffix=".tmp", delete=False) as file:
+        temporary = Path(file.name)
+        try:
+            file.write(tomli_w.dumps(snapshot.to_toml_dict()))
+            file.flush()
+            os.fsync(file.fileno())
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+    return temporary
+
+
+def _write_new_file(history_dir: Path, snapshot: Snapshot) -> Path:
+    """Publish a completed entry via a hard link, never overwriting a file."""
+    temporary = _stage(history_dir, snapshot)
+    try:
+        stamp = datetime.fromisoformat(snapshot.erstscan).astimezone(UTC)
+        counter = 0
+        while True:
+            # "~" sorts after "." (the start of ".toml"), so a collision-suffixed
+            # name orders after the base name and the newest-entry tie-break holds.
+            suffix = "" if counter == 0 else f"~{counter:04d}"
+            path = history_dir / f"{stamp.strftime('%Y-%m-%dT%H-%M-%S.%fZ')}{suffix}.toml"
+            try:
+                os.link(temporary, path)
+            except FileExistsError:
+                counter += 1
+                continue
+            return path
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _update_head(path: Path, snapshot: Snapshot) -> None:
+    """Atomically replace the confirmed head entry (the single allowed mutation)."""
+    temporary = _stage(path.parent, snapshot)
+    try:
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
+    """Persist a freshly collected state following the history comparison model.
+
+    Args:
+        collectors: Serialized collector sections from ``collect_state``.
+
+    Returns:
+        The event, the affected path, and the stored snapshot.
+    """
+    now = datetime.now(UTC).isoformat()
+    latest = _load_head_for_write()
+    if latest is not None:
+        path, previous = latest
+        if previous.canonical_collectors() == canonical_collectors(collectors):
+            snapshot = replace(previous, zuletzt_bestaetigt=now)
+            _update_head(path, snapshot)
+            return SaveOutcome(event="confirmed", path=path, snapshot=snapshot)
+    snapshot = Snapshot(erstscan=now, zuletzt_bestaetigt=now, collectors=collectors)
+    path = _write_new_file(get_history_dir(), snapshot)
+    event: Event = "created" if latest is None else "appended"
+    return SaveOutcome(event=event, path=path, snapshot=snapshot)

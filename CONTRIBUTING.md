@@ -27,6 +27,30 @@ just check        # full gate (lint + typecheck + tests)
 just fix          # auto-fix formatting and lint issues
 ```
 
+## Architecture
+
+- `src/repolion/state/collector.py` — shared `CollectorStatus`, `CollectorResult`,
+  `Collector`, and `collect_state`; keep it free of collector imports.
+- `src/repolion/state/tools.py` — shared `run_tool` helper for external tools.
+- `src/repolion/state/<collector>.py` — one collector per file (`host`,
+  `hardware`, `packages`), each with its frozen dataclass, a private `_collect()`,
+  and a `COLLECTOR` export.
+- `src/repolion/state/registry.py` — ordered `COLLECTORS` tuple.
+- `src/repolion/state/model.py` — `Snapshot`, strict validation, and
+  `canonical_collectors` used for state comparison.
+- `src/repolion/storage.py` — history persistence (`load_latest`, `save_state`).
+- `src/repolion/diff.py` — `diff_collectors` and terminal `render`.
+- `src/repolion/cli.py` — `scan` (writes) and `status` (reads only).
+
+New collectors must not abort a capture: report `unavailable` or `error` with a
+message and return their data keys regardless. Never persist volatile fields.
+
+## Testing
+
+External tools (`nvidia-smi`, `apt-mark`, Dpkg) are exercised through fixtures and
+mocks so the suite passes without them. Keep `just check` green, which includes
+coverage of at least 90%.
+
 ## Conventions
 
 - **Python version:** 3.12

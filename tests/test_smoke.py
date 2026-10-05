@@ -1,113 +1,124 @@
 """Smoke tests for the LION CLI."""
 
+import json
 from pathlib import Path
 
 import pytest
-from typer.testing import CliRunner
+from typer.testing import CliRunner, Result
 
+from repolion import cli
 from repolion.cli import app
-from repolion.scan import SystemInfo
-from repolion.storage import save_scan
-
-
-@pytest.fixture(autouse=True)
-def isolated_data_dir(
-    monkeypatch: pytest.MonkeyPatch,
-    tmp_path: Path,
-) -> None:
-    """Keep tests away from the real LION data directory."""
-    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
-
+from repolion.paths import get_data_dir, get_history_dir
 
 runner = CliRunner()
 
 
+@pytest.fixture(autouse=True)
+def isolated_data_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Keep tests away from the real LION data directory."""
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path))
+
+
+@pytest.fixture
+def state(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, object]]:
+    """Replace collection with a deterministic state."""
+    value: dict[str, dict[str, object]] = {
+        "host": {"status": "ok", "error": "", "hostname": "lion-test"},
+        "hardware": {"status": "ok", "error": "", "cpu_model": "Test CPU", "gpu": []},
+    }
+
+    def fake_collect(collectors: object) -> dict[str, dict[str, object]]:
+        return value
+
+    monkeypatch.setattr(cli, "collect_state", fake_collect)
+    return value
+
+
+def _invoke(*args: str) -> Result:
+    return runner.invoke(app, list(args))
+
+
 def test_help() -> None:
     """Show CLI help."""
-    result = runner.invoke(app, ["--help"])
-
+    result = _invoke("--help")
     assert result.exit_code == 0
     assert "Linux Operator Nerd" in result.stdout
 
 
-def test_scan() -> None:
-    """Run the scan command."""
-    result = runner.invoke(app, ["scan"])
+def test_scan_created_then_confirmed(state: dict[str, dict[str, object]]) -> None:
+    """The first scan creates an entry; an unchanged scan confirms it."""
+    first = _invoke("scan")
+    second = _invoke("scan")
+    assert first.exit_code == second.exit_code == 0
+    assert "Zustand angelegt" in first.stdout
+    assert "Zeitstempel aktualisiert" in second.stdout
+    assert len(list(get_history_dir().glob("*.toml"))) == 1
 
+
+def test_scan_json(state: dict[str, dict[str, object]]) -> None:
+    """``scan --json`` reports the event, path, and stored state."""
+    result = _invoke("scan", "--json")
     assert result.exit_code == 0
-    assert "Host:" in result.stdout
-    assert "OS:" in result.stdout
-    assert "Kernel:" in result.stdout
-    assert "Arch:" in result.stdout
-    assert "CPU:" in result.stdout
-    assert "Cores:" in result.stdout
-    assert "Memory:" in result.stdout
+    assert result.stderr == ""
+    payload = json.loads(result.stdout)
+    assert payload["ereignis"] == "created"
+    assert payload["pfad"].endswith(".toml")
+    assert payload["zustand"]["collectors"]["host"]["hostname"] == "lion-test"
 
 
-def test_status() -> None:
-    """Run the status command."""
-    result = runner.invoke(app, ["status"])
+def test_status_without_history() -> None:
+    """Without history, status explains what to do; JSON returns null."""
+    text = _invoke("status")
+    assert text.exit_code == 0
+    assert "Kein Zustand gespeichert" in text.stdout
+    machine = _invoke("status", "--json")
+    assert machine.exit_code == 0
+    assert machine.stdout.strip() == "null"
 
+
+def test_status_warns_about_legacy_scans() -> None:
+    """A leftover legacy scans/ directory is mentioned without being read."""
+    (get_data_dir() / "scans").mkdir(parents=True)
+    result = _invoke("status")
     assert result.exit_code == 0
-    assert "No scan found." in result.stdout
+    assert "Kein Zustand gespeichert" in result.stdout
+    assert "scans/" in result.stderr
 
 
-def test_status_with_existing_scan() -> None:
-    """Show the latest stored scan."""
-    system_info = SystemInfo(
-        distribution="Test Linux",
-        distribution_version="1.0",
-        kernel="6.0.0-test",
-        architecture="x86_64",
-        hostname="lion-test",
-        cpu_model="Test CPU",
-        cpu_logical_cores=8,
-        memory_total_bytes=16 * 1024**3,
-    )
-    save_scan(system_info)
-
-    result = runner.invoke(app, ["status"])
-
+def test_status_unchanged(state: dict[str, dict[str, object]]) -> None:
+    """An unchanged state reports that nothing changed."""
+    _invoke("scan")
+    result = _invoke("status")
     assert result.exit_code == 0
-    assert "lion-test" in result.stdout
-    assert "Test Linux 1.0" in result.stdout
-    assert "6.0.0-test" in result.stdout
-    assert "Test CPU" in result.stdout
-    assert "16 GiB" in result.stdout
+    assert "hat sich nichts geändert" in result.stdout
 
 
-def test_json_scan_and_status(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Both commands emit the same stored record as clean machine-readable JSON."""
-    import json
-
-    from repolion import cli
-
-    info = SystemInfo("Test Linux", "1.0", "6.0", "x86_64", "lion-test", "Test CPU", 8, 16 * 1024**3)
-    monkeypatch.setattr(cli, "scan_system", lambda: info)
-    scanned = runner.invoke(app, ["scan", "--json"])
-    latest = runner.invoke(app, ["status", "--json"])
-    assert scanned.exit_code == latest.exit_code == 0
-    assert scanned.stderr == latest.stderr == ""
-    data = json.loads(scanned.stdout)
-    assert data == json.loads(latest.stdout)
-    assert data["system"]["hostname"] == "lion-test"
-    assert data["system"]["memory_total_bytes"] == 16 * 1024**3
-    assert data["scan"]["timestamp"]
-
-
-def test_json_without_scan() -> None:
-    """Represent an absent saved scan explicitly as JSON null."""
-    result = runner.invoke(app, ["status", "--json"])
+def test_status_changed(state: dict[str, dict[str, object]]) -> None:
+    """A changed state renders a grouped diff."""
+    _invoke("scan")
+    state["host"]["hostname"] = "server"
+    result = _invoke("status")
     assert result.exit_code == 0
-    assert result.stdout.strip() == "null"
+    assert "host:" in result.stdout
+    assert "~ hostname: lion-test -> server" in result.stdout
+
+
+def test_status_json_changed(state: dict[str, dict[str, object]]) -> None:
+    """``status --json`` exposes the structured difference."""
+    _invoke("scan")
+    state["host"]["hostname"] = "server"
+    result = _invoke("status", "--json")
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["geaendert"] is True
+    assert payload["seit"]
+    assert payload["unterschiede"]["host"]["changed"]["hostname"] == {"old": "lion-test", "new": "server"}
 
 
 @pytest.mark.parametrize("args", [["status"], ["status", "--json"]])
-def test_corrupt_scan_error(args: list[str]) -> None:
-    """Report corrupt files on stderr with an unsuccessful exit status."""
-    from repolion.paths import get_scans_dir
-
-    directory = get_scans_dir()
+def test_corrupt_history_error(args: list[str]) -> None:
+    """Corrupt entries fail on stderr with exit code 1 and no JSON on stdout."""
+    directory = get_history_dir()
     directory.mkdir(parents=True)
     (directory / "broken.toml").write_text("broken = [")
     result = runner.invoke(app, args)
@@ -117,15 +128,14 @@ def test_corrupt_scan_error(args: list[str]) -> None:
     assert "Traceback" not in result.stderr
 
 
-def test_save_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_save_error(monkeypatch: pytest.MonkeyPatch, state: dict[str, dict[str, object]]) -> None:
     """Do not print success or JSON when saving fails."""
-    from repolion import cli
 
-    def fail_save(system_info: SystemInfo) -> Path:
-        raise PermissionError("scan directory is read-only")
+    def fail_save(collectors: dict[str, dict[str, object]]) -> object:
+        raise PermissionError("history directory is read-only")
 
-    monkeypatch.setattr(cli, "save_scan", fail_save)
-    result = runner.invoke(app, ["scan", "--json"])
+    monkeypatch.setattr(cli, "save_state", fail_save)
+    result = _invoke("scan", "--json")
     assert result.exit_code == 1
     assert result.stdout == ""
     assert "read-only" in result.stderr
