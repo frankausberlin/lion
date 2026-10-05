@@ -21,22 +21,11 @@ class SystemInfo:
 
 
 def _read_os_release() -> dict[str, str]:
-    """Read /etc/os-release."""
-    path = Path("/etc/os-release")
-
-    if not path.exists():
+    """Read distribution metadata using the standard library."""
+    try:
+        return platform.freedesktop_os_release()
+    except OSError:
         return {}
-
-    result: dict[str, str] = {}
-
-    for line in path.read_text(encoding="utf-8").splitlines():
-        if "=" not in line:
-            continue
-
-        key, value = line.split("=", 1)
-        result[key] = value.strip().strip('"')
-
-    return result
 
 
 def _read_cpu_model() -> str:
@@ -47,8 +36,9 @@ def _read_cpu_model() -> str:
         return "Unknown"
 
     for line in path.read_text(encoding="utf-8").splitlines():
-        if line.startswith("model name"):
-            return line.split(":", 1)[1].strip()
+        key, separator, value = line.partition(":")
+        if separator and key.strip() == "model name":
+            return value.strip() or "Unknown"
 
     return "Unknown"
 
@@ -62,8 +52,14 @@ def _read_memory_total() -> int:
 
     for line in path.read_text(encoding="utf-8").splitlines():
         if line.startswith("MemTotal:"):
-            kibibytes = int(line.split()[1])
-            return kibibytes * 1024
+            parts = line.split()
+            if len(parts) != 3 or parts[2] != "kB":
+                return 0
+            try:
+                kibibytes = int(parts[1])
+            except ValueError:
+                return 0
+            return max(0, kibibytes) * 1024
 
     return 0
 

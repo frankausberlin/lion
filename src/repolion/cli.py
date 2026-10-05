@@ -1,33 +1,18 @@
 """Command-line interface for LION."""
 
+import json
+from typing import Annotated, NoReturn
+
 import typer
 
-from repolion.paths import get_data_dir, get_scans_dir
-from repolion.scan import scan_system
-from repolion.storage import load_latest_scan, save_scan
+from repolion.scan import SystemInfo, scan_system
+from repolion.storage import load_latest_scan, load_scan, save_scan
 
-app = typer.Typer(
-    name="lion",
-    help="Linux Operator Nerd.",
-)
+app = typer.Typer(name="lion", help="Linux Operator Nerd.")
 
 
-@app.command()
-def init() -> None:
-    """Initialize LION."""
-    data_dir = get_data_dir()
-    scans_dir = get_scans_dir()
-
-    scans_dir.mkdir(parents=True, exist_ok=True)
-
-    typer.echo(f"LION initialized at {data_dir}")
-
-
-@app.command()
-def scan() -> None:
-    """Scan the local Linux system."""
-    info = scan_system()
-
+def _render_system(info: SystemInfo) -> None:
+    typer.echo(f"Host:    {info.hostname}")
     typer.echo(f"OS:      {info.distribution} {info.distribution_version}")
     typer.echo(f"Kernel:  {info.kernel}")
     typer.echo(f"Arch:    {info.architecture}")
@@ -35,23 +20,41 @@ def scan() -> None:
     typer.echo(f"Cores:   {info.cpu_logical_cores}")
     typer.echo(f"Memory:  {info.memory_total_bytes // (1024**3)} GiB")
 
-    path = save_scan(system_info=info)
-    typer.echo(f"Saved:   {path}")
+
+def _fail(exc: OSError | ValueError) -> NoReturn:
+    typer.echo(f"Error: {exc}", err=True)
+    raise typer.Exit(code=1) from exc
 
 
 @app.command()
-def status() -> None:
-    """Show the latest system status."""
-    latest_scan = load_latest_scan()
+def scan(json_output: Annotated[bool, typer.Option("--json", help="Output the saved scan as JSON.")] = False) -> None:
+    """Scan the local Linux system and save the result."""
+    try:
+        info = scan_system()
+        path = save_scan(system_info=info)
+        if json_output:
+            typer.echo(json.dumps(load_scan(path).to_dict()))
+        else:
+            _render_system(info)
+            typer.echo(f"Saved:   {path}")
+    except (OSError, ValueError) as exc:
+        _fail(exc)
 
-    if not latest_scan:
+
+@app.command()
+def status(
+    json_output: Annotated[bool, typer.Option("--json", help="Output the latest scan as JSON.")] = False,
+) -> None:
+    """Show the latest saved system status without running a new scan."""
+    try:
+        latest_scan = load_latest_scan()
+    except (OSError, ValueError) as exc:
+        _fail(exc)
+
+    if json_output:
+        typer.echo(json.dumps(latest_scan.to_dict() if latest_scan else None))
+    elif latest_scan is None:
         typer.echo("No scan found. Run 'lion scan' first.")
-        return
-
-    typer.echo(f"Last scan: {latest_scan.timestamp}")
-    typer.echo(f"OS:      {latest_scan.system.distribution} {latest_scan.system.distribution_version}")
-    typer.echo(f"Kernel:  {latest_scan.system.kernel}")
-    typer.echo(f"Arch:    {latest_scan.system.architecture}")
-    typer.echo(f"CPU:     {latest_scan.system.cpu_model}")
-    typer.echo(f"Cores:   {latest_scan.system.cpu_logical_cores}")
-    typer.echo(f"Memory:  {latest_scan.system.memory_total_bytes // (1024**3)} GiB")
+    else:
+        typer.echo(f"Last scan: {latest_scan.timestamp}")
+        _render_system(latest_scan.system)

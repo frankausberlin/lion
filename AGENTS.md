@@ -1,10 +1,11 @@
-# AGENTS.md - repolion
+# AGENTS.md - lion
 
 Generated once by `pyinit` from `stack-contract-v1`. Existing projects are not updated automatically; keep local guidance in the project-specific section.
 
 ## Project Profile
 
-- Project name: `repolion`
+- Project name: `lion`
+- Repository name: `repolion`
 - Package name: `repolion`
 - Project type: app
 - Python version: `3.12`

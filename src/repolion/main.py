@@ -1,4 +1,4 @@
-"""Entry point for repolion."""
+"""Entry point for LION."""
 
 from repolion.cli import app
 
