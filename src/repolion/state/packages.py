@@ -33,12 +33,15 @@ def _read_installed() -> dict[str, str] | None:
             key, separator, value = line.partition(":")
             if separator:
                 fields[key.strip()] = value.strip()
-        if fields.get("Status") != "install ok installed":
+        status = fields.get("Status", "").split()
+        if len(status) != 3 or status[2] != "installed":
             continue
         name = fields.get("Package")
         version = fields.get("Version")
         if name and version:
-            installed[name] = version
+            architecture = fields.get("Architecture")
+            identity = f"{name}:{architecture}" if architecture else name
+            installed[identity] = version
     return installed
 
 

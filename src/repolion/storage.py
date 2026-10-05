@@ -58,8 +58,16 @@ def _load_entry(path: Path) -> Snapshot:
         raise HistoryError(f"Cannot load state '{path}': {exc}") from exc
 
 
-def _selection_key(item: tuple[str, Path, Snapshot]) -> tuple[datetime, str]:
-    return (datetime.fromisoformat(item[2].zuletzt_bestaetigt), item[0])
+def _selection_key(path: Path, stamp: object) -> tuple[datetime, str]:
+    try:
+        if not isinstance(stamp, str):
+            raise ValueError("zuletzt_bestaetigt must be a string")
+        instant = datetime.fromisoformat(stamp)
+        if instant.utcoffset() is None:
+            raise ValueError("zuletzt_bestaetigt must include a timezone offset")
+    except ValueError as exc:
+        raise HistoryError(f"Cannot load state '{path}': {exc}") from exc
+    return instant, path.name
 
 
 def load_latest() -> Snapshot | None:
@@ -71,7 +79,7 @@ def load_latest() -> Snapshot | None:
     entries = [(path.name, path, _load_entry(path)) for path in _entry_paths()]
     if not entries:
         return None
-    return max(entries, key=_selection_key)[2]
+    return max(entries, key=lambda item: _selection_key(item[1], item[2].zuletzt_bestaetigt))[2]
 
 
 def _load_head_for_write() -> tuple[Path, Snapshot] | None:
@@ -80,17 +88,16 @@ def _load_head_for_write() -> tuple[Path, Snapshot] | None:
     ``save_state`` does not need the full history: it only compares against and
     possibly refreshes the newest entry. Every entry is still parsed (so an
     unreadable or syntactically invalid file fails with its path), but the
-    recursive collector validation runs only for the selected head.
+    confirmation timestamps are checked for ordering and recursive collector
+    validation runs only for the selected head.
     """
-    candidates: list[tuple[str, Path]] = []
+    candidates: list[tuple[tuple[datetime, str], Path]] = []
     for path in _entry_paths():
         stamp = _parse(path).get("zuletzt_bestaetigt")
-        if not isinstance(stamp, str):
-            raise HistoryError(f"Cannot load state '{path}': zuletzt_bestaetigt must be a string")
-        candidates.append((stamp, path))
+        candidates.append((_selection_key(path, stamp), path))
     if not candidates:
         return None
-    _stamp, path = max(candidates, key=lambda item: (item[0], item[1].name))
+    _stamp, path = max(candidates, key=lambda item: item[0])
     return path, _load_entry(path)
 
 
