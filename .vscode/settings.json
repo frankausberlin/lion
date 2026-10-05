@@ -1,0 +1,18 @@
+{
+    // basedpyright is the single Python language server for this project.
+    // Disable the Microsoft Python language server (Pylance) so both do not
+    // run at once and produce duplicate, conflicting diagnostics.
+    "python.languageServer": "None",
+    "python.analysis.typeCheckingMode": "off",
+    "editor.formatOnSave": true,
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff"
+    },
+    "editor.codeActionsOnSave": {
+        "source.fixAll.ruff": "always",
+        "source.organizeImports.ruff": "always"
+    },
+    "python.testing.pytestEnabled": true,
+    "python.testing.pytestArgs": [],
+    "python.terminal.activateEnvironment": true
+}

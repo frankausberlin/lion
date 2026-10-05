@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+build/
+dist/
+
+# Environments & secrets
+.venv/
+.env
+
+# Tool caches
+.direnv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Documentation build output (library projects)
+site/
+
+# Agent session files (volatile)
+SESSION.md
+JOURNAL.md
+
+# Freestyle scratch space
+ignore/

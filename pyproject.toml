@@ -1,0 +1,66 @@
+[project]
+name = "repolion"
+version = "0.1.0"  # project-version
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Frank Bloecher", email = "58914204+frankausberlin@users.noreply.github.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+repolion = "repolion.main:main"
+
+[build-system]
+requires = ["uv_build>=0.10.9,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.40.2",
+    "bump-my-version>=1.5.1",
+    "colorlog>=6.12.0",
+    "pip-audit>=2.10.1",
+    "pre-commit>=4.6.2",
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "ruff>=0.16.10",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "D", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.basedpyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+venvPath = "."
+venv = ".venv"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
+
+[tool.bumpversion]
+current_version = "0.1.0"
+commit = true
+tag = true
+tag_name = "v{new_version}"
+message = "chore: bump version from {current_version} to {new_version}"
+
+[[tool.bumpversion.files]]
+filename = "pyproject.toml"
+search = 'version = "{current_version}"  # project-version'
+replace = 'version = "{new_version}"  # project-version'
+
+[[tool.bumpversion.files]]
+filename = "src/repolion/__init__.py"
+search = '__version__ = "{current_version}"'
+replace = '__version__ = "{new_version}"'
