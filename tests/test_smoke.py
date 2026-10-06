@@ -47,6 +47,13 @@ def test_help() -> None:
     assert "Linux Operator Nerd" in result.stdout
 
 
+def test_no_command_runs_status() -> None:
+    """Running ``lion`` without a command is the same as ``lion status``."""
+    result = _invoke()
+    assert result.exit_code == 0
+    assert "Kein Zustand gespeichert" in result.stdout
+
+
 def test_scan_created_then_confirmed(state: dict[str, dict[str, object]]) -> None:
     """The first scan creates an entry; an unchanged scan confirms it."""
     first = _invoke("scan")

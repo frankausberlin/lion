@@ -34,6 +34,11 @@ state with the last stored one, while **state** always refers to the internal
 representation (the collected collector mapping and the persisted `Snapshot`).
 The two words are not interchangeable.
 
+A command group that has a `status` subcommand runs it when invoked without
+arguments: `lion` is the same as `lion status`, and `lion shlib` is the same as
+`lion shlib status`. A group without a `status` subcommand shows its help
+instead. Every command has a detailed `--help` with its own examples.
+
 ## Zsh shell library
 
 ```bash

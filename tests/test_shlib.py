@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from repolion.cli import app
@@ -166,10 +167,36 @@ def test_backup_collision(home: Path) -> None:
 
 def test_custom_zdotdir_and_json(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Reject unsupported destinations and mutation JSON options."""
-    assert runner.invoke(app, ["shlib", "install", "--json"]).exit_code == 1
+    rejected = runner.invoke(app, ["shlib", "install", "--json"])
+    assert rejected.exit_code == 2
+    assert "No such option" in rejected.output
     monkeypatch.setenv("ZDOTDIR", str(home / "other"))
     assert runner.invoke(app, ["shlib"]).exit_code == 1
     assert list(home.iterdir()) == []
+
+
+def test_help_documents_shlib_system() -> None:
+    """``lion shlib --help`` explains the library and shows dash link examples."""
+    result = runner.invoke(app, ["shlib", "--help"])
+    assert result.exit_code == 0
+    assert "ln -s" in result.stdout
+    assert "~/.shlib/dash" in result.stdout
+    assert "lion shlib status" in result.stdout
+
+
+def test_run_rejects_json_for_mutations(home: Path) -> None:
+    """The command entry point still rejects JSON for mutating actions."""
+    with pytest.raises(typer.Exit) as caught:
+        shlib.run(shlib.Action.INSTALL, True)
+    assert caught.value.exit_code == 1
+
+
+def test_shlib_without_operation_shows_status(home: Path) -> None:
+    """Running ``lion shlib`` without an operation is ``lion shlib status``."""
+    invoke("install")
+    result = runner.invoke(app, ["shlib"])
+    assert result.exit_code == 0
+    assert "installed: True" in result.stdout
 
 
 @pytest.mark.parametrize("action", ["install", "uninstall"])

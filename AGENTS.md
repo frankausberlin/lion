@@ -93,7 +93,12 @@ just audit       # dependency vulnerability scan
 - `program/diff.py` provides `diff_collectors` and `render`; `cli.py` keeps only the
   Typer decorators and delegates to `src/repolion/command/<command>.py`, one
   module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
-  read only) with a `run` function and `--json` support. Naming: `status` is the
+  read only) with a `run` function and `--json` support. The English CLI help
+  texts (epilogs and sub-app help) live in `main.py` and are imported by
+  `cli.py`. `shlib` is a Typer
+  sub-app with `status`/`install`/`uninstall`. A command group with a `status`
+  subcommand (`lion`, `lion shlib`) runs it when invoked without arguments;
+  groups without one show their help. Naming: `status` is the
   command, `state` is the internal representation (collected mapping / persisted
   `Snapshot`). The former `scan.py` and `scans/` directory are gone.
 - Collector contract: never let one collector abort the capture, use `status`
