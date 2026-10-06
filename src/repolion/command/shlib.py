@@ -172,7 +172,7 @@ def _install(home: Path) -> None:
         return
     root = home / ".shlib"
     original = root / "shlibs" / "00-original-zshrc.sh"
-    for path in (lock, original):
+    for path in (lock, original, home / ".zshrc.exports"):
         if path.exists() or path.is_symlink():
             raise ValueError(f"Existing file requires manual reconciliation: {path}")
     for path in (root, root / "exports", root / "shlibs", root / "dash"):

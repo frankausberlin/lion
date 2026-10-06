@@ -10,7 +10,7 @@ import tomli_w
 
 from repolion.program import storage
 from repolion.program.diff import diff_collectors
-from repolion.program.storage import HistoryError, get_history_dir, load_latest, save_state
+from repolion.program.storage import HistoryError, get_history_dir, list_entries, load_latest, resolve, save_state
 from repolion.state.model import Snapshot
 
 T0 = datetime(2026, 10, 5, 20, 0, 0, tzinfo=UTC)
@@ -336,3 +336,80 @@ def test_status_and_storage_agree_on_memory_wobble(monkeypatch: pytest.MonkeyPat
     second = save_state(current)
     assert second.event == "confirmed"
     assert second.path == first.path
+
+
+A_REF = "2026-10-05T18-00-00.000000Z"
+B_REF = "2026-10-05T20-00-00.000000Z"
+
+
+def _two_entries() -> None:
+    get_history_dir().mkdir(parents=True)
+    _write_entry(f"{A_REF}.toml", "2026-10-05T18:00:00+00:00", "2026-10-05T18:00:00+00:00")
+    _write_entry(f"{B_REF}.toml", "2026-10-05T20:00:00+00:00", "2026-10-05T20:00:00+00:00")
+
+
+def test_list_entries_oldest_first() -> None:
+    """``list_entries`` validates all entries and orders them oldest first."""
+    _two_entries()
+    entries = list_entries()
+    assert [entry.ref for entry in entries] == [A_REF, B_REF]
+    assert entries[0].path.name == f"{A_REF}.toml"
+    assert load_latest() == entries[-1].snapshot
+
+
+def test_resolve_aliases_and_index() -> None:
+    """Aliases, 1-based indices and compact references resolve to entries."""
+    _two_entries()
+    assert resolve("latest").ref == B_REF
+    assert resolve("head").ref == B_REF
+    assert resolve("previous").ref == A_REF
+    assert resolve("1").ref == A_REF
+    assert resolve("2").ref == B_REF
+    assert resolve(A_REF).ref == A_REF
+    assert resolve(f"{B_REF}.toml").ref == B_REF
+
+
+def test_resolve_prefix_and_iso() -> None:
+    """Unique prefixes and ISO timestamps (including ``Z``) resolve."""
+    _two_entries()
+    assert resolve("2026-10-05T18").ref == A_REF
+    assert resolve("2026-10-05T18:00:00Z").ref == A_REF
+    assert resolve("2026-10-05T18:00:00+00:00").ref == A_REF
+
+
+@pytest.mark.parametrize("reference", ["9", "2026-10-05T", "nope"])
+def test_resolve_failures(reference: str) -> None:
+    """Out-of-range, ambiguous and unknown references fail loudly."""
+    _two_entries()
+    with pytest.raises(HistoryError):
+        resolve(reference)
+
+
+def test_resolve_empty_history() -> None:
+    """Resolving without any stored state explains what to do."""
+    with pytest.raises(HistoryError, match=r"lion scan"):
+        resolve("latest")
+
+
+def test_resolve_previous_requires_two() -> None:
+    """``previous`` needs an entry before the newest one."""
+    get_history_dir().mkdir(parents=True)
+    _write_entry(f"{A_REF}.toml", "2026-10-05T18:00:00+00:00", "2026-10-05T18:00:00+00:00")
+    with pytest.raises(HistoryError, match="vorheriger"):
+        resolve("previous")
+
+
+def test_resolve_collision_references_are_distinct() -> None:
+    """Both names of a same-instant collision resolve to their own entry.
+
+    The shared ``erstscan`` makes an ISO lookup genuinely ambiguous, but each
+    published file name must still resolve to exactly its own entry.
+    """
+    get_history_dir().mkdir(parents=True)
+    iso = "2026-10-05T20:00:00+00:00"
+    _write_entry(f"{B_REF}.toml", iso, iso)
+    _write_entry(f"{B_REF}~0001.toml", iso, iso)
+    assert resolve(B_REF).ref == B_REF
+    assert resolve(f"{B_REF}~0001").ref == f"{B_REF}~0001"
+    with pytest.raises(HistoryError, match="mehrdeutig"):
+        resolve("2026-10-05T20:00:00Z")

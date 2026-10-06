@@ -36,12 +36,13 @@ just fix          # auto-fix formatting and lint issues
   `hardware`, `packages`), each with its frozen dataclass, a private `_collect()`,
   and a `COLLECTOR` export.
 - `src/repolion/state/registry.py` — ordered `COLLECTORS` tuple.
-- `src/repolion/state/model.py` — `Snapshot`, strict validation, and
-  `canonical_collectors` used for state comparison.
-- `src/repolion/program/storage.py` — history persistence (`load_latest`, `save_state`).
+- `src/repolion/state/model.py` — `Snapshot`, strict validation, and the shared
+  `collectors_equal`/`value_equal` comparison rules (including the RAM tolerance).
+- `src/repolion/program/storage.py` — history persistence (`list_entries`,
+  `resolve`, `load_latest`, `save_state`).
 - `src/repolion/program/diff.py` — `diff_collectors` and terminal `render`.
-- `src/repolion/command/<command>.py` — one module per command (`scan` writes,
-  `status` reads only); `cli.py` keeps the Typer decorators.
+- `src/repolion/command/<command>.py` — one module per command (`scan` writes;
+  `status`, `history` and `diff` read only); `cli.py` keeps the Typer decorators.
 
 New collectors must not abort a capture: report `unavailable` or `error` with a
 message and return their data keys regardless. Never persist volatile fields.

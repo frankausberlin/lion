@@ -88,21 +88,26 @@ just audit       # dependency vulnerability scan
   `canonical_collectors`, and the shared `collectors_equal`/`value_equal`
   comparison rules (including the RAM tolerance).
 - `program/storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
-  (`~/.local/share/lion/history`): `load_latest`, `save_state`
-  (`created`/`confirmed`/`appended`), and `SaveOutcome`.
+  (`~/.local/share/lion/history`): `list_entries`/`resolve`/`load_latest`,
+  `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
 - `program/diff.py` provides `diff_collectors` and `render`; `cli.py` keeps only the
   Typer decorators and delegates to `src/repolion/command/<command>.py`, one
-  module per command (`scan.py` writes, `status.py` reads only) with a `run`
-  function and `--json` support. Naming: `status` is the command, `state` is the
-  internal representation (collected mapping / persisted `Snapshot`). The former
-  `scan.py` and `scans/` directory are gone.
+  module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
+  read only) with a `run` function and `--json` support. Naming: `status` is the
+  command, `state` is the internal representation (collected mapping / persisted
+  `Snapshot`). The former `scan.py` and `scans/` directory are gone.
 - Collector contract: never let one collector abort the capture, use `status`
   `unavailable`/`error` plus an `error` message instead, and never store
   volatile fields (clocks, temperatures, uptime).
 
 ### LION Invariants
 
-- `scan` writes, `status` never writes and only compares.
+- `scan` writes; `status`, `history` and `diff` never write. `status` compares
+  the current collection with the latest stored state; `diff` compares two
+  stored states. `history` and `diff` identify a state by its compact reference
+  (the file name without `.toml`); `resolve` accepts aliases, 1-based indices,
+  exact references, unique prefixes and ISO timestamps, validates every entry,
+  and fails loudly on ambiguous or unknown references.
 - Two states are equal when `collectors_equal` holds: either the exact
   `canonical_collectors` match, or the only difference is
   `hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).

@@ -138,3 +138,34 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     assert removed["pfad"] not in (initial["pfad"], installed["pfad"])
     assert _mapping(removed["zustand"])["collectors"] == initial_collectors
     status({})
+
+    # --- lion history and lion diff over the three real persisted states ---
+
+    def diff(*references: str) -> dict[str, object]:
+        return _mapping(json.loads(_run(["lion", "diff", *references, "--json"], env, log)))
+
+    refs = [Path(str(state["pfad"])).stem for state in (initial, installed, removed)]
+    before_read = _history(data)
+
+    listing = _mapping(json.loads(_run(["lion", "history", "--json"], env, log)))
+    entries = cast("list[dict[str, object]]", listing["eintraege"])
+    assert [entry["index"] for entry in entries] == [1, 2, 3]
+    assert [entry["ref"] for entry in entries] == refs
+    assert entries[-1]["aktuell"] is True
+    human = _run(["lion", "history"], env, log)
+    assert all(ref in human for ref in refs)
+
+    install_delta = diff("1", "2")
+    assert install_delta["geaendert"] is True
+    assert _mapping(install_delta["von"])["ref"] == refs[0]
+    assert _mapping(install_delta["bis"])["ref"] == refs[1]
+    assert _mapping(_mapping(install_delta["unterschiede"])["packages"])["added"] == {f"installed.{IDENTITY}": VERSION}
+
+    purge_delta = diff("previous", "latest")
+    assert _mapping(_mapping(purge_delta["unterschiede"])["packages"])["removed"] == {f"installed.{IDENTITY}": VERSION}
+
+    # The purge restored the initial collectors: the first and last states are equal,
+    # whether referenced by index or by their compact reference.
+    assert diff("1", "3")["geaendert"] is False
+    assert diff(refs[0], refs[2])["geaendert"] is False
+    assert _history(data) == before_read, "history or diff changed the history"

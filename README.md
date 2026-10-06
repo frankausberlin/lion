@@ -14,6 +14,8 @@ Requires Linux and Python 3.12 or newer.
 uv sync
 uv run lion scan             # collect the current state and save it
 uv run lion status           # compare the current state with the latest saved one
+uv run lion history          # list every stored state and its stable reference
+uv run lion diff 1 2         # compare two stored states
 uv run lion --help
 ```
 
@@ -22,9 +24,10 @@ No initialization step is needed. `scan` creates its data directory automaticall
 ## CLI structure
 
 Each CLI command is defined in `src/repolion/command/<command>.py` (for example
-`scan.py` and `status.py`) and exposed through a thin Typer decorator of the same
-name in `src/repolion/cli.py`, which only wires options and delegates to the
-command's `run` function.
+`scan.py`, `status.py`, `history.py` and `diff.py`) and exposed through a thin
+Typer decorator of the same name in `src/repolion/cli.py`, which only wires
+options and delegates to the command's `run` function. Only `scan` (history) and
+`shlib` write; `status`, `history` and `diff` are strictly read-only.
 
 Terminology: **status** is the read-only *command* that compares the current
 state with the last stored one, while **state** always refers to the internal
@@ -110,8 +113,11 @@ Version 1 ships three collectors:
 
 - **host** — hostname, distribution/version, kernel, architecture.
 - **hardware** — CPU model, logical CPU count, total memory, CUDA version, and
-  NVIDIA GPUs. Missing `/proc` files use `Unknown`/`0`; a missing `nvidia-smi`
-  yields an empty GPU list. No volatile fields (clocks, temperatures, uptime).
+  GPUs. Display controllers are enumerated with `lspci`; NVIDIA entries are
+  enriched with driver and memory details from `nvidia-smi`, and other cards get
+  their VRAM total from the DRM sysfs when the driver exposes it. Missing `/proc`
+  files use `Unknown`/`0`; when the helper tools are unavailable the GPU list is
+  empty. No volatile fields (clocks, temperatures, uptime).
 - **packages** — installed Dpkg packages (including held packages), keyed by
   `name:architecture` when architecture metadata is present, plus sorted
   `manual`, `auto`, and `held` selections from `apt-mark`. Missing Dpkg or
@@ -128,13 +134,52 @@ Version 1 ships three collectors:
 - Any difference → a new entry is appended (`appended`). The previous entry is
   kept, so the history records every distinct state.
 
-Two states are compared using a canonical serialization of the `collectors`
-section only; the timestamps do not participate, but each collector's `status`
-and `error` do. Returning states are not reactivated.
+Two states are compared using the shared rule in `src/repolion/state/model.py`:
+an exact canonical match of the `collectors` section, or a difference confined to
+`hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
+`MemTotal` can wobble by a few KiB for purely technical reasons, which is not a
+hardware change. Only that one field has a tolerance; GPU memory and every other
+value compare exactly, and a valid reading never equals `0`. The timestamps do
+not participate, but each collector's `status` and `error` do. Returning states
+are not reactivated.
 
 `status` groups the difference per collector with `+` (added), `-` (removed),
 and `~` (changed) lines. If nothing changed, it says so; if no state exists, it
 tells you to run `lion scan`.
+
+## Stored states and `lion diff`
+
+`lion history` lists every stored state from oldest to newest and shows its
+stable reference. The reference is the file name without `.toml`, i.e. the
+`erstscan` in compact form (`2026-10-05T20-00-00.123456Z`), plus a `~NNNN`
+suffix for same-instant collisions. It never changes once published.
+
+```bash
+uv run lion history
+```
+
+```text
+  #  REF                           ZULETZT BESTÄTIGT
+  1  2026-10-05T18-00-00.123456Z   2026-10-05T20:00:00.123456+00:00
+  2  2026-10-05T20-00-00.123456Z   2026-10-05T20:00:00.123456+00:00  aktuell
+```
+
+`lion diff <alt> <neu>` compares two stored states without collecting or writing
+and reuses the same comparison rule as `status` (including the RAM tolerance).
+`<neu>` defaults to the latest state. References are resolved in this order:
+
+| Input | Meaning |
+| --- | --- |
+| `latest` / `head` / `aktuell` | newest entry by `zuletzt_bestaetigt` |
+| `previous` / `prev` / `vorherig` | the entry before that |
+| a bare number, e.g. `2` | 1-based index from `lion history` (1 = oldest) |
+| the compact reference | exact file name without `.toml` |
+| a unique prefix, e.g. `2026-10-05T18` | shortest unique match |
+| an ISO `erstscan`, e.g. `2026-10-05T18:00:00Z` | normalized for timezone and seconds |
+
+An ambiguous prefix or unknown reference fails with the valid references; fewer
+than two stored states is an error. `history` and `diff` validate every entry,
+so a damaged file stops them with its path instead of being skipped.
 
 ## JSON output
 
@@ -173,6 +218,34 @@ Operational or invalid-state errors go to stderr with exit code `1` and no JSON
 on stdout. Because there is no interactive prompt, non-interactive CI and script
 use is safe.
 
+`history --json` outputs the listing:
+
+```json
+{
+  "eintraege": [
+    {
+      "index": 1,
+      "ref": "2026-10-05T20-00-00.123456Z",
+      "erstscan": "2026-10-05T20:00:00.123456+00:00",
+      "zuletzt_bestaetigt": "2026-10-05T20:00:00.123456+00:00",
+      "pfad": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
+      "aktuell": true
+    }
+  ]
+}
+```
+
+`diff --json` outputs the comparison:
+
+```json
+{
+  "von": {"ref": "2026-10-05T18-00-00.123456Z", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
+  "bis": {"ref": "2026-10-05T20-00-00.123456Z", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
+  "geaendert": true,
+  "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
+}
+```
+
 ## Storage and compatibility
 
 The state history is TOML files under `$XDG_DATA_HOME/lion/history`, defaulting
@@ -210,10 +283,10 @@ just check      # full quality gate
 ```
 
 Tests cover fixture-based collector readings, the history comparison model
-(create/confirm/append, dedup on status change, invalid entries), the diff and
-rendering, and text/JSON CLI behavior. Collector tools (`nvidia-smi`,
-`apt-mark`, Dpkg) are exercised through fixtures and mocks so the suite also
-passes on machines without them.
+(create/confirm/append, dedup on status change, invalid entries), reference
+resolution, the diff and rendering, and the text/JSON CLI behavior of every
+read-only command. Collector tools (`nvidia-smi`, `apt-mark`, Dpkg) are exercised
+through fixtures and mocks so the suite also passes on machines without them.
 
 ### End-to-end lifecycles
 
@@ -226,7 +299,10 @@ runs the installed `lion` executable as a subprocess. A locally built `.deb`
 (with no dependencies or maintainer scripts) is installed, scanned and purged.
 The test checks the complete package diff, create/confirm/append behavior,
 read-only status, persisted TOML, and all three historical states, including the
-return to the original state. No collectors or package-manager calls are mocked.
+return to the original state. It also checks that `lion history` lists those
+states oldest-first with their compact references and that `lion diff` resolves
+them by index, alias and compact reference — including the equal first/last
+states — and never writes. No collectors or package-manager calls are mocked.
 
 The same container also tests Shlib installation and removal with a real Zsh,
 including literal secret values, script order, linked scripts, installer additions,

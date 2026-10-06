@@ -9,6 +9,8 @@ from typing import Annotated
 
 import typer
 
+from repolion.command.diff import run as run_diff
+from repolion.command.history import run as run_history
 from repolion.command.scan import run as run_scan
 from repolion.command.shlib import Action
 from repolion.command.shlib import run as run_shlib
@@ -27,6 +29,22 @@ def scan(json_output: Annotated[bool, typer.Option("--json", help="Output the re
 def status(json_output: Annotated[bool, typer.Option("--json", help="Output the comparison as JSON.")] = False) -> None:
     """Compare the current state with the latest stored state without writing."""
     run_status(json_output)
+
+
+@app.command()
+def history(json_output: Annotated[bool, typer.Option("--json", help="Output the entries as JSON.")] = False) -> None:
+    """List every stored state with its stable reference."""
+    run_history(json_output)
+
+
+@app.command()
+def diff(
+    reference: Annotated[str, typer.Argument(help="Older state reference (see 'lion history').")],
+    second: Annotated[str | None, typer.Argument(help="Newer state reference; defaults to the latest.")] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output the comparison as JSON.")] = False,
+) -> None:
+    """Compare two stored states without collecting or writing."""
+    run_diff(reference, second, json_output)
 
 
 @app.command()

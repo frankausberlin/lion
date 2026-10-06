@@ -79,7 +79,10 @@ def test_empty_home_and_status_readonly(home: Path) -> None:
     assert "unchanged" in invoke()
 
 
-@pytest.mark.parametrize("name", [".zshrc", ".zshrc.lock", ".shlib", ".shlib/shlibs/00-original-zshrc.sh"])
+@pytest.mark.parametrize(
+    "name",
+    [".zshrc", ".zshrc.lock", ".shlib", ".shlib/shlibs/00-original-zshrc.sh", ".zshrc.exports"],
+)
 def test_install_conflicts(home: Path, name: str) -> None:
     """Refuse symlink targets and preexisting installation remnants."""
     path = home / name
@@ -90,7 +93,7 @@ def test_install_conflicts(home: Path, name: str) -> None:
     assert path.is_symlink()
 
 
-@pytest.mark.parametrize("conflict", ["scripts", "ignore", "export", "nul"])
+@pytest.mark.parametrize("conflict", ["scripts", "ignore", "export", "nul", "zshrc_exports"])
 def test_install_preflight(home: Path, conflict: str) -> None:
     """Invalid inputs are caught before replacing the rc or writing backups."""
     rc = home / ".zshrc"
@@ -103,6 +106,7 @@ def test_install_preflight(home: Path, conflict: str) -> None:
         "ignore": root / "exports" / ".gitignore",
         "export": root / "exports" / "bad-name",
         "nul": root / "exports" / "TOKEN",
+        "zshrc_exports": home / ".zshrc.exports",
     }[conflict]
     path.write_text("\0" if conflict == "nul" else "existing")
     result = runner.invoke(app, ["shlib", "install"])

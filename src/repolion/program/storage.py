@@ -19,6 +19,10 @@ from repolion.state.model import Snapshot
 
 Event = Literal["created", "confirmed", "appended"]
 
+#: The compact, file-safe form of an ``erstscan``. Used both to name new entries
+#: and to resolve references, so the two can never drift apart.
+COMPACT_TIMESTAMP_FORMAT = "%Y-%m-%dT%H-%M-%S.%fZ"
+
 
 def get_data_dir() -> Path:
     """Return the LION data directory."""
@@ -45,6 +49,20 @@ class SaveOutcome:
     """Result of persisting a freshly collected state."""
 
     event: Event
+    path: Path
+    snapshot: Snapshot
+
+
+@dataclass(frozen=True)
+class Entry:
+    """One validated history entry with its stable compact reference.
+
+    ``ref`` is the file name without the ``.toml`` suffix, i.e. the ``erstscan``
+    in compact form (plus a ``~NNNN`` collision suffix when present). It never
+    changes once published, so it is the reference humans type for ``lion diff``.
+    """
+
+    ref: str
     path: Path
     snapshot: Snapshot
 
@@ -86,16 +104,162 @@ def _selection_key(path: Path, stamp: object) -> tuple[datetime, str]:
     return instant, path.name
 
 
-def load_latest() -> Snapshot | None:
-    """Load and validate every entry, returning the newest by confirmation time.
+def list_entries() -> list[Entry]:
+    """Load and validate every entry, oldest first by confirmation time.
 
     Invalid entries fail explicitly: silently skipping them could hide the
-    newest state. Equal ``zuletzt_bestaetigt`` values are resolved by filename.
+    newest state. Equal ``zuletzt_bestaetigt`` values are resolved by filename,
+    matching :func:`load_latest` and the ``scan`` head selection.
     """
-    entries = [(path.name, path, _load_entry(path)) for path in _entry_paths()]
-    if not entries:
+    entries = [Entry(ref=path.stem, path=path, snapshot=_load_entry(path)) for path in _entry_paths()]
+    entries.sort(key=lambda entry: _selection_key(entry.path, entry.snapshot.zuletzt_bestaetigt))
+    return entries
+
+
+def load_latest() -> Snapshot | None:
+    """Load and validate every entry, returning the newest by confirmation time."""
+    entries = list_entries()
+    return entries[-1].snapshot if entries else None
+
+
+_LATEST_ALIASES = frozenset({"latest", "head", "aktuell"})
+_PREVIOUS_ALIASES = frozenset({"previous", "prev", "vorherig"})
+
+
+def _compact_timestamp(value: str) -> str | None:
+    """Return the compact (file-name) form of an ISO timestamp, or ``None``."""
+    try:
+        instant = datetime.fromisoformat(value)
+    except ValueError:
         return None
-    return max(entries, key=lambda item: _selection_key(item[1], item[2].zuletzt_bestaetigt))[2]
+    if instant.utcoffset() is None:
+        return None
+    return instant.astimezone(UTC).strftime(COMPACT_TIMESTAMP_FORMAT).lower()
+
+
+def _reference_tokens(entry: Entry) -> set[str]:
+    """Return every accepted spelling of one entry's reference, lowercased.
+
+    The compact file-name form is primary; the raw ``erstscan`` and its compact
+    equivalent make copy-paste from ``lion history`` and ISO input work. ``Z``
+    and ``+00:00`` are treated as the same timezone.
+    """
+    tokens = {entry.ref, entry.snapshot.erstscan}
+    compact = _compact_timestamp(entry.snapshot.erstscan)
+    if compact is not None:
+        tokens.add(compact)
+    normalized: set[str] = set()
+    for token in tokens:
+        lowered = token.lower()
+        normalized.add(lowered)
+        normalized.add(lowered.replace("+00:00", "z"))
+    return normalized
+
+
+def _input_variants(lowered: str) -> set[str]:
+    """Return the lowercased input plus its UTC ``Z`` variant."""
+    return {lowered, lowered.replace("+00:00", "z")}
+
+
+def _match_exact(entries: list[Entry], variants: set[str]) -> list[Entry]:
+    """Return the entries whose reference equals one of the input variants."""
+    return [entry for entry in entries if variants & _reference_tokens(entry)]
+
+
+def _match_prefix(entries: list[Entry], variants: set[str]) -> list[Entry]:
+    """Return the entries whose reference starts with one of the input variants."""
+    return [
+        entry
+        for entry in entries
+        if any(token.startswith(variant) for variant in variants for token in _reference_tokens(entry))
+    ]
+
+
+def _match_instant(entries: list[Entry], reference: str) -> list[Entry]:
+    """Return the entries whose ``erstscan`` is within one second of an ISO input."""
+    try:
+        parsed = datetime.fromisoformat(reference)
+    except ValueError:
+        return []
+    if parsed.utcoffset() is None:
+        return []
+    matches: list[Entry] = []
+    for entry in entries:
+        try:
+            instant = datetime.fromisoformat(entry.snapshot.erstscan)
+        except ValueError:
+            continue
+        if instant.utcoffset() is not None and abs((instant - parsed).total_seconds()) < 1:
+            matches.append(entry)
+    return matches
+
+
+def _ambiguous(reference: str, matches: list[Entry]) -> HistoryError:
+    options = ", ".join(entry.ref for entry in matches)
+    return HistoryError(f"Referenz '{reference}' ist mehrdeutig: {options}")
+
+
+def _unknown(reference: str, entries: list[Entry]) -> HistoryError:
+    options = ", ".join(entry.ref for entry in entries)
+    return HistoryError(f"Unbekannte Referenz '{reference}'. Gültig: {options}")
+
+
+def resolve(reference: str) -> Entry:
+    """Resolve a compact reference, index, alias, prefix or ISO timestamp.
+
+    Accepted, in order: ``latest``/``head``/``aktuell``, ``previous``/``prev``/
+    ``vorherig``, a 1-based index from ``lion history`` (1 = oldest), an exact
+    reference, a unique prefix, then a unique ``erstscan`` within one second.
+
+    Args:
+        reference: The user-supplied reference.
+
+    Returns:
+        The matching, validated entry.
+
+    Raises:
+        HistoryError: If the history is empty, or the reference is missing,
+            ambiguous, or out of range.
+    """
+    entries = list_entries()
+    if not entries:
+        raise HistoryError("Kein Zustand gespeichert. Führe 'lion scan' aus.")
+    token = reference.strip()
+    if token.endswith(".toml"):
+        token = token[: -len(".toml")]
+    token = token.strip()
+    if not token:
+        raise HistoryError("Leere Referenz; nutze 'lion history' für gültige Referenzen.")
+    lowered = token.lower()
+    if lowered in _LATEST_ALIASES:
+        return entries[-1]
+    if lowered in _PREVIOUS_ALIASES:
+        if len(entries) < 2:
+            raise HistoryError("Kein vorheriger Zustand gespeichert.")
+        return entries[-2]
+    if lowered.isdigit():
+        index = int(lowered)
+        if not 1 <= index <= len(entries):
+            raise HistoryError(f"Index {index} liegt außerhalb von 1..{len(entries)}.")
+        return entries[index - 1]
+    # Resolve an exact reference before derived tokens: for a same-instant
+    # collision pair ``X``/``X~0001`` the compact token derived from the shared
+    # ``erstscan`` equals ``X``, which would otherwise make ``X`` ambiguous.
+    exact_ref = [entry for entry in entries if entry.ref.lower() == lowered]
+    if len(exact_ref) == 1:
+        return exact_ref[0]
+    if exact_ref:
+        raise _ambiguous(reference, exact_ref)
+    for matches in (
+        _match_exact(entries, _input_variants(lowered)),
+        _match_prefix(entries, _input_variants(lowered)),
+        _match_instant(entries, token),
+    ):
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise _ambiguous(reference, matches)
+    raise _unknown(reference, entries)
 
 
 def _load_head_for_write() -> tuple[Path, Snapshot] | None:
@@ -142,7 +306,7 @@ def _write_new_file(history_dir: Path, snapshot: Snapshot) -> Path:
             # "~" sorts after "." (the start of ".toml"), so a collision-suffixed
             # name orders after the base name and the newest-entry tie-break holds.
             suffix = "" if counter == 0 else f"~{counter:04d}"
-            path = history_dir / f"{stamp.strftime('%Y-%m-%dT%H-%M-%S.%fZ')}{suffix}.toml"
+            path = history_dir / f"{stamp.strftime(COMPACT_TIMESTAMP_FORMAT)}{suffix}.toml"
             try:
                 os.link(temporary, path)
             except FileExistsError:
