@@ -10,3 +10,20 @@ jobs:
       - run: uv sync --locked --dev
       - run: just check
       - run: uv run pip-audit
+
+  e2e:
+    # PRs and main only: a plain branch push is already covered by its pull request.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+      - run: just test-e2e
+      - name: Upload E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-diagnostics
+          path: e2e-artifacts.*/
+          if-no-files-found: warn

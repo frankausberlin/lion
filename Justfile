@@ -42,3 +42,7 @@ bump part="patch":
 # Run the installed command
 run:
     uv run lion
+
+# Real CLI/package lifecycle in a disposable Docker container
+test-e2e:
+    bash scripts/test-e2e.sh

@@ -117,7 +117,9 @@ just audit       # dependency vulnerability scan
   `scan` parses every entry but validates only the newest head, so an unreadable
   or syntactically invalid file still fails. Never skip entries silently.
 - External tools (`nvidia-smi`, `lspci`, `apt-mark`, Dpkg) are environment-dependent and
-  are exercised through fixtures/mocks in tests.
+  are exercised through fixtures/mocks in ordinary tests. The opt-in
+  `tests/e2e/` suite exercises real Dpkg and apt-mark in a disposable Docker
+  container; run it only through `just test-e2e`.
 
 ### Tooling Notes
 

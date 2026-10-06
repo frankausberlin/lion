@@ -47,7 +47,8 @@ venv = ".venv"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-addopts = "-ra -q"
+addopts = "-ra -q -m 'not e2e'"
+markers = ["e2e: real system mutations, only inside the disposable test container"]
 
 [tool.coverage.report]
 fail_under = 90
