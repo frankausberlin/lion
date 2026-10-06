@@ -205,6 +205,41 @@ def test_collect_non_nvidia_vram_from_sysfs(monkeypatch: pytest.MonkeyPatch, tmp
     ]
 
 
+def test_gpu_pci_domains_remain_distinct(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Join NVIDIA and sysfs data without merging equal slots in different domains."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="", meminfo="")
+    for index, domain in enumerate(["0000", "0002"]):
+        slot = tmp_path / f"{domain}:01:00.0"
+        slot.mkdir()
+        (slot / "mem_info_vram_total").write_text(str((index + 1) * 1024))
+        card = Path(hardware.SYSFS_DRM) / f"card{index}"
+        card.mkdir()
+        (card / "device").symlink_to(slot)
+
+    def fake_run(command: list[str], **kwargs: object) -> _Completed:
+        if command[0] == "lspci":
+            return _Completed(
+                0,
+                "\n".join(
+                    [
+                        "0000:01:00.0 VGA compatible controller: AMD first",
+                        "0001:01:00.0 VGA compatible controller: NVIDIA card",
+                        "0002:01:00.0 VGA compatible controller: AMD second",
+                    ]
+                ),
+            )
+        if any("--query-gpu" in part for part in command):
+            return _Completed(0, "NVIDIA card, 560.10, 8192 MiB, 00000001:01:00.0\n")
+        return _Completed(1, "")
+
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+    assert hardware.COLLECTOR.collect().data["gpu"] == [
+        {"name": "AMD first", "driver_version": "", "memory_total_bytes": 1024},
+        {"name": "NVIDIA card", "driver_version": "560.10", "memory_total_bytes": 8192 * 1024 * 1024},
+        {"name": "AMD second", "driver_version": "", "memory_total_bytes": 2048},
+    ]
+
+
 def test_malformed_gpu_lines(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Skip malformed GPU lines and treat missing digits as zero bytes."""
     _patch_proc(monkeypatch, tmp_path, cpuinfo="", meminfo="")

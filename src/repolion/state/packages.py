@@ -30,6 +30,9 @@ def _read_installed() -> dict[str, str] | None:
     for block in text.split("\n\n"):
         fields: dict[str, str] = {}
         for line in block.splitlines():
+            # Indented lines continue the preceding field (usually Description).
+            if line.startswith((" ", "\t")):
+                continue
             key, separator, value = line.partition(":")
             if separator:
                 fields[key.strip()] = value.strip()

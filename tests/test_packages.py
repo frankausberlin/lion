@@ -142,3 +142,16 @@ def test_multiarch_versions_remain_distinct(monkeypatch: pytest.MonkeyPatch) -> 
         assert packages.COLLECTOR.collect().data["installed"] == {"libfoo:amd64": "1.0", "libfoo:i386": "1.0"}
     packages.DPKG_STATUS.write_text(blocks[0])
     assert packages.COLLECTOR.collect().data["installed"] == {"libfoo:amd64": "1.0"}
+
+
+@pytest.mark.parametrize("indent", [" ", "\t"])
+def test_description_continuations_do_not_override_fields(monkeypatch: pytest.MonkeyPatch, indent: str) -> None:
+    """Field-like description text must not change package identity or state."""
+    packages.DPKG_STATUS.write_text(
+        "Package: example\nStatus: install ok installed\nArchitecture: amd64\nVersion: 1.0\n"
+        "Description: example package\n"
+        f"{indent}Package: wrong\n{indent}Version: 9.9\n{indent}Architecture: i386\n"
+        f"{indent}Status: deinstall ok config-files\n"
+    )
+    _apt(monkeypatch, {})
+    assert packages.COLLECTOR.collect().data["installed"] == {"example:amd64": "1.0"}

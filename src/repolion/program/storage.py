@@ -4,6 +4,7 @@
 appends a new distinct state. ``status`` never writes and only reads.
 """
 
+import fcntl
 import os
 import tomllib
 from dataclasses import dataclass, replace
@@ -170,15 +171,22 @@ def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
     Returns:
         The event, the affected path, and the stored snapshot.
     """
-    now = datetime.now(UTC).isoformat()
-    latest = _load_head_for_write()
-    if latest is not None:
-        path, previous = latest
-        if previous.canonical_collectors() == canonical_collectors(collectors):
-            snapshot = replace(previous, zuletzt_bestaetigt=now)
-            _update_head(path, snapshot)
-            return SaveOutcome(event="confirmed", path=path, snapshot=snapshot)
-    snapshot = Snapshot(erstscan=now, zuletzt_bestaetigt=now, collectors=collectors)
-    path = _write_new_file(get_history_dir(), snapshot)
-    event: Event = "created" if latest is None else "appended"
-    return SaveOutcome(event=event, path=path, snapshot=snapshot)
+    data_dir = get_data_dir()
+    data_dir.mkdir(parents=True, exist_ok=True)
+    # Keep this inode permanently: unlinking a lock file can split waiting
+    # writers across different locks. Closing the handle releases the lock,
+    # including on exceptions. Readers remain read-only and never acquire it.
+    with (data_dir / ".history.lock").open("a") as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        now = datetime.now(UTC).isoformat()
+        latest = _load_head_for_write()
+        if latest is not None:
+            path, previous = latest
+            if previous.canonical_collectors() == canonical_collectors(collectors):
+                snapshot = replace(previous, zuletzt_bestaetigt=now)
+                _update_head(path, snapshot)
+                return SaveOutcome(event="confirmed", path=path, snapshot=snapshot)
+        snapshot = Snapshot(erstscan=now, zuletzt_bestaetigt=now, collectors=collectors)
+        path = _write_new_file(get_history_dir(), snapshot)
+        event: Event = "created" if latest is None else "appended"
+        return SaveOutcome(event=event, path=path, snapshot=snapshot)

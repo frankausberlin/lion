@@ -90,12 +90,13 @@ def _normalize_pci_id(raw: str) -> str:
     """Collapse PCI bus ids from ``lspci`` and ``nvidia-smi`` to one form.
 
     ``lspci -D`` prints ``0000:2d:00.0`` while ``nvidia-smi`` prints
-    ``00000000:2D:00.0``; both reduce to ``2d:00.0``.
+    ``00000000:2D:00.0``; both normalize to ``0000:2d:00.0``. Keep the
+    domain: different domains may contain the same bus/device/function.
     """
     parts = raw.strip().lower().split(":")
-    if len(parts) < 2:
+    if len(parts) != 3 or not _is_hex(parts[0]):
         return raw.strip().lower()
-    return ":".join(parts[-2:])
+    return f"{int(parts[0], 16):04x}:{parts[1]}:{parts[2]}"
 
 
 def _is_hex(value: str) -> bool:
