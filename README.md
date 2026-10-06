@@ -31,6 +31,66 @@ state with the last stored one, while **state** always refers to the internal
 representation (the collected collector mapping and the persisted `Snapshot`).
 The two words are not interchangeable.
 
+## Zsh shell library
+
+```bash
+lion shlib                  # same as shlib status; never writes
+lion shlib status --json    # installation, lock, script/export names and warnings
+lion shlib install
+lion shlib uninstall
+```
+
+Shlib manages `~/.zshrc` for the current user (no sudo). Zsh must be installed
+for syntax validation during installation and removal. A custom `ZDOTDIR`
+outside the home directory is rejected.
+
+Installation backs up the existing `.zshrc` to `.zshrc.before-shlib` (numbered
+if already present), preserves its permissions, and moves its configuration
+into `~/.shlib/shlibs/00-original-zshrc.sh`. It creates `exports/`, `shlibs/`
+and the optional `dash/` directory below `~/.shlib`. The new `.zshrc` loads
+exports first, then scripts whose names start with two digits in lexical order.
+Keep export filenames valid shell identifiers and their permissions at `600`.
+Export values retain whitespace except trailing newlines, matching shell command
+substitution. `exports/.gitignore` excludes the secret files from normal Git adds.
+Do not force-add secrets to Git.
+
+`.zshrc.lock` is a reference copy: shell startup displays differences, but does
+not prevent edits. `status` reports differences without displaying file contents
+or secret values. After reviewing intentional changes, refresh the reference
+with `cp ~/.zshrc ~/.zshrc.lock`.
+
+No extra Powerlevel10k or direnv hooks are inserted: existing setup stays in the
+original script. When splitting that script, keep instant-prompt initialization
+early and move the direnv hook to the end of your shell initialization. `dash/`
+is available for your own configuration symlinks; Lion does not populate it.
+
+**Uninstall preserves the current configuration, not the pre-install state:**
+
+- Exports are consolidated into `~/.zshrc.exports` with mode `600` and literal,
+  shell-quoted values. `.zshrc` sources this file where the loader previously ran.
+- Script contents (also through symlinks) are inserted in load order, each with a
+  short filename comment. `.zshrc` keeps its original permissions.
+- Lines outside the SHLIB markers, including installer additions, remain in place.
+- Both generated files pass `zsh -f -n` before publication. Syntax diagnostics
+  are suppressed to avoid echoing secrets. Files are replaced atomically one at a
+  time; if rc replacement fails, the newly created exports file is removed.
+- A private `.zshrc.before-shlib-uninstall` backup is retained, as are `~/.shlib`,
+  `.zshrc.lock` and the original backups. Existing backups are never overwritten.
+
+Review file-relative script logic and top-level `return` statements: flattening
+can change their behavior. To deliberately return to the pre-Shlib configuration,
+inspect and restore the original `.zshrc.before-shlib` backup yourself; later
+configuration changes will then no longer be active.
+
+Already installed/uninstalled operations are no-ops. The documented manual
+SHLIB block is supported, while unknown changes inside that block require manual
+reconciliation. Existing `.zshrc.exports`, installation remnants, ambiguous
+markers, broken script symlinks and symlinked output files cause a clear error
+instead of an overwrite. Reinstallation after removal therefore requires
+reconciling retained files first. Run lifecycle operations one at a time and do
+not edit shell configuration during an operation. Installation/removal never
+loads or executes the user's scripts.
+
 ## Collectors
 
 Each collector lives with its dataclass in `src/repolion/state/<collector>.py`
@@ -155,7 +215,7 @@ rendering, and text/JSON CLI behavior. Collector tools (`nvidia-smi`,
 `apt-mark`, Dpkg) are exercised through fixtures and mocks so the suite also
 passes on machines without them.
 
-### End-to-end package lifecycle
+### End-to-end lifecycles
 
 ```bash
 just test-e2e  # requires Docker with a running daemon and just
@@ -167,6 +227,11 @@ runs the installed `lion` executable as a subprocess. A locally built `.deb`
 The test checks the complete package diff, create/confirm/append behavior,
 read-only status, persisted TOML, and all three historical states, including the
 return to the original state. No collectors or package-manager calls are mocked.
+
+The same container also tests Shlib installation and removal with a real Zsh,
+including literal secret values, script order, linked scripts, installer additions,
+syntax-failure handling and resulting permissions. All shell files live in a
+disposable home directory.
 
 Image construction needs network access; the test container runs with networking
 disabled, no host mounts and no privileged mode. Only its own package database is

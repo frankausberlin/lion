@@ -10,6 +10,8 @@ from typing import Annotated
 import typer
 
 from repolion.command.scan import run as run_scan
+from repolion.command.shlib import Action
+from repolion.command.shlib import run as run_shlib
 from repolion.command.status import run as run_status
 
 app = typer.Typer(name="lion", help="Linux Operator Nerd.")
@@ -25,3 +27,12 @@ def scan(json_output: Annotated[bool, typer.Option("--json", help="Output the re
 def status(json_output: Annotated[bool, typer.Option("--json", help="Output the comparison as JSON.")] = False) -> None:
     """Compare the current state with the latest stored state without writing."""
     run_status(json_output)
+
+
+@app.command()
+def shlib(
+    action: Annotated[Action, typer.Argument(help="Shlib operation.")] = Action.STATUS,
+    json_output: Annotated[bool, typer.Option("--json", help="Output status as JSON.")] = False,
+) -> None:
+    """Inspect, install or uninstall the Zsh shell library."""
+    run_shlib(action, json_output)
