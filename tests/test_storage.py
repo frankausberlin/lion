@@ -6,10 +6,9 @@ from pathlib import Path
 import pytest
 import tomli_w
 
-from repolion import storage
-from repolion.paths import get_history_dir
+from repolion.program import storage
+from repolion.program.storage import HistoryError, get_history_dir, load_latest, save_state
 from repolion.state.model import Snapshot
-from repolion.storage import HistoryError, load_latest, save_state
 
 T0 = datetime(2026, 10, 5, 20, 0, 0, tzinfo=UTC)
 T1 = T0 + timedelta(minutes=30)

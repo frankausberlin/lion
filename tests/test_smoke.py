@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from repolion import cli
 from repolion.cli import app
-from repolion.paths import get_data_dir, get_history_dir
+from repolion.command import scan as scan_command
+from repolion.command import status as status_command
+from repolion.program.storage import get_data_dir, get_history_dir
 
 runner = CliRunner()
 
@@ -30,7 +31,8 @@ def state(monkeypatch: pytest.MonkeyPatch) -> dict[str, dict[str, object]]:
     def fake_collect(collectors: object) -> dict[str, dict[str, object]]:
         return value
 
-    monkeypatch.setattr(cli, "collect_state", fake_collect)
+    monkeypatch.setattr(scan_command, "collect_state", fake_collect)
+    monkeypatch.setattr(status_command, "collect_state", fake_collect)
     return value
 
 
@@ -134,7 +136,7 @@ def test_save_error(monkeypatch: pytest.MonkeyPatch, state: dict[str, dict[str, 
     def fail_save(collectors: dict[str, dict[str, object]]) -> object:
         raise PermissionError("history directory is read-only")
 
-    monkeypatch.setattr(cli, "save_state", fail_save)
+    monkeypatch.setattr(scan_command, "save_state", fail_save)
     result = _invoke("scan", "--json")
     assert result.exit_code == 1
     assert result.stdout == ""

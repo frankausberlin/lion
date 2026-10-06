@@ -38,9 +38,10 @@ just fix          # auto-fix formatting and lint issues
 - `src/repolion/state/registry.py` — ordered `COLLECTORS` tuple.
 - `src/repolion/state/model.py` — `Snapshot`, strict validation, and
   `canonical_collectors` used for state comparison.
-- `src/repolion/storage.py` — history persistence (`load_latest`, `save_state`).
-- `src/repolion/diff.py` — `diff_collectors` and terminal `render`.
-- `src/repolion/cli.py` — `scan` (writes) and `status` (reads only).
+- `src/repolion/program/storage.py` — history persistence (`load_latest`, `save_state`).
+- `src/repolion/program/diff.py` — `diff_collectors` and terminal `render`.
+- `src/repolion/command/<command>.py` — one module per command (`scan` writes,
+  `status` reads only); `cli.py` keeps the Typer decorators.
 
 New collectors must not abort a capture: report `unavailable` or `error` with a
 message and return their data keys regardless. Never persist volatile fields.

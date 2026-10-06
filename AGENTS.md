@@ -86,11 +86,14 @@ just audit       # dependency vulnerability scan
   exports `COLLECTOR`; `registry.py` exposes the ordered `COLLECTORS`; `model.py`
   defines the persisted `Snapshot` and its strict validation plus
   `canonical_collectors`.
-- `storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
+- `program/storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
   (`~/.local/share/lion/history`): `load_latest`, `save_state`
   (`created`/`confirmed`/`appended`), and `SaveOutcome`.
-- `diff.py` provides `diff_collectors` and `render`; `cli.py` implements
-  `scan` (writes) and `status` (reads only) with `--json`. The former
+- `program/diff.py` provides `diff_collectors` and `render`; `cli.py` keeps only the
+  Typer decorators and delegates to `src/repolion/command/<command>.py`, one
+  module per command (`scan.py` writes, `status.py` reads only) with a `run`
+  function and `--json` support. Naming: `status` is the command, `state` is the
+  internal representation (collected mapping / persisted `Snapshot`). The former
   `scan.py` and `scans/` directory are gone.
 - Collector contract: never let one collector abort the capture, use `status`
   `unavailable`/`error` plus an `error` message instead, and never store

@@ -1,6 +1,6 @@
 """Tests for the recursive collector diff and its rendering."""
 
-from repolion.diff import diff_collectors, render
+from repolion.program.diff import diff_collectors, render
 
 
 def _host(hostname: str = "lion", status: str = "ok") -> dict[str, object]:

@@ -19,6 +19,18 @@ uv run lion --help
 
 No initialization step is needed. `scan` creates its data directory automatically.
 
+## CLI structure
+
+Each CLI command is defined in `src/repolion/command/<command>.py` (for example
+`scan.py` and `status.py`) and exposed through a thin Typer decorator of the same
+name in `src/repolion/cli.py`, which only wires options and delegates to the
+command's `run` function.
+
+Terminology: **status** is the read-only *command* that compares the current
+state with the last stored one, while **state** always refers to the internal
+representation (the collected collector mapping and the persisted `Snapshot`).
+The two words are not interchangeable.
+
 ## Collectors
 
 Each collector lives with its dataclass in `src/repolion/state/<collector>.py`
@@ -30,8 +42,9 @@ Shared types (`CollectorStatus`, `CollectorResult`, `Collector`, and
 `collect_state`) live in `src/repolion/state/collector.py`, and
 `src/repolion/state/tools.py` provides the shared external-tool runner. The
 ordered registry is `src/repolion/state/registry.py`, the persisted `Snapshot`
-model is `src/repolion/state/model.py`, `storage.py` owns the history, and
-`diff.py` builds and renders the comparison.
+model is `src/repolion/state/model.py`, `src/repolion/program/storage.py` owns
+the history, and `src/repolion/program/diff.py` builds and renders the
+comparison.
 
 Version 1 ships three collectors:
 

@@ -14,10 +14,25 @@ from typing import Literal, cast
 
 import tomli_w
 
-from repolion.paths import get_history_dir
 from repolion.state.model import Snapshot, canonical_collectors
 
 Event = Literal["created", "confirmed", "appended"]
+
+
+def get_data_dir() -> Path:
+    """Return the LION data directory."""
+    base = Path(
+        os.environ.get(
+            "XDG_DATA_HOME",
+            Path.home() / ".local" / "share",
+        )
+    )
+    return base / "lion"
+
+
+def get_history_dir() -> Path:
+    """Return the LION state history directory."""
+    return get_data_dir() / "history"
 
 
 class HistoryError(ValueError):
