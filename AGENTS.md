@@ -152,3 +152,15 @@ just audit       # dependency vulnerability scan
 
 - `pyproject.toml` sets ruff `extend-exclude = [".kilo"]` so agent artifacts
   (plans, worktrees) are not linted or formatted.
+
+### Capture reliability
+
+- `run_tool` accepts a per-capture diagnostics list; retain stable reasons without
+  subprocess output or command arguments. Hardware preserves available readings
+  while reporting incomplete discovery as unavailable.
+- Scan/status warnings go to stderr, including unchanged incomplete captures;
+  preserve JSON stdout contracts.
+- Reject scans whose clock precedes the head confirmation before modifying any
+  history entry. Equal timestamps still use collision suffixes.
+- Exact comparison includes types inside nested collections; only MemTotal has
+  the documented numeric tolerance.

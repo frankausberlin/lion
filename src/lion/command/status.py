@@ -10,6 +10,7 @@ import json
 import typer
 
 from lion.command import fail
+from lion.command.diagnostics import warn_incomplete
 from lion.program.diff import diff_collectors, render
 from lion.program.storage import get_data_dir, load_latest
 from lion.state.collector import collect_state
@@ -28,6 +29,7 @@ def run(json_output: bool = False) -> None:
     except (OSError, ValueError) as exc:
         fail(exc)
 
+    warn_incomplete(state)
     if latest is None:
         if json_output:
             typer.echo("null")

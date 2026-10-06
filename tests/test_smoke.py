@@ -163,3 +163,21 @@ def test_save_error(monkeypatch: pytest.MonkeyPatch, state: dict[str, dict[str, 
     assert result.exit_code == 1
     assert result.stdout == ""
     assert "read-only" in result.stderr
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_incomplete_capture_warns_even_when_unchanged(state: dict[str, dict[str, object]], json_output: bool) -> None:
+    """Warnings survive confirmation and never contaminate JSON stdout."""
+    state["hardware"].update(status="unavailable", error="lspci: timed out")
+    options = ["--json"] if json_output else []
+    for command in ["scan", "scan", "status"]:
+        result = _invoke(command, *options)
+        assert result.exit_code == 0
+        assert "lspci: timed out" in result.stderr
+        if json_output:
+            assert isinstance(json.loads(result.stdout), dict)
+        assert "Warnung" not in result.stdout
+    before = {p.name: p.read_bytes() for p in get_history_dir().glob("*.toml")}
+    assert len(before) == 1
+    assert _invoke("status").exit_code == 0
+    assert before == {p.name: p.read_bytes() for p in get_history_dir().glob("*.toml")}

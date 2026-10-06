@@ -140,6 +140,21 @@ Version 1 ships three collectors:
   `manual`, `auto`, and `held` selections from `apt-mark`. Missing Dpkg or
   `apt-mark` marks the collector `unavailable`.
 
+### Capture diagnostics
+
+External-tool failures retain a stable reason: missing executable, timeout,
+nonzero exit code, or execution/decoding failure. Tool output and arguments are
+not included in these diagnostics. Hardware readings that remain available are
+preserved, but failed discovery, missing CPU model or invalid/missing MemTotal
+mark the hardware section `unavailable`. NVIDIA tooling is optional when PCI
+enumeration succeeds and finds no NVIDIA GPU. Optional per-device VRAM readings
+retain the existing zero fallback.
+
+`scan` and `status` warn on stderr for every non-OK collector, including repeated
+unchanged failures and when `--json` is used. JSON stdout keeps its existing
+shape. An incomplete capture can still be saved and exits successfully; its
+collector status and error are persisted and participate in comparisons.
+
 ## Comparison model
 
 `scan` writes and `status` only reads. A state has two timestamps: `erstscan`
@@ -156,9 +171,9 @@ an exact canonical match of the `collectors` section, or a difference confined t
 `hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
 `MemTotal` can wobble by a few KiB for purely technical reasons, which is not a
 hardware change. Only that one field has a tolerance; GPU memory and every other
-value compare exactly, and a valid reading never equals `0`. The timestamps do
-not participate, but each collector's `status` and `error` do. Returning states
-are not reactivated.
+value compare exactly, including scalar types inside nested lists, and a valid
+reading never equals `0`. The timestamps do not participate, but each collector's
+`status` and `error` do. Returning states are not reactivated.
 
 `status` groups the difference per collector with `+` (added), `-` (removed),
 and `~` (changed) lines. If nothing changed, it says so; if no state exists, it
@@ -282,6 +297,12 @@ Concurrent scans serialize the complete read/compare/write operation using an
 exclusive process lock in `$XDG_DATA_HOME/lion/.history.lock` (under the default
 data directory when unset). The lock file remains in place; its lock is released
 when the writer closes it or exits. `status` remains read-only and does not lock.
+
+If the system clock is earlier than the latest confirmation, `scan` fails with
+an explicit clock error before modifying history. Correct the clock before
+retrying. This protects both confirmations and new entries without synthesizing
+observation times or changing existing references. Equal timestamps remain
+supported through the existing collision suffixes.
 
 Every `.toml` entry is strictly validated (`schema_version = 1`, UTC offsets on
 both timestamps, a valid `status` per collector). Any unreadable or invalid

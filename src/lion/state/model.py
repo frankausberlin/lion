@@ -70,7 +70,7 @@ def value_equal(path: str, old: object, new: object) -> bool:
     """
     if path == MEMORY_TOTAL_PATH:
         return memory_total_equal(old, new)
-    return old == new
+    return json.dumps(old, sort_keys=True) == json.dumps(new, sort_keys=True)
 
 
 def _as_mapping(value: object) -> Mapping[str, object] | None:
