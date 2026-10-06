@@ -12,6 +12,8 @@ jobs:
       - run: uv run pip-audit
 
   e2e:
+    # PRs and main only: a plain branch push is already covered by its pull request.
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

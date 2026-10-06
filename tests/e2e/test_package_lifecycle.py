@@ -100,6 +100,7 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     confirmed_state = _mapping(confirmed["zustand"])
     assert confirmed["pfad"] == initial["pfad"]
     assert confirmed_state["erstscan"] == initial_state["erstscan"]
+    # Timestamps are fixed-width UTC ISO-8601, so string order is chronological order.
     assert str(confirmed_state["zuletzt_bestaetigt"]) > str(initial_state["zuletzt_bestaetigt"])
     assert confirmed_state["collectors"] == initial_collectors
 

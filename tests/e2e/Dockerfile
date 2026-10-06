@@ -1,5 +1,5 @@
-FROM ghcr.io/astral-sh/uv:0.10.9 AS uv
-FROM ubuntu:24.04
+FROM ghcr.io/astral-sh/uv:0.10.9@sha256:10902f58a1606787602f303954cea099626a4adb02acbac4c69920fe9d278f82 AS uv
+FROM ubuntu:24.04@sha256:534baea6a22c03a63003dbc8dbe78fe34bc0d7e595d9a9dc9834884ff530eb55
 COPY --from=uv /uv /usr/local/bin/uv
 RUN apt-get update \
     && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates \
