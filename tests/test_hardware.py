@@ -36,6 +36,9 @@ def _patch_proc(
         return mapping[name]
 
     monkeypatch.setattr(hardware, "Path", fake_path)
+    drm = tmp_path / "drm"
+    drm.mkdir(exist_ok=True)
+    monkeypatch.setattr(hardware, "SYSFS_DRM", str(drm))
 
 
 def _no_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,13 +106,32 @@ def test_missing_proc_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
 
 
 def test_collect_full_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """Assemble CPU, memory and GPU facts into one section."""
+    """Assemble CPU, memory and every GPU into one section.
+
+    Both the non-NVIDIA card (from ``lspci``) and the NVIDIA cards (enriched
+    from ``nvidia-smi``) must be present.
+    """
     _patch_proc(monkeypatch, tmp_path, cpuinfo="model name : Fixture CPU\n", meminfo="MemTotal: 2048 kB\n")
     monkeypatch.setattr(hardware.os, "cpu_count", lambda: 12)
 
+    lspci_output = (
+        "0000:25:00.0 VGA compatible controller: AMD/ATI Navi 14 [Radeon RX 5500] (rev c5)\n"
+        "\tSubsystem: Tul Corporation Device 2401\n"
+        "\tKernel driver in use: amdgpu\n"
+        "0000:2d:00.0 VGA compatible controller: NVIDIA Corporation GA104 [GeForce RTX 4090] (rev a1)\n"
+        "\tKernel driver in use: nvidia\n"
+        "0000:3b:00.0 3D controller: NVIDIA Corporation GA102 (rev a1)\n"
+        "\tKernel driver in use: nvidia\n"
+    )
+
     def fake_run(command: list[str], **kwargs: object) -> _Completed:
         if any("--query-gpu" in part for part in command):
-            return _Completed(0, "NVIDIA RTX 4090, 560.10, 24564 MiB\nsecond, 1.0, 1024\n")
+            return _Completed(
+                0,
+                "NVIDIA RTX 4090, 560.10, 24564 MiB, 00000000:2D:00.0\nsecond, 1.0, 1024 MiB, 00000000:3B:00.0\n",
+            )
+        if command[:1] == ["lspci"]:
+            return _Completed(0, lspci_output)
         if command == ["nvidia-smi"]:
             return _Completed(0, "| NVIDIA-SMI 560.10  Driver Version: 560.10  CUDA Version: 12.6  |")
         return _Completed(1, "")
@@ -124,18 +146,72 @@ def test_collect_full_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert result.data["memory_total_bytes"] == 2048 * 1024
     assert result.data["cuda_version"] == "12.6"
     assert result.data["gpu"] == [
+        {"name": "AMD/ATI Navi 14 [Radeon RX 5500]", "driver_version": "amdgpu", "memory_total_bytes": 0},
         {"name": "NVIDIA RTX 4090", "driver_version": "560.10", "memory_total_bytes": 24564 * 1024 * 1024},
         {"name": "second", "driver_version": "1.0", "memory_total_bytes": 1024 * 1024 * 1024},
+    ]
+
+
+def test_collect_amd_and_nvidia_without_nvidia_smi(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Without ``nvidia-smi`` every ``lspci`` display controller still appears."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="", meminfo="")
+    lspci_output = (
+        "0000:25:00.0 VGA compatible controller: AMD/ATI Navi 14 [Radeon RX 5500] (rev c5)\n"
+        "\tKernel driver in use: amdgpu\n"
+        "0000:2d:00.0 VGA compatible controller: NVIDIA Corporation GA104 [GeForce RTX 3060 Ti] (rev a1)\n"
+        "\tKernel driver in use: nvidia\n"
+    )
+
+    def fake_run(command: list[str], **kwargs: object) -> _Completed:
+        if command[:1] == ["lspci"]:
+            return _Completed(0, lspci_output)
+        return _Completed(1, "")
+
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+
+    assert hardware.COLLECTOR.collect().data["gpu"] == [
+        {"name": "AMD/ATI Navi 14 [Radeon RX 5500]", "driver_version": "amdgpu", "memory_total_bytes": 0},
+        {
+            "name": "NVIDIA Corporation GA104 [GeForce RTX 3060 Ti]",
+            "driver_version": "nvidia",
+            "memory_total_bytes": 0,
+        },
+    ]
+
+
+def test_collect_non_nvidia_vram_from_sysfs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Read the AMD VRAM total from the DRM sysfs ``mem_info_vram_total``."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="", meminfo="")
+    slot = tmp_path / "0000:25:00.0"
+    slot.mkdir()
+    (slot / "mem_info_vram_total").write_text("8573157376\n")
+    card = Path(hardware.SYSFS_DRM) / "card2"
+    card.mkdir()
+    (card / "device").symlink_to(slot)
+    lspci_output = (
+        "0000:25:00.0 VGA compatible controller: AMD/ATI Navi 14 [Radeon RX 5500] (rev c5)\n"
+        "\tKernel driver in use: amdgpu\n"
+    )
+
+    def fake_run(command: list[str], **kwargs: object) -> _Completed:
+        if command[:1] == ["lspci"]:
+            return _Completed(0, lspci_output)
+        return _Completed(1, "")
+
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+
+    assert hardware.COLLECTOR.collect().data["gpu"] == [
+        {"name": "AMD/ATI Navi 14 [Radeon RX 5500]", "driver_version": "amdgpu", "memory_total_bytes": 8573157376}
     ]
 
 
 def test_malformed_gpu_lines(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Skip malformed GPU lines and treat missing digits as zero bytes."""
     _patch_proc(monkeypatch, tmp_path, cpuinfo="", meminfo="")
-    outputs = iter(["only, two\n", "name, driver, no-digits\n"])
+    outputs = iter(["only, two\n", "name, driver, no-digits, 00000000:01:00.0\n"])
 
     def fake_run(command: list[str], **kwargs: object) -> _Completed:
-        if command == ["nvidia-smi"]:
+        if command[:1] == ["lspci"] or command == ["nvidia-smi"]:
             return _Completed(1, "")
         return _Completed(0, next(outputs))
 

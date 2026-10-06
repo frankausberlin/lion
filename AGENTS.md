@@ -108,7 +108,7 @@ just audit       # dependency vulnerability scan
 - `load_latest`/`status` validate every entry and fail loudly with the file path;
   `scan` parses every entry but validates only the newest head, so an unreadable
   or syntactically invalid file still fails. Never skip entries silently.
-- External tools (`nvidia-smi`, `apt-mark`, Dpkg) are environment-dependent and
+- External tools (`nvidia-smi`, `lspci`, `apt-mark`, Dpkg) are environment-dependent and
   are exercised through fixtures/mocks in tests.
 
 ### Tooling Notes

@@ -2,6 +2,15 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "lion scan",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "repolion.main",
+            "args": [
+                "scan"
+            ]
+        },
+        {
             "name": "Python: Current File",
             "type": "debugpy",
             "request": "launch",
@@ -14,7 +23,10 @@
             "type": "debugpy",
             "request": "launch",
             "module": "pytest",
-            "args": ["-s", "${file}"],
+            "args": [
+                "-s",
+                "${file}"
+            ],
             "console": "integratedTerminal"
         }
     ]
