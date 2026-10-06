@@ -5,6 +5,7 @@ import os
 import re
 import stat
 import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import Mock
 
@@ -13,16 +14,23 @@ import typer
 from typer.testing import CliRunner
 
 from repolion.cli import app
-from repolion.command import shlib
+from repolion.command.shlib import Action
+from repolion.command.shlib import run as run_shlib
+from repolion.program import shlib
 
 runner = CliRunner()
 
-ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+ANSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 
 def _plain(text: str) -> str:
-    """Strip ANSI styling so help assertions ignore forced-color terminals."""
-    return ANSI_PATTERN.sub("", text)
+    """Normalize help text: strip ANSI escapes and collapse hard wrapping.
+
+    Rich wraps help to the detected terminal width, so a single substring can be
+    split across lines depending on the viewer. Collapsing every whitespace run
+    to one space makes the content assertions width- and color-independent.
+    """
+    return " ".join(ANSI_PATTERN.sub("", text).split())
 
 
 @pytest.fixture
@@ -196,7 +204,7 @@ def test_help_documents_shlib_system() -> None:
 def test_run_rejects_json_for_mutations(home: Path) -> None:
     """The command entry point still rejects JSON for mutating actions."""
     with pytest.raises(typer.Exit) as caught:
-        shlib.run(shlib.Action.INSTALL, True)
+        run_shlib(Action.INSTALL, True)
     assert caught.value.exit_code == 1
 
 
@@ -206,6 +214,60 @@ def test_shlib_without_operation_shows_status(home: Path) -> None:
     result = runner.invoke(app, ["shlib"])
     assert result.exit_code == 0
     assert "installed: True" in result.stdout
+
+
+_HOLD_LOCK = """
+import fcntl
+import sys
+import time
+
+stream = open(sys.argv[1], "a")
+fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+print("READY", flush=True)
+time.sleep(60)
+"""
+
+
+def test_mutation_lock_blocks_second_process(home: Path) -> None:
+    """A concurrent install in another process aborts instead of interleaving."""
+    holder = subprocess.Popen(
+        [sys.executable, "-c", _HOLD_LOCK, str(home / ".shlib.lock")],
+        stdout=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        assert holder.stdout is not None
+        assert holder.stdout.readline().strip() == "READY"
+        result = runner.invoke(app, ["shlib", "install"])
+        assert result.exit_code == 1
+        assert "already running" in result.stderr
+        assert not (home / ".zshrc").exists()
+    finally:
+        holder.terminate()
+        holder.wait(timeout=10)
+
+
+def test_mutation_lock_released_after_failure(home: Path) -> None:
+    """A failed operation releases the lock so the next attempt can proceed."""
+    (home / ".zshrc").write_text("# original\n")
+    (home / ".zshrc.exports").write_text("conflict")
+    assert runner.invoke(app, ["shlib", "install"]).exit_code == 1
+    (home / ".zshrc.exports").unlink()
+    assert runner.invoke(app, ["shlib", "install"]).exit_code == 0
+    assert (home / ".zshrc").read_text().startswith(shlib.START)
+
+
+def test_retained_lock_file_is_not_a_remnant(home: Path) -> None:
+    """A permanently present process-lock file never blocks an install."""
+    (home / ".shlib.lock").write_text("")
+    assert runner.invoke(app, ["shlib", "install"]).exit_code == 0
+    assert (home / ".zshrc").exists()
+
+
+def test_status_does_not_create_lock(home: Path) -> None:
+    """``shlib status`` stays read-only and never creates the process lock."""
+    invoke("status")
+    assert not (home / ".shlib.lock").exists()
 
 
 @pytest.mark.parametrize("action", ["install", "uninstall"])

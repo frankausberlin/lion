@@ -20,11 +20,15 @@ def _entry_payload(index: int, entry: Entry, latest: bool) -> dict[str, object]:
     return payload
 
 
-def run(json_output: bool = False) -> None:
-    """List every stored state with its stable reference.
+def run(json_output: bool = False, limit: int | None = None) -> None:
+    """List stored states with their stable reference.
 
     Args:
         json_output: Emit a single JSON object instead of a table.
+        limit: Show only the newest ``limit`` entries; ``None`` shows all. The
+            full history is always loaded and validated first, and the selection
+            keeps the global 1-based indices, so a limit never renumbers entries
+            or hides a damaged older entry.
     """
     try:
         entries = list_entries()
@@ -38,12 +42,20 @@ def run(json_output: bool = False) -> None:
             typer.echo("Kein Zustand gespeichert. Führe 'lion scan' aus.")
         return
 
+    total = len(entries)
+    shown = entries[-limit:] if limit is not None else entries
+    offset = total - len(shown)
+
     if json_output:
-        payload = [_entry_payload(index, entry, index == len(entries)) for index, entry in enumerate(entries, 1)]
+        payload = [
+            _entry_payload(offset + position, entry, offset + position == total)
+            for position, entry in enumerate(shown, 1)
+        ]
         typer.echo(json.dumps({"eintraege": payload}))
         return
 
     typer.echo(f"{'#':>3}  {'REF':<28}  ZULETZT BESTÄTIGT")
-    for index, entry in enumerate(entries, start=1):
-        hint = "  aktuell" if index == len(entries) else ""
+    for position, entry in enumerate(shown, start=1):
+        index = offset + position
+        hint = "  aktuell" if index == total else ""
         typer.echo(f"{index:>3}  {entry.ref:<28}  {entry.snapshot.zuletzt_bestaetigt}{hint}")

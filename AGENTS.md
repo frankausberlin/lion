@@ -101,6 +101,14 @@ just audit       # dependency vulnerability scan
   groups without one show their help. Naming: `status` is the
   command, `state` is the internal representation (collected mapping / persisted
   `Snapshot`). The former `scan.py` and `scans/` directory are gone.
+- `program/shlib.py` owns the shlib business logic (install, uninstall, status,
+  backups, atomic file writes, zsh syntax validation) and a `mutation_lock`
+  process lock (`.shlib.lock`) shared by install/uninstall; it must not import
+  Typer. `command/shlib.py` only calls it, prints the messages/status and maps
+  errors to CLI failures. `lion --version` prints the single `__version__` from
+  `repolion/__init__.py` eagerly and without collecting; `lion history --limit N`
+  limits the already-validated listing to the newest N entries without
+  renumbering them.
 - Collector contract: never let one collector abort the capture, use `status`
   `unavailable`/`error` plus an `error` message instead, and never store
   volatile fields (clocks, temperatures, uptime).
@@ -126,6 +134,15 @@ just audit       # dependency vulnerability scan
 - `load_latest`/`status` validate every entry and fail loudly with the file path;
   `scan` parses every entry but validates only the newest head, so an unreadable
   or syntactically invalid file still fails. Never skip entries silently.
+- `history --limit N` only trims the already-validated list at command level: the
+  full history is loaded first, the selection stays oldest-first with global
+  indices and stable references, and text and JSON show the same entries. `N`
+  must be positive; zero and negatives are CLI usage errors.
+- Shlib install and uninstall share an exclusive `.shlib.lock` process lock
+  (separate from the `.zshrc.lock` reference copy) that covers prechecks and
+  publication, fails a concurrent call with a clear message, is released on
+  error or process exit, and is never created by `shlib status`. The retained
+  lock file must not count as an installation remnant.
 - External tools (`nvidia-smi`, `lspci`, `apt-mark`, Dpkg) are environment-dependent and
   are exercised through fixtures/mocks in ordinary tests. The opt-in
   `tests/e2e/` suite exercises real Dpkg and apt-mark in a disposable Docker
