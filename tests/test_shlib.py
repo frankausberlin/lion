@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import stat
 import subprocess
 from pathlib import Path
@@ -15,6 +16,13 @@ from repolion.cli import app
 from repolion.command import shlib
 
 runner = CliRunner()
+
+ANSI_PATTERN = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def _plain(text: str) -> str:
+    """Strip ANSI styling so help assertions ignore forced-color terminals."""
+    return ANSI_PATTERN.sub("", text)
 
 
 @pytest.fixture
@@ -179,9 +187,10 @@ def test_help_documents_shlib_system() -> None:
     """``lion shlib --help`` explains the library and shows dash link examples."""
     result = runner.invoke(app, ["shlib", "--help"])
     assert result.exit_code == 0
-    assert "ln -s" in result.stdout
-    assert "~/.shlib/dash" in result.stdout
-    assert "lion shlib status" in result.stdout
+    help_text = _plain(result.stdout)
+    assert "ln -s" in help_text
+    assert "~/.shlib/dash" in help_text
+    assert "lion shlib status" in help_text
 
 
 def test_run_rejects_json_for_mutations(home: Path) -> None:
