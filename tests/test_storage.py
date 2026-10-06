@@ -9,12 +9,16 @@ import pytest
 import tomli_w
 
 from repolion.program import storage
+from repolion.program.diff import diff_collectors
 from repolion.program.storage import HistoryError, get_history_dir, load_latest, save_state
 from repolion.state.model import Snapshot
 
 T0 = datetime(2026, 10, 5, 20, 0, 0, tzinfo=UTC)
 T1 = T0 + timedelta(minutes=30)
 T2 = T0 + timedelta(hours=1)
+RAM_OLD = 99005419520
+RAM_NEW = 99005415424
+RAM_TOLERANCE = 1024 * 1024
 
 
 @pytest.fixture(autouse=True)
@@ -36,6 +40,13 @@ def _freeze(monkeypatch: pytest.MonkeyPatch, *instants: datetime) -> None:
 
 def _host(hostname: str = "lion", status: str = "ok") -> dict[str, dict[str, object]]:
     return {"host": {"status": status, "error": "", "hostname": hostname}}
+
+
+def _hardware_state(memory_total_bytes: int, hostname: str = "lion") -> dict[str, dict[str, object]]:
+    return {
+        "host": {"status": "ok", "error": "", "hostname": hostname},
+        "hardware": {"status": "ok", "error": "", "memory_total_bytes": memory_total_bytes},
+    }
 
 
 def _entry_files() -> list[Path]:
@@ -270,3 +281,58 @@ def test_overlapping_confirmations_preserve_newest_timestamp(monkeypatch: pytest
     assert latest is not None
     assert latest.zuletzt_bestaetigt == T2.isoformat()
     assert len(_entry_files()) == 1
+
+
+def test_memory_wobble_confirms_instead_of_appending(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 4 KiB MemTotal deviation confirms the head and keeps the raw value."""
+    _freeze(monkeypatch, T0, T1)
+
+    first = save_state(_hardware_state(RAM_OLD))
+    second = save_state(_hardware_state(RAM_NEW))
+
+    assert second.event == "confirmed"
+    assert second.path == first.path
+    assert second.snapshot.erstscan == T0.isoformat()
+    assert second.snapshot.zuletzt_bestaetigt == T1.isoformat()
+    assert len(_entry_files()) == 1
+    latest = load_latest()
+    assert latest is not None
+    assert latest.collectors["hardware"]["memory_total_bytes"] == RAM_OLD
+
+
+def test_memory_change_beyond_tolerance_appends(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A relevant RAM change still appends a new entry."""
+    _freeze(monkeypatch, T0, T1)
+
+    first = save_state(_hardware_state(RAM_OLD))
+    second = save_state(_hardware_state(RAM_OLD + RAM_TOLERANCE + 1))
+
+    assert second.event == "appended"
+    assert second.path != first.path
+    assert len(_entry_files()) == 2
+
+
+def test_memory_valid_versus_zero_appends(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Switching between a valid reading and a missing one stays visible."""
+    _freeze(monkeypatch, T0, T1)
+
+    save_state(_hardware_state(RAM_OLD))
+    second = save_state(_hardware_state(0))
+
+    assert second.event == "appended"
+    assert len(_entry_files()) == 2
+
+
+def test_status_and_storage_agree_on_memory_wobble(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The RAM tolerance is the single rule for ``status`` and ``scan``."""
+    _freeze(monkeypatch, T0, T1)
+
+    first = save_state(_hardware_state(RAM_OLD))
+    latest = load_latest()
+    assert latest is not None
+    current = _hardware_state(RAM_NEW)
+
+    assert diff_collectors(latest.collectors, current) == {}
+    second = save_state(current)
+    assert second.event == "confirmed"
+    assert second.path == first.path

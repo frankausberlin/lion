@@ -84,8 +84,9 @@ just audit       # dependency vulnerability scan
   external-tool runner `run_tool`; each collector (`host.py`, `hardware.py`,
   `packages.py`) keeps its frozen dataclass next to a private `_collect()` and
   exports `COLLECTOR`; `registry.py` exposes the ordered `COLLECTORS`; `model.py`
-  defines the persisted `Snapshot` and its strict validation plus
-  `canonical_collectors`.
+  defines the persisted `Snapshot` and its strict validation, the exact
+  `canonical_collectors`, and the shared `collectors_equal`/`value_equal`
+  comparison rules (including the RAM tolerance).
 - `program/storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
   (`~/.local/share/lion/history`): `load_latest`, `save_state`
   (`created`/`confirmed`/`appended`), and `SaveOutcome`.
@@ -102,8 +103,12 @@ just audit       # dependency vulnerability scan
 ### LION Invariants
 
 - `scan` writes, `status` never writes and only compares.
-- Two states are equal when `canonical_collectors` matches (timestamps excluded,
-  each collector's `status`/`error` included).
+- Two states are equal when `collectors_equal` holds: either the exact
+  `canonical_collectors` match, or the only difference is
+  `hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
+  Timestamps are excluded; each collector's `status`/`error` is included. Only
+  this one field has a tolerance; GPU memory and all other values compare
+  exactly, and a valid reading never equals `0`.
 - New history entries are published with `os.link` and never overwrite; only the
   latest entry's `zuletzt_bestaetigt` refresh uses `os.replace`. Collision
   filenames use a `~NNNN` suffix so they sort after the base name and the

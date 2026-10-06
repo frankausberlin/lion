@@ -15,7 +15,7 @@ from typing import Literal, cast
 
 import tomli_w
 
-from repolion.state.model import Snapshot, canonical_collectors
+from repolion.state.model import Snapshot
 
 Event = Literal["created", "confirmed", "appended"]
 
@@ -182,7 +182,7 @@ def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
         latest = _load_head_for_write()
         if latest is not None:
             path, previous = latest
-            if previous.canonical_collectors() == canonical_collectors(collectors):
+            if previous.matches(collectors):
                 snapshot = replace(previous, zuletzt_bestaetigt=now)
                 _update_head(path, snapshot)
                 return SaveOutcome(event="confirmed", path=path, snapshot=snapshot)

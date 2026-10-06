@@ -2,9 +2,25 @@
 
 from repolion.program.diff import diff_collectors, render
 
+RAM_OLD = 99005419520
+RAM_NEW = 99005415424
+RAM_TOLERANCE = 1024 * 1024
+
 
 def _host(hostname: str = "lion", status: str = "ok") -> dict[str, object]:
     return {"status": status, "error": "", "hostname": hostname}
+
+
+def _hardware(memory_total_bytes: int, gpu: list[dict[str, object]] | None = None) -> dict[str, object]:
+    return {
+        "status": "ok",
+        "error": "",
+        "cpu_model": "Example CPU",
+        "cpu_logical_cores": 8,
+        "memory_total_bytes": memory_total_bytes,
+        "cuda_version": "",
+        "gpu": gpu if gpu is not None else [],
+    }
 
 
 def test_no_difference() -> None:
@@ -74,3 +90,62 @@ def test_render_non_string_values() -> None:
     """Non-string values are rendered as JSON."""
     diff = {"host": {"changed": {"count": {"old": 1, "new": 2}}}}
     assert render(diff).splitlines()[-1] == "  ~ count: 1 -> 2"
+
+
+def test_memory_wobble_is_not_a_hardware_change() -> None:
+    """The reported 4 KiB MemTotal deviation alone yields no hardware diff."""
+    assert diff_collectors({"hardware": _hardware(RAM_OLD)}, {"hardware": _hardware(RAM_NEW)}) == {}
+
+
+def test_memory_tolerance_boundary() -> None:
+    """A deviation exactly at the tolerance is hidden; one byte more is reported."""
+    assert (
+        diff_collectors(
+            {"hardware": _hardware(RAM_OLD)},
+            {"hardware": _hardware(RAM_OLD + RAM_TOLERANCE)},
+        )
+        == {}
+    )
+    larger = RAM_OLD + RAM_TOLERANCE + 1
+    assert diff_collectors({"hardware": _hardware(RAM_OLD)}, {"hardware": _hardware(larger)}) == {
+        "hardware": {"changed": {"memory_total_bytes": {"old": RAM_OLD, "new": larger}}}
+    }
+
+
+def test_memory_valid_versus_zero_is_visible() -> None:
+    """Switching between a valid reading and ``0`` stays a change in both directions."""
+    assert diff_collectors({"hardware": _hardware(RAM_OLD)}, {"hardware": _hardware(0)}) == {
+        "hardware": {"changed": {"memory_total_bytes": {"old": RAM_OLD, "new": 0}}}
+    }
+    assert diff_collectors({"hardware": _hardware(0)}, {"hardware": _hardware(RAM_NEW)}) == {
+        "hardware": {"changed": {"memory_total_bytes": {"old": 0, "new": RAM_NEW}}}
+    }
+
+
+def test_memory_wobble_keeps_other_differences() -> None:
+    """A hidden RAM wobble must not suppress an independent package change."""
+    old = {
+        "hardware": _hardware(RAM_OLD),
+        "packages": {"status": "ok", "error": "", "installed": {"libunbound8:amd64": "1.24.2-1ubuntu2.2"}},
+    }
+    new = {
+        "hardware": _hardware(RAM_NEW),
+        "packages": {"status": "ok", "error": "", "installed": {"libunbound8:amd64": "1.24.2-1ubuntu2.3"}},
+    }
+    assert diff_collectors(old, new) == {
+        "packages": {
+            "changed": {"installed.libunbound8:amd64": {"old": "1.24.2-1ubuntu2.2", "new": "1.24.2-1ubuntu2.3"}}
+        }
+    }
+
+
+def test_memory_tolerance_does_not_apply_to_gpu() -> None:
+    """GPU memory has no tolerance: a 4 KiB deviation is reported exactly."""
+    old_gpu: list[dict[str, object]] = [{"name": "GPU", "driver_version": "1.0", "memory_total_bytes": 8573157376}]
+    new_gpu: list[dict[str, object]] = [
+        {"name": "GPU", "driver_version": "1.0", "memory_total_bytes": 8573157376 + 4096}
+    ]
+    assert diff_collectors(
+        {"hardware": _hardware(RAM_OLD, gpu=old_gpu)},
+        {"hardware": _hardware(RAM_OLD, gpu=new_gpu)},
+    ) == {"hardware": {"changed": {"gpu": {"old": old_gpu, "new": new_gpu}}}}

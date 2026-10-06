@@ -4,6 +4,8 @@ import json
 from collections.abc import Mapping
 from typing import cast
 
+from repolion.state.model import value_equal
+
 CollectorDiff = dict[str, dict[str, dict[str, object]]]
 
 
@@ -17,6 +19,7 @@ def _diff_mapping(
     old: Mapping[str, object],
     new: Mapping[str, object],
     prefix: str,
+    collector: str,
 ) -> dict[str, dict[str, object]]:
     added: dict[str, object] = {}
     removed: dict[str, object] = {}
@@ -33,9 +36,9 @@ def _diff_mapping(
             old_map = _as_mapping(old_value)
             new_map = _as_mapping(new_value)
             if old_map is not None and new_map is not None:
-                for category, entries in _diff_mapping(old_map, new_map, path).items():
+                for category, entries in _diff_mapping(old_map, new_map, path, collector).items():
                     {"added": added, "removed": removed, "changed": changed}[category].update(entries)
-            elif old_value != new_value:
+            elif not value_equal(f"{collector}.{path}", old_value, new_value):
                 changed[path] = {"old": old_value, "new": new_value}
     result: dict[str, dict[str, object]] = {}
     if added:
@@ -68,7 +71,7 @@ def diff_collectors(
         elif name not in new:
             result[name] = {"removed": {"(collector)": dict(old[name])}}
         else:
-            delta = _diff_mapping(old[name], new[name], "")
+            delta = _diff_mapping(old[name], new[name], "", name)
             if delta:
                 result[name] = delta
     return result

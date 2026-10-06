@@ -5,7 +5,15 @@ from datetime import datetime
 import pytest
 
 from repolion.state import model
-from repolion.state.model import Snapshot, canonical_collectors
+from repolion.state.model import Snapshot, canonical_collectors, collectors_equal
+
+RAM_OLD = 99005419520
+RAM_NEW = 99005415424
+RAM_TOLERANCE = model.MEMORY_TOTAL_TOLERANCE_BYTES
+
+
+def _memory(value: int) -> dict[str, dict[str, object]]:
+    return {"hardware": {"status": "ok", "error": "", "memory_total_bytes": value}}
 
 
 def _data() -> dict[str, object]:
@@ -43,6 +51,38 @@ def test_canonical_status_counts() -> None:
     ok = {"host": {"status": "ok", "hostname": "lion"}}
     error = {"host": {"status": "error", "hostname": "lion"}}
     assert canonical_collectors(ok) != canonical_collectors(error)
+
+
+def test_collectors_equal_hides_memory_wobble() -> None:
+    """The RAM tolerance makes a 4 KiB deviation equal in both directions."""
+    assert collectors_equal(_memory(RAM_OLD), _memory(RAM_NEW))
+    assert collectors_equal(_memory(RAM_NEW), _memory(RAM_OLD))
+
+
+def test_collectors_equal_memory_tolerance_boundary() -> None:
+    """The tolerance is inclusive; one byte beyond it is a change."""
+    assert collectors_equal(_memory(RAM_OLD), _memory(RAM_OLD + RAM_TOLERANCE))
+    assert not collectors_equal(_memory(RAM_OLD), _memory(RAM_OLD + RAM_TOLERANCE + 1))
+
+
+def test_collectors_equal_memory_valid_versus_zero() -> None:
+    """A valid reading never equals a missing/invalid one, but zero equals zero."""
+    assert not collectors_equal(_memory(RAM_OLD), _memory(0))
+    assert not collectors_equal(_memory(0), _memory(RAM_NEW))
+    assert collectors_equal(_memory(0), _memory(0))
+
+
+def test_collectors_equal_other_fields_stay_exact() -> None:
+    """No other numeric field gets the tolerance (here a 4 KiB GPU change)."""
+    old = {"hardware": {"status": "ok", "error": "", "gpu_memory": 1024}}
+    new = {"hardware": {"status": "ok", "error": "", "gpu_memory": 1024 + 4096}}
+    assert not collectors_equal(old, new)
+
+
+def test_collectors_equal_detects_added_or_removed_sections() -> None:
+    """A missing collector section is never equal to a present one."""
+    assert not collectors_equal(_memory(RAM_OLD), {})
+    assert not collectors_equal({}, _memory(RAM_OLD))
 
 
 @pytest.mark.parametrize("version", [2, 0, "1", True, None])
