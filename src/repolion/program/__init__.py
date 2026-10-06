@@ -1,1 +1,1 @@
-"""Higher-level program logic: state diffing and history persistence."""
+"""Higher-level program logic: state diffing, history persistence and shlib."""

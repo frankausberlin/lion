@@ -12,6 +12,7 @@ ROOT_EPILOG = """Common commands:
   lion history         list stored states with their stable references
   lion diff 1 2        compare two stored states
   lion shlib           manage the Zsh shell library (~/.shlib)
+  lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
 """
@@ -36,12 +37,14 @@ Examples:
 """
 
 HISTORY_EPILOG = """Entries are listed oldest first. The REF column is the stable reference accepted
-by 'lion diff'.
+by 'lion diff'. '--limit N' shows only the newest N entries while keeping the
+global indices.
 
 Examples:
 
-  lion history         list stored states, oldest first
-  lion history --json  emit the listing as a single JSON object
+  lion history             list stored states, oldest first
+  lion history --limit 5   show only the five newest states
+  lion history --json      emit the listing as a single JSON object
 """
 
 DIFF_EPILOG = """Read-only. A reference is a 1-based index from 'lion history', an alias

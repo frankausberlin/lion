@@ -16,6 +16,7 @@ uv run lion scan             # collect the current state and save it
 uv run lion status           # compare the current state with the latest saved one
 uv run lion history          # list every stored state and its stable reference
 uv run lion diff 1 2         # compare two stored states
+uv run lion --version        # print the package version
 uv run lion --help
 ```
 
@@ -27,7 +28,10 @@ Each CLI command is defined in `src/repolion/command/<command>.py` (for example
 `scan.py`, `status.py`, `history.py` and `diff.py`) and exposed through a thin
 Typer decorator of the same name in `src/repolion/cli.py`, which only wires
 options and delegates to the command's `run` function. Only `scan` (history) and
-`shlib` write; `status`, `history` and `diff` are strictly read-only.
+`shlib` write; `status`, `history` and `diff` are strictly read-only. The shlib
+business logic (installation, removal, status, backups, file writes and syntax
+validation) lives in `src/repolion/program/shlib.py`; `command/shlib.py` only
+calls it, prints the result and maps errors to CLI failures.
 
 Terminology: **status** is the read-only *command* that compares the current
 state with the last stored one, while **state** always refers to the internal
@@ -38,6 +42,8 @@ A command group that has a `status` subcommand runs it when invoked without
 arguments: `lion` is the same as `lion status`, and `lion shlib` is the same as
 `lion shlib status`. A group without a `status` subcommand shows its help
 instead. Every command has a detailed `--help` with its own examples.
+`lion --version` prints the version from the single source in
+`src/repolion/__init__.py` and exits before any collector runs.
 
 ## Zsh shell library
 
@@ -95,9 +101,13 @@ SHLIB block is supported, while unknown changes inside that block require manual
 reconciliation. Existing `.zshrc.exports`, installation remnants, ambiguous
 markers, broken script symlinks and symlinked output files cause a clear error
 instead of an overwrite. Reinstallation after removal therefore requires
-reconciling retained files first. Run lifecycle operations one at a time and do
-not edit shell configuration during an operation. Installation/removal never
-loads or executes the user's scripts.
+reconciling retained files first. `install` and `uninstall` hold an exclusive
+process lock (`~/.shlib.lock`, separate from the reference copy `.zshrc.lock`)
+for the whole operation, so a concurrent lifecycle command fails fast with a
+clear message instead of interleaving; the lock file is retained but is not an
+installation remnant, and `status` never takes it. Do not edit shell
+configuration during an operation. Installation/removal never loads or executes
+the user's scripts.
 
 ## Collectors
 
@@ -158,9 +168,13 @@ tells you to run `lion scan`.
 stable reference. The reference is the file name without `.toml`, i.e. the
 `erstscan` in compact form (`2026-10-05T20-00-00.123456Z`), plus a `~NNNN`
 suffix for same-instant collisions. It never changes once published.
+`--limit N` shows only the newest `N` entries (oldest first within that
+selection) while keeping the global indices and stable references; the full
+history is still validated first, so a damaged older entry is never hidden.
 
 ```bash
 uv run lion history
+uv run lion history --limit 5
 ```
 
 ```text

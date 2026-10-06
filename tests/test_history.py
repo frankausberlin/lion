@@ -16,8 +16,10 @@ runner = CliRunner()
 
 A_REF = "2026-10-05T18-00-00.000000Z"
 B_REF = "2026-10-05T20-00-00.000000Z"
+C_REF = "2026-10-05T22-00-00.000000Z"
 A_ISO = "2026-10-05T18:00:00+00:00"
 B_ISO = "2026-10-05T20:00:00+00:00"
+C_ISO = "2026-10-05T22:00:00+00:00"
 RAM_OLD = 99005419520
 RAM_NEW = 99005415424
 
@@ -97,6 +99,63 @@ def test_history_corrupt_entry_fails() -> None:
     get_history_dir().mkdir(parents=True)
     (get_history_dir() / "broken.toml").write_text("broken = [")
     result = _invoke("history")
+    assert result.exit_code == 1
+    assert "broken.toml" in result.stderr
+
+
+def test_history_limit_keeps_global_indices() -> None:
+    """``--limit`` shows the newest N, oldest first, without renumbering."""
+    _write(A_REF, A_ISO, _host("one"))
+    _write(B_REF, B_ISO, _host("two"))
+    _write(C_REF, C_ISO, _host("three"))
+
+    result = _invoke("history", "--limit", "2")
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert len(lines) == 3
+    assert lines[1].startswith("  2")
+    assert lines[2].startswith("  3")
+    assert B_REF in lines[1] and C_REF in lines[2]
+    assert "aktuell" in lines[2] and "aktuell" not in lines[1]
+
+
+def test_history_limit_json_matches_text_selection() -> None:
+    """``--limit`` applies the same selection and indices to the JSON output."""
+    _write(A_REF, A_ISO, _host("one"))
+    _write(B_REF, B_ISO, _host("two"))
+    _write(C_REF, C_ISO, _host("three"))
+
+    entries = json.loads(_invoke("history", "--limit", "2", "--json").stdout)["eintraege"]
+
+    assert [entry["index"] for entry in entries] == [2, 3]
+    assert [entry["ref"] for entry in entries] == [B_REF, C_REF]
+    assert entries[-1]["aktuell"] is True
+
+
+def test_history_limit_larger_than_history_shows_all() -> None:
+    """A limit above the entry count leaves the listing unchanged."""
+    _write(A_REF, A_ISO, _host("one"))
+    _write(B_REF, B_ISO, _host("two"))
+
+    entries = json.loads(_invoke("history", "--limit", "5", "--json").stdout)["eintraege"]
+    assert [entry["index"] for entry in entries] == [1, 2]
+
+
+@pytest.mark.parametrize("value", ["0", "-1"])
+def test_history_limit_rejects_non_positive(value: str) -> None:
+    """Zero and negative limits are rejected as invalid CLI input."""
+    result = _invoke("history", "--limit", value)
+    assert result.exit_code == 2
+
+
+def test_history_limit_still_validates_all_entries() -> None:
+    """A damaged older entry is not hidden by a limit on the newest entries."""
+    _write(A_REF, A_ISO, _host("one"))
+    (get_history_dir() / "broken.toml").write_text("broken = [")
+    _write(B_REF, B_ISO, _host("two"))
+
+    result = _invoke("history", "--limit", "1")
     assert result.exit_code == 1
     assert "broken.toml" in result.stderr
 

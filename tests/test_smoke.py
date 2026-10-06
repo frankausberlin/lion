@@ -54,6 +54,21 @@ def test_no_command_runs_status() -> None:
     assert "Kein Zustand gespeichert" in result.stdout
 
 
+def test_version_option(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``lion --version`` prints the package version without collecting or writing."""
+    from repolion import __version__
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise AssertionError("collectors must not run for --version")
+
+    monkeypatch.setattr(scan_command, "collect_state", boom)
+    monkeypatch.setattr(status_command, "collect_state", boom)
+    result = _invoke("--version")
+    assert result.exit_code == 0
+    assert result.stdout.strip() == __version__
+    assert not get_data_dir().exists()
+
+
 def test_scan_created_then_confirmed(state: dict[str, dict[str, object]]) -> None:
     """The first scan creates an entry; an unchanged scan confirms it."""
     first = _invoke("scan")

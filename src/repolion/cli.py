@@ -15,6 +15,7 @@ from typing import Annotated
 
 import typer
 
+from repolion import __version__
 from repolion.command.diff import run as run_diff
 from repolion.command.history import run as run_history
 from repolion.command.scan import run as run_scan
@@ -40,8 +41,26 @@ app = typer.Typer(
 )
 
 
+def _version_callback(value: bool) -> None:
+    """Print the package version and stop before any command runs."""
+    if value:
+        typer.echo(__version__)
+        raise typer.Exit()
+
+
 @app.callback()
-def root(ctx: typer.Context) -> None:
+def root(
+    ctx: typer.Context,
+    version: Annotated[
+        bool,
+        typer.Option(
+            "--version",
+            callback=_version_callback,
+            is_eager=True,
+            help="Show the version and exit.",
+        ),
+    ] = False,
+) -> None:
     """Run ``lion status`` when no other command is given."""
     if ctx.invoked_subcommand is None:
         run_status(False)
@@ -60,9 +79,15 @@ def status(json_output: Annotated[bool, typer.Option("--json", help="Output the 
 
 
 @app.command(epilog=HISTORY_EPILOG)
-def history(json_output: Annotated[bool, typer.Option("--json", help="Output the entries as JSON.")] = False) -> None:
+def history(
+    json_output: Annotated[bool, typer.Option("--json", help="Output the entries as JSON.")] = False,
+    limit: Annotated[
+        int | None,
+        typer.Option("--limit", min=1, help="Show only the newest N entries (oldest first within the selection)."),
+    ] = None,
+) -> None:
     """List stored states with their stable references."""
-    run_history(json_output)
+    run_history(json_output, limit)
 
 
 @app.command(epilog=DIFF_EPILOG)
