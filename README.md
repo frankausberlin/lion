@@ -155,6 +155,31 @@ rendering, and text/JSON CLI behavior. Collector tools (`nvidia-smi`,
 `apt-mark`, Dpkg) are exercised through fixtures and mocks so the suite also
 passes on machines without them.
 
+### End-to-end package lifecycle
+
+```bash
+just test-e2e  # requires Docker with a running daemon and just
+```
+
+This builds an Ubuntu 24.04 image with the locked development dependencies and
+runs the installed `lion` executable as a subprocess. A locally built `.deb`
+(with no dependencies or maintainer scripts) is installed, scanned and purged.
+The test checks the complete package diff, create/confirm/append behavior,
+read-only status, persisted TOML, and all three historical states, including the
+return to the original state. No collectors or package-manager calls are mocked.
+
+Image construction needs network access; the test container runs with networking
+disabled, no host mounts and no privileged mode. Only its own package database is
+modified. The runner copies command logs, JUnit results and history into a unique
+`e2e-artifacts.*` directory before removing the container, even on test failure.
+These directories are gitignored and may be deleted after inspection.
+
+Ordinary `pytest`, `just test` and `just check` exclude the `e2e` marker. The test
+also skips unless the runner's opt-in flag, Docker marker and root user are
+present. Do not run the package lifecycle directly on a workstation. GitHub CI
+runs it in a separate job and uploads diagnostics on failure. This covers package
+changes; it does not validate physical GPU discovery.
+
 ## Release
 
 ```bash

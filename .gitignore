@@ -28,3 +28,6 @@ JOURNAL.md
 
 # Freestyle scratch space
 ignore/
+
+# End-to-end diagnostics
+e2e-artifacts.*/
