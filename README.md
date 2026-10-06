@@ -124,6 +124,11 @@ overwritten; only refreshing `zuletzt_bestaetigt` rewrites the latest file, and
 it does so atomically via `os.replace`. This requires a filesystem supporting
 hard links.
 
+Concurrent scans serialize the complete read/compare/write operation using an
+exclusive process lock in `$XDG_DATA_HOME/lion/.history.lock` (under the default
+data directory when unset). The lock file remains in place; its lock is released
+when the writer closes it or exits. `status` remains read-only and does not lock.
+
 Every `.toml` entry is strictly validated (`schema_version = 1`, UTC offsets on
 both timestamps, a valid `status` per collector). Any unreadable or invalid
 entry stops `status` with its path in the error message instead of silently

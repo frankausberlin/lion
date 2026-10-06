@@ -1,7 +1,9 @@
 """Tests for the LION state history persistence."""
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from threading import Event
 
 import pytest
 import tomli_w
@@ -232,3 +234,39 @@ def test_scan_rejects_invalid_selection_timestamp(monkeypatch: pytest.MonkeyPatc
     path.write_text(tomli_w.dumps({"zuletzt_bestaetigt": stamp}))
     with pytest.raises(HistoryError, match=r"invalid-time\.toml"):
         save_state(_host())
+
+
+def test_overlapping_confirmations_preserve_newest_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A delayed writer must not overwrite a newer completed confirmation."""
+    _freeze(monkeypatch, T0, T1, T2)
+    save_state(_host())
+    blocked, release, second_started = Event(), Event(), Event()
+    update = storage._update_head  # pyright: ignore[reportPrivateUsage]
+
+    def delayed_update(path: Path, snapshot: Snapshot) -> None:
+        if snapshot.zuletzt_bestaetigt == T1.isoformat():
+            blocked.set()
+            assert release.wait(5)
+        update(path, snapshot)
+
+    def second_scan() -> storage.SaveOutcome:
+        second_started.set()
+        return save_state(_host())
+
+    monkeypatch.setattr(storage, "_update_head", delayed_update)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(save_state, _host())
+        try:
+            assert blocked.wait(5)
+            second = pool.submit(second_scan)
+            assert second_started.wait(5)
+            with pytest.raises(TimeoutError):
+                second.result(timeout=0.1)
+        finally:
+            release.set()
+        assert first.result(timeout=5).event == "confirmed"
+        assert second.result(timeout=5).event == "confirmed"
+    latest = load_latest()
+    assert latest is not None
+    assert latest.zuletzt_bestaetigt == T2.isoformat()
+    assert len(_entry_files()) == 1
