@@ -1,10 +1,12 @@
-# lion
+![](https://lh3.googleusercontent.com/d/16oJMjpAhsFov-BWYSM1P7JZASx2hIPc5)
+
+# Lion
 
 **LION — Linux Operator Nerd** collects the machine state through small
 collectors, keeps a history of distinct states, and compares the current state
 with the latest stored one for people, scripts, and agents.
-The project and CLI are named `lion`; the repository and Python distribution/import
-package remain `repolion`.
+The project, CLI, repository, and Python distribution/import package are all
+named `lion`.
 
 ## Getting started
 
@@ -24,13 +26,13 @@ No initialization step is needed. `scan` creates its data directory automaticall
 
 ## CLI structure
 
-Each CLI command is defined in `src/repolion/command/<command>.py` (for example
+Each CLI command is defined in `src/lion/command/<command>.py` (for example
 `scan.py`, `status.py`, `history.py` and `diff.py`) and exposed through a thin
-Typer decorator of the same name in `src/repolion/cli.py`, which only wires
+Typer decorator of the same name in `src/lion/cli.py`, which only wires
 options and delegates to the command's `run` function. Only `scan` (history) and
 `shlib` write; `status`, `history` and `diff` are strictly read-only. The shlib
 business logic (installation, removal, status, backups, file writes and syntax
-validation) lives in `src/repolion/program/shlib.py`; `command/shlib.py` only
+validation) lives in `src/lion/program/shlib.py`; `command/shlib.py` only
 calls it, prints the result and maps errors to CLI failures.
 
 Terminology: **status** is the read-only *command* that compares the current
@@ -43,7 +45,7 @@ arguments: `lion` is the same as `lion status`, and `lion shlib` is the same as
 `lion shlib status`. A group without a `status` subcommand shows its help
 instead. Every command has a detailed `--help` with its own examples.
 `lion --version` prints the version from the single source in
-`src/repolion/__init__.py` and exits before any collector runs.
+`src/lion/__init__.py` and exits before any collector runs.
 
 ## Zsh shell library
 
@@ -111,17 +113,17 @@ the user's scripts.
 
 ## Collectors
 
-Each collector lives with its dataclass in `src/repolion/state/<collector>.py`
+Each collector lives with its dataclass in `src/lion/state/<collector>.py`
 and returns a section with a `status` (`ok`, `unavailable`, or `error`), an
 `error` message, and its data. A failing collector never aborts the whole
 capture: an exception is stored as an `error` section.
 
 Shared types (`CollectorStatus`, `CollectorResult`, `Collector`, and
-`collect_state`) live in `src/repolion/state/collector.py`, and
-`src/repolion/state/tools.py` provides the shared external-tool runner. The
-ordered registry is `src/repolion/state/registry.py`, the persisted `Snapshot`
-model is `src/repolion/state/model.py`, `src/repolion/program/storage.py` owns
-the history, and `src/repolion/program/diff.py` builds and renders the
+`collect_state`) live in `src/lion/state/collector.py`, and
+`src/lion/state/tools.py` provides the shared external-tool runner. The
+ordered registry is `src/lion/state/registry.py`, the persisted `Snapshot`
+model is `src/lion/state/model.py`, `src/lion/program/storage.py` owns
+the history, and `src/lion/program/diff.py` builds and renders the
 comparison.
 
 Version 1 ships three collectors:
@@ -149,7 +151,7 @@ Version 1 ships three collectors:
 - Any difference → a new entry is appended (`appended`). The previous entry is
   kept, so the history records every distinct state.
 
-Two states are compared using the shared rule in `src/repolion/state/model.py`:
+Two states are compared using the shared rule in `src/lion/state/model.py`:
 an exact canonical match of the `collectors` section, or a difference confined to
 `hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
 `MemTotal` can wobble by a few KiB for purely technical reasons, which is not a

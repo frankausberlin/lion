@@ -2,8 +2,8 @@
 
 import pytest
 
-from repolion.state import host
-from repolion.state.collector import CollectorStatus
+from lion.state import host
+from lion.state.collector import CollectorStatus
 
 
 def test_collect_ok(monkeypatch: pytest.MonkeyPatch) -> None:

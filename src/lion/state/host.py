@@ -3,7 +3,7 @@
 import platform
 from dataclasses import asdict, dataclass
 
-from repolion.state.collector import Collector, CollectorResult, CollectorStatus
+from lion.state.collector import Collector, CollectorResult, CollectorStatus
 
 UNKNOWN = "Unknown"
 

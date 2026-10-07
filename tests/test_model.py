@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from repolion.state import model
-from repolion.state.model import Snapshot, canonical_collectors, collectors_equal
+from lion.state import model
+from lion.state.model import Snapshot, canonical_collectors, collectors_equal
 
 RAM_OLD = 99005419520
 RAM_NEW = 99005415424

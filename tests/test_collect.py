@@ -1,6 +1,6 @@
 """Tests for the collector runner and its failure isolation."""
 
-from repolion.state.collector import Collector, CollectorResult, CollectorStatus, collect_state
+from lion.state.collector import Collector, CollectorResult, CollectorStatus, collect_state
 
 
 def _ok(name: str) -> Collector:

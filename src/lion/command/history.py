@@ -8,8 +8,8 @@ import json
 
 import typer
 
-from repolion.command import fail, reference_json
-from repolion.program.storage import Entry, list_entries
+from lion.command import fail, reference_json
+from lion.program.storage import Entry, list_entries
 
 
 def _entry_payload(index: int, entry: Entry, latest: bool) -> dict[str, object]:

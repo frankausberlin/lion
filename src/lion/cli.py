@@ -1,8 +1,8 @@
 """Command-line interface for LION.
 
 This module only wires Typer decorators and options; the command bodies live in
-:mod:`repolion.command`, one module per command, and the help texts live in
-:mod:`repolion.main`. ``status`` is the read-only *command*; *state* is the
+:mod:`lion.command`, one module per command, and the help texts live in
+:mod:`lion.main`. ``status`` is the read-only *command*; *state* is the
 internal representation it compares.
 
 Help rule: a command group that has a ``status`` subcommand runs it when invoked
@@ -15,14 +15,14 @@ from typing import Annotated
 
 import typer
 
-from repolion import __version__
-from repolion.command.diff import run as run_diff
-from repolion.command.history import run as run_history
-from repolion.command.scan import run as run_scan
-from repolion.command.shlib import Action
-from repolion.command.shlib import run as run_shlib
-from repolion.command.status import run as run_status
-from repolion.main import (
+from lion import __version__
+from lion.command.diff import run as run_diff
+from lion.command.history import run as run_history
+from lion.command.scan import run as run_scan
+from lion.command.shlib import Action
+from lion.command.shlib import run as run_shlib
+from lion.command.status import run as run_status
+from lion.main import (
     DIFF_EPILOG,
     HISTORY_EPILOG,
     ROOT_EPILOG,

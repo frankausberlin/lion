@@ -1,7 +1,7 @@
 """The ``lion shlib`` command: call the shlib logic, print, and map errors.
 
 Installation, removal, status, backups, file writes and syntax validation live in
-:mod:`repolion.program.shlib`; this module only performs the call, formats the
+:mod:`lion.program.shlib`; this module only performs the call, formats the
 output, and turns business errors into CLI errors.
 """
 
@@ -10,9 +10,9 @@ import subprocess
 
 import typer
 
-from repolion.command import fail
-from repolion.program import shlib as logic
-from repolion.program.shlib import Action
+from lion.command import fail
+from lion.program import shlib as logic
+from lion.program.shlib import Action
 
 __all__ = ["Action", "run"]
 

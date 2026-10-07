@@ -2,17 +2,17 @@
 
 ``scan`` writes: it creates a history entry, confirms the latest entry, or
 appends a new distinct state. The persisted data is the internal *state*
-(``Snapshot``); see :mod:`repolion.command` for the ``status``/``state`` naming.
+(``Snapshot``); see :mod:`lion.command` for the ``status``/``state`` naming.
 """
 
 import json
 
 import typer
 
-from repolion.command import fail
-from repolion.program.storage import SaveOutcome, save_state
-from repolion.state.collector import collect_state
-from repolion.state.registry import COLLECTORS
+from lion.command import fail
+from lion.program.storage import SaveOutcome, save_state
+from lion.state.collector import collect_state
+from lion.state.registry import COLLECTORS
 
 _EVENTS = {
     "created": "Zustand angelegt",

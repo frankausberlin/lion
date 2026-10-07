@@ -1,5 +1,5 @@
 [project]
-name = "repolion"
+name = "lion"
 version = "0.1.0" # project-version
 description = "LION (Linux Operator Nerd): collect, store, and inspect Linux system information."
 readme = "README.md"
@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = ["tomli-w>=1.2.0", "typer>=0.27.2"]
 
 [project.scripts]
-lion = "repolion.main:main"
+lion = "lion.main:main"
 
 [build-system]
 requires = ["uv_build>=0.10.9,<0.11.0"]
@@ -66,6 +66,6 @@ search = 'version = "{current_version}"  # project-version'
 replace = 'version = "{new_version}"  # project-version'
 
 [[tool.bumpversion.files]]
-filename = "src/repolion/__init__.py"
+filename = "src/lion/__init__.py"
 search = '__version__ = "{current_version}"'
 replace = '__version__ = "{new_version}"'

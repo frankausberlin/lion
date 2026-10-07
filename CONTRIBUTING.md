@@ -1,10 +1,10 @@
-# Contributing to repolion
+# Contributing to lion
 
 ## Development Setup
 
 ```bash
 git clone <repo-url>
-cd repolion
+cd lion
 direnv allow      # auto-activates .venv (or run: source .venv/bin/activate)
 uv sync           # install all dependencies
 ```
@@ -29,19 +29,19 @@ just fix          # auto-fix formatting and lint issues
 
 ## Architecture
 
-- `src/repolion/state/collector.py` — shared `CollectorStatus`, `CollectorResult`,
+- `src/lion/state/collector.py` — shared `CollectorStatus`, `CollectorResult`,
   `Collector`, and `collect_state`; keep it free of collector imports.
-- `src/repolion/state/tools.py` — shared `run_tool` helper for external tools.
-- `src/repolion/state/<collector>.py` — one collector per file (`host`,
+- `src/lion/state/tools.py` — shared `run_tool` helper for external tools.
+- `src/lion/state/<collector>.py` — one collector per file (`host`,
   `hardware`, `packages`), each with its frozen dataclass, a private `_collect()`,
   and a `COLLECTOR` export.
-- `src/repolion/state/registry.py` — ordered `COLLECTORS` tuple.
-- `src/repolion/state/model.py` — `Snapshot`, strict validation, and the shared
+- `src/lion/state/registry.py` — ordered `COLLECTORS` tuple.
+- `src/lion/state/model.py` — `Snapshot`, strict validation, and the shared
   `collectors_equal`/`value_equal` comparison rules (including the RAM tolerance).
-- `src/repolion/program/storage.py` — history persistence (`list_entries`,
+- `src/lion/program/storage.py` — history persistence (`list_entries`,
   `resolve`, `load_latest`, `save_state`).
-- `src/repolion/program/diff.py` — `diff_collectors` and terminal `render`.
-- `src/repolion/command/<command>.py` — one module per command (`scan` writes;
+- `src/lion/program/diff.py` — `diff_collectors` and terminal `render`.
+- `src/lion/command/<command>.py` — one module per command (`scan` writes;
   `status`, `history` and `diff` read only); `cli.py` keeps the Typer decorators.
 
 New collectors must not abort a capture: report `unavailable` or `error` with a

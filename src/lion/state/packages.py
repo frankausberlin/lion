@@ -3,8 +3,8 @@
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from repolion.state.collector import Collector, CollectorResult, CollectorStatus
-from repolion.state.tools import run_tool
+from lion.state.collector import Collector, CollectorResult, CollectorStatus
+from lion.state.tools import run_tool
 
 DPKG_STATUS = Path("/var/lib/dpkg/status")
 TIMEOUT_SECONDS = 30

@@ -15,7 +15,7 @@ from typing import Literal, cast
 
 import tomli_w
 
-from repolion.state.model import Snapshot
+from lion.state.model import Snapshot
 
 Event = Literal["created", "confirmed", "appended"]
 

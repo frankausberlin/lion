@@ -2,7 +2,7 @@
 
 Each CLI command has a module here with the same name (``scan``, ``status``,
 ``history``, ``diff``, ``shlib``) and a single ``run`` function;
-:mod:`repolion.cli` keeps only the Typer decorators and delegates to those
+:mod:`lion.cli` keeps only the Typer decorators and delegates to those
 functions. Only ``scan`` and ``shlib`` write; ``status``, ``history`` and
 ``diff`` are read-only.
 
@@ -15,7 +15,7 @@ from typing import NoReturn
 
 import typer
 
-from repolion.program.storage import Entry
+from lion.program.storage import Entry
 
 
 def fail(exc: OSError | ValueError) -> NoReturn:

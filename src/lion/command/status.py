@@ -1,7 +1,7 @@
 """The ``lion status`` command: compare without writing.
 
 ``status`` is the read-only *command*; *state* is the internal representation it
-compares. It never writes to the history; see :mod:`repolion.command` for the
+compares. It never writes to the history; see :mod:`lion.command` for the
 ``status``/``state`` naming.
 """
 
@@ -9,11 +9,11 @@ import json
 
 import typer
 
-from repolion.command import fail
-from repolion.program.diff import diff_collectors, render
-from repolion.program.storage import get_data_dir, load_latest
-from repolion.state.collector import collect_state
-from repolion.state.registry import COLLECTORS
+from lion.command import fail
+from lion.program.diff import diff_collectors, render
+from lion.program.storage import get_data_dir, load_latest
+from lion.state.collector import collect_state
+from lion.state.registry import COLLECTORS
 
 
 def run(json_output: bool = False) -> None:

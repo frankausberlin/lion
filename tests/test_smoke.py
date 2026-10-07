@@ -6,10 +6,10 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from repolion.cli import app
-from repolion.command import scan as scan_command
-from repolion.command import status as status_command
-from repolion.program.storage import get_data_dir, get_history_dir
+from lion.cli import app
+from lion.command import scan as scan_command
+from lion.command import status as status_command
+from lion.program.storage import get_data_dir, get_history_dir
 
 runner = CliRunner()
 
@@ -56,7 +56,7 @@ def test_no_command_runs_status() -> None:
 
 def test_version_option(monkeypatch: pytest.MonkeyPatch) -> None:
     """``lion --version`` prints the package version without collecting or writing."""
-    from repolion import __version__
+    from lion import __version__
 
     def boom(*args: object, **kwargs: object) -> object:
         raise AssertionError("collectors must not run for --version")
