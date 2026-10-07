@@ -1,6 +1,6 @@
 """Entry point for LION and the CLI help texts.
 
-The help strings live here so that :mod:`repolion.cli` stays focused on the
+The help strings live here so that :mod:`lion.cli` stays focused on the
 Typer decorators and the command wiring. ``main`` imports the app lazily so the
 two modules stay importable in either order without a cycle.
 """
@@ -87,7 +87,7 @@ Load an existing script without moving it:
 
 def main() -> None:
     """Run the LION command-line interface."""
-    from repolion.cli import app
+    from lion.cli import app
 
     app()
 

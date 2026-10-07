@@ -2,7 +2,7 @@
 
 This module holds the complete shlib business logic and deliberately avoids Typer:
 it returns structured data (status) or a list of messages (install/uninstall), and
-the command layer in :mod:`repolion.command.shlib` owns CLI output and errors.
+the command layer in :mod:`lion.command.shlib` owns CLI output and errors.
 
 Install and uninstall serialize themselves through a dedicated process lock
 (``~/.shlib.lock``) that is separate from the reference copy ``~/.zshrc.lock``;

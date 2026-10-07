@@ -5,13 +5,13 @@ Generated once by `pyinit` from `stack-contract-v1`. Existing projects are not u
 ## Project Profile
 
 - Project name: `lion`
-- Repository name: `repolion`
-- Package name: `repolion`
+- Repository name: `lion`
+- Package name: `lion`
 - Project type: app
 - Python version: `3.12`
-- Source path: `src/repolion/`
+- Source path: `src/lion/`
 - Tests: `tests/`
-- Entry point: `src/repolion/main.py:main` (run with `just run`).
+- Entry point: `src/lion/main.py:main` (run with `just run`).
 
 <!-- AGENTS_MANAGED_BEGIN: stack-contract-v1 -->
 ## Project Agent Contract
@@ -78,7 +78,7 @@ just audit       # dependency vulnerability scan
 
 ### LION Architecture
 
-- `src/repolion/state/` holds the collector framework: `collector.py` defines the
+- `src/lion/state/` holds the collector framework: `collector.py` defines the
   shared `CollectorStatus`, `CollectorResult`, `Collector`, and `collect_state`
   (no collector imports, to avoid cycles); `tools.py` provides the shared
   external-tool runner `run_tool`; each collector (`host.py`, `hardware.py`,
@@ -91,7 +91,7 @@ just audit       # dependency vulnerability scan
   (`~/.local/share/lion/history`): `list_entries`/`resolve`/`load_latest`,
   `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
 - `program/diff.py` provides `diff_collectors` and `render`; `cli.py` keeps only the
-  Typer decorators and delegates to `src/repolion/command/<command>.py`, one
+  Typer decorators and delegates to `src/lion/command/<command>.py`, one
   module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
   read only) with a `run` function and `--json` support. The English CLI help
   texts (epilogs and sub-app help) live in `main.py` and are imported by
@@ -106,7 +106,7 @@ just audit       # dependency vulnerability scan
   process lock (`.shlib.lock`) shared by install/uninstall; it must not import
   Typer. `command/shlib.py` only calls it, prints the messages/status and maps
   errors to CLI failures. `lion --version` prints the single `__version__` from
-  `repolion/__init__.py` eagerly and without collecting; `lion history --limit N`
+  `lion/__init__.py` eagerly and without collecting; `lion history --limit N`
   limits the already-validated listing to the newest N entries without
   renumbering them.
 - Collector contract: never let one collector abort the capture, use `status`

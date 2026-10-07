@@ -13,10 +13,10 @@ import pytest
 import typer
 from typer.testing import CliRunner
 
-from repolion.cli import app
-from repolion.command.shlib import Action
-from repolion.command.shlib import run as run_shlib
-from repolion.program import shlib
+from lion.cli import app
+from lion.command.shlib import Action
+from lion.command.shlib import run as run_shlib
+from lion.program import shlib
 
 runner = CliRunner()
 

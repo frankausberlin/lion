@@ -1,6 +1,6 @@
 """Tests for the recursive collector diff and its rendering."""
 
-from repolion.program.diff import diff_collectors, render
+from lion.program.diff import diff_collectors, render
 
 RAM_OLD = 99005419520
 RAM_NEW = 99005415424

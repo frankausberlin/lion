@@ -1,7 +1,7 @@
 """The ``lion diff`` command: compare two stored states without writing.
 
 ``diff`` is read-only. It resolves two stored states through
-:func:`repolion.program.storage.resolve` and reuses the shared collector diff,
+:func:`lion.program.storage.resolve` and reuses the shared collector diff,
 so the RAM tolerance stays consistent with ``status`` and ``scan``.
 """
 
@@ -9,9 +9,9 @@ import json
 
 import typer
 
-from repolion.command import fail, reference_json
-from repolion.program.diff import diff_collectors, render
-from repolion.program.storage import HistoryError, list_entries, resolve
+from lion.command import fail, reference_json
+from lion.program.diff import diff_collectors, render
+from lion.program.storage import HistoryError, list_entries, resolve
 
 
 def run(reference: str, second: str | None = None, json_output: bool = False) -> None:

@@ -4,7 +4,7 @@ import json
 from collections.abc import Mapping
 from typing import cast
 
-from repolion.state.model import value_equal
+from lion.state.model import value_equal
 
 CollectorDiff = dict[str, dict[str, dict[str, object]]]
 

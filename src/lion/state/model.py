@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import TypeGuard, cast
 
-from repolion.state.collector import CollectorStatus
+from lion.state.collector import CollectorStatus
 
 SCHEMA_VERSION = 1
 VALID_STATUSES = frozenset(status.value for status in CollectorStatus)

@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from repolion.state import hardware, tools
-from repolion.state.collector import CollectorStatus
+from lion.state import hardware, tools
+from lion.state.collector import CollectorStatus
 
 
 class _Completed:

@@ -8,9 +8,9 @@ import pytest
 import tomli_w
 from typer.testing import CliRunner, Result
 
-from repolion.cli import app
-from repolion.program.storage import get_history_dir
-from repolion.state.model import Snapshot
+from lion.cli import app
+from lion.program.storage import get_history_dir
+from lion.state.model import Snapshot
 
 runner = CliRunner()
 

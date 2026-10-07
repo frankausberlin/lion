@@ -8,10 +8,10 @@ from threading import Event
 import pytest
 import tomli_w
 
-from repolion.program import storage
-from repolion.program.diff import diff_collectors
-from repolion.program.storage import HistoryError, get_history_dir, list_entries, load_latest, resolve, save_state
-from repolion.state.model import Snapshot
+from lion.program import storage
+from lion.program.diff import diff_collectors
+from lion.program.storage import HistoryError, get_history_dir, list_entries, load_latest, resolve, save_state
+from lion.state.model import Snapshot
 
 T0 = datetime(2026, 10, 5, 20, 0, 0, tzinfo=UTC)
 T1 = T0 + timedelta(minutes=30)

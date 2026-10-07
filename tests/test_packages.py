@@ -5,8 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from repolion.state import packages, tools
-from repolion.state.collector import CollectorStatus
+from lion.state import packages, tools
+from lion.state.collector import CollectorStatus
 
 DPKG_FIXTURE = """\
 Package: bash

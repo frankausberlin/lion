@@ -995,7 +995,7 @@ wheels = [
 ]
 
 [[package]]
-name = "repolion"
+name = "lion"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
