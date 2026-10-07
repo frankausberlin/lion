@@ -152,3 +152,16 @@ just audit       # dependency vulnerability scan
 
 - `pyproject.toml` sets ruff `extend-exclude = [".kilo"]` so agent artifacts
   (plans, worktrees) are not linted or formatted.
+
+### Language and Project Documents
+
+- Code, docstrings, README, `--help` texts and commit messages stay English.
+  The conversation with the maintainer and the two project documents
+  [PROJECT_DEFINITION.de.md](PROJECT_DEFINITION.de.md) and
+  [ROADMAP.de.md](ROADMAP.de.md) are German; this is the only deliberate
+  exception to the English rule.
+- Read [PROJECT_DEFINITION.de.md](PROJECT_DEFINITION.de.md) for vision, scope,
+  terminology and principles, and [ROADMAP.de.md](ROADMAP.de.md) for phases and
+  open decisions. Both complement, and must not duplicate, README and `--help`.
+- Development follows the Luxurious Python Stack and the `luxuspythonstack`
+  skill; workflow details stay here, not in the project definition.
