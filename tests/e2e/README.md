@@ -1,0 +1,107 @@
+# End-to-end tests
+
+This suite exercises the installed `lion` executable with real external tools
+in a disposable Ubuntu 24.04 Docker container. General testing rules live in
+[AGENTS.md](../../AGENTS.md#testing).
+
+## Prerequisites and execution
+
+Run from the repository root with Bash, `just`, Docker and an accessible,
+running Docker daemon. The image build needs network access to fetch base
+images, OS packages and the locked Python dependencies. Python and Zsh for
+these tests are installed inside the image.
+
+```bash
+just test-e2e
+```
+
+No separate manual image setup is needed. Each invocation runs
+[scripts/test-e2e.sh](../../scripts/test-e2e.sh), which:
+
+1. Creates a unique `e2e-artifacts.*` directory in the repository root.
+2. Builds the `lion-e2e` image using the local source,
+   [Dockerfile](Dockerfile) and `uv.lock`; Docker may reuse cached layers.
+3. Creates a fresh container with networking disabled and
+   `LION_E2E_CONTAINER=1`, without host mounts or privileged mode.
+4. Runs pytest against `tests/e2e` with the `e2e` marker, temporary files
+   under `/artifacts/work` and a JUnit report at `/artifacts/junit.xml`.
+5. Copies `/artifacts` to the host diagnostics directory and removes the
+   container on exit, including after test failures when a container exists.
+
+The image remains available for subsequent builds. Re-run `just test-e2e`
+after changing code or tests so the image contains the current files.
+
+## Isolation
+
+Package installation and removal happen only in the container's package
+database. The package scenario requires root **inside the disposable
+container**; Lion itself does not require root. Shlib uses a temporary
+`HOME` and `ZDOTDIR`, and package-history tests use a temporary
+`XDG_DATA_HOME`.
+
+Run this suite only through `just test-e2e`. Do not enable the opt-in flag
+manually on a workstation or execute the package mutation steps there.
+The tests check the opt-in flag and Docker marker; the package test also
+checks the effective user. These checks prevent accidental execution and
+must remain in new scenarios.
+
+Ordinary `pytest`, `just test` and `just check` exclude the `e2e` marker.
+The Docker command explicitly selects it. A skipped lifecycle test does not
+count as a successful E2E validation.
+
+## Existing scenarios
+
+| Test | Behavior checked |
+| --- | --- |
+| [Package lifecycle](test_package_lifecycle.py) | Builds a local dependency-free package without maintainer scripts; scans the baseline, installs, scans, purges and scans again. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. |
+| [Shlib lifecycle](test_shlib_lifecycle.py) | Installs and uninstalls with real Zsh in a temporary home. Checks literal export values, linked scripts, load order, installer additions, syntax-failure handling, file permissions and repeated uninstall. |
+
+The package scenario retains three distinct history entries even when removal
+restores the initial collector data. The shlib scenario compares shell behavior
+before and after flattening. Physical GPU discovery is outside this suite's
+coverage.
+
+## Results and troubleshooting
+
+Read the pytest summary in the terminal and the final
+`E2E diagnostics: <path>` line. Within that directory:
+
+| Artifact | Purpose |
+| --- | --- |
+| `junit.xml` | Test results and assertion failures. |
+| `work/**/commands.log` | Package-scenario commands, exit codes, stdout and stderr. |
+| `work/**/shlib-commands.log` | Shlib-scenario commands and output. |
+| `work/**/data/lion/history/*.toml` | Persisted package-scenario snapshots. |
+| Other files under `work/` | Temporary shell configuration and package fixture files. |
+
+If the build fails before container creation, the diagnostics directory may be
+empty; use the terminal build output. For Docker connection errors, verify the
+daemon and your access to it. For dependency download failures, check build-time
+network access. Do not enable runtime networking to fix a build failure.
+
+For assertion failures, start with the failing assertion and corresponding
+command log, then inspect the saved snapshots or shell files. Fix the cause and
+rerun the runner; do not remove isolation checks to make the test pass.
+
+GitHub Actions runs this suite in a separate job on pull requests and pushes to
+`main`, and uploads `e2e-artifacts.*` on failure. Locally, diagnostics are
+gitignored and can be deleted after inspection.
+
+## Adding a scenario
+
+- Add a `test_*.py` file here with `pytestmark = pytest.mark.e2e` and the
+  appropriate container guards used by the existing tests.
+- Invoke the installed `lion` command as a subprocess. Use real tools for the
+  lifecycle under test rather than mocking collectors or package-manager calls.
+- Isolate writable state with `tmp_path` and pass environment overrides only
+  to the relevant child processes. Use synthetic secret values, never real
+  credentials.
+- Keep fixtures self-contained and runnable without network access. Avoid
+  dependencies between tests or assumptions about their execution order.
+- Assert expected changes and preservation: exit codes, output, persisted
+  state, permissions where relevant, and no writes from read-only commands.
+- Give subprocesses timeouts and record their commands, exit codes and output
+  below `tmp_path` so the runner retains useful diagnostics.
+- If additional OS tools are required, add them to the Dockerfile's build step.
+  Run `just check` and `just test-e2e`, then report the results and any
+  remaining coverage limits.

@@ -148,6 +148,26 @@ just audit       # dependency vulnerability scan
   `tests/e2e/` suite exercises real Dpkg and apt-mark in a disposable Docker
   container; run it only through `just test-e2e`.
 
+### Testing
+
+- Test observable behavior and the LION invariants above, not implementation
+  details. For a bug fix, add a focused regression test that fails before the fix.
+- Keep ordinary tests deterministic: use fixtures/mocks for external collector
+  tools and temporary paths for history and shell configuration. Never depend
+  on the developer's packages, GPUs, home directory or existing snapshots.
+- Cover relevant success and failure paths, text/JSON output and exit codes;
+  verify that read-only commands leave persisted data unchanged.
+- Use `uv run pytest tests/test_<area>.py` for focused feedback and `just check`
+  for the full quality gate. Keep the configured coverage minimum of 90%;
+  coverage does not replace assertions about behavior.
+- Ordinary pytest runs and `just check` exclude the `e2e` marker. When changing
+  package detection, persisted CLI lifecycles, shlib or the E2E runner, also run
+  `just test-e2e`. Never run the real package lifecycle on a workstation.
+- Read [tests/e2e/README.md](tests/e2e/README.md) before running or extending
+  the E2E suite. It owns setup, isolation, diagnostics and scenario guidance.
+- Report the checks actually run and their results; name any unavailable
+  prerequisites or skipped checks explicitly.
+
 ### Tooling Notes
 
 - `pyproject.toml` sets ruff `extend-exclude = [".kilo"]` so agent artifacts
