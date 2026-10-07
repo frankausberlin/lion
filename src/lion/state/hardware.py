@@ -132,9 +132,9 @@ def _device_description(rest: str) -> str:
     return description or UNKNOWN
 
 
-def _collect_pci_gpus() -> list[_PciGpu]:
+def _collect_pci_gpus(failures: list[str] | None = None) -> list[_PciGpu]:
     """List every display controller via ``lspci``, including non-NVIDIA GPUs."""
-    output = run_tool(["lspci", "-D", "-k"], timeout=TIMEOUT_SECONDS)
+    output = run_tool(["lspci", "-D", "-k"], timeout=TIMEOUT_SECONDS, failures=failures)
     if not output:
         return []
     devices: list[_PciGpu] = []
@@ -152,11 +152,12 @@ def _collect_pci_gpus() -> list[_PciGpu]:
     return devices
 
 
-def _collect_nvidia_gpus() -> list[_NvidiaGpu]:
+def _collect_nvidia_gpus(failures: list[str] | None = None) -> list[_NvidiaGpu]:
     """Query NVIDIA GPUs through ``nvidia-smi``, keyed by PCI bus id."""
     output = run_tool(
         ["nvidia-smi", "--query-gpu=name,driver_version,memory.total,pci.bus_id", "--format=csv,noheader"],
         timeout=TIMEOUT_SECONDS,
+        failures=failures,
     )
     if not output:
         return []
@@ -213,7 +214,7 @@ def _collect_vram_totals() -> dict[str, int]:
     return totals
 
 
-def _collect_gpus() -> list[GpuState]:
+def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
     """Merge ``lspci`` devices with ``nvidia-smi`` details so no GPU is lost.
 
     ``lspci`` is the source of truth for which GPUs exist, because
@@ -222,9 +223,17 @@ def _collect_gpus() -> list[GpuState]:
     card is reported with its kernel driver and its VRAM read from DRM sysfs
     when the driver exposes it.
     """
-    nvidia = _collect_nvidia_gpus()
+    nvidia = _collect_nvidia_gpus(failures)
     nvidia_by_id = {entry.pci_id: entry.state for entry in nvidia if entry.pci_id}
-    devices = _collect_pci_gpus()
+    devices = _collect_pci_gpus(failures)
+    # Keep vendor evidence before richer NVIDIA names replace PCI descriptions.
+    if (
+        failures is not None
+        and not nvidia
+        and not any("nvidia" in device.name.lower() for device in devices)
+        and not any(failure.startswith("lspci:") for failure in failures)
+    ):
+        failures[:] = [failure for failure in failures if not failure.startswith("nvidia-smi:")]
     if not devices:
         return [entry.state for entry in nvidia]
     vram_totals = _collect_vram_totals()
@@ -249,9 +258,9 @@ def _collect_gpus() -> list[GpuState]:
     return gpus
 
 
-def _collect_cuda_version() -> str:
+def _collect_cuda_version(failures: list[str] | None = None) -> str:
     """Best-effort CUDA version parsed from the standard nvidia-smi banner."""
-    output = run_tool(["nvidia-smi"], timeout=TIMEOUT_SECONDS)
+    output = run_tool(["nvidia-smi"], timeout=TIMEOUT_SECONDS, failures=failures)
     if not output:
         return ""
     for line in output.splitlines():
@@ -264,14 +273,23 @@ def _collect_cuda_version() -> str:
 
 def _collect() -> CollectorResult:
     """Collect hardware facts; missing tools or files never fail the capture."""
+    failures: list[str] = []
     state = HardwareState(
         cpu_model=_read_cpu_model(),
         cpu_logical_cores=os.cpu_count() or 0,
         memory_total_bytes=_read_memory_total(),
-        cuda_version=_collect_cuda_version(),
-        gpu=_collect_gpus(),
+        cuda_version=_collect_cuda_version(failures),
+        gpu=_collect_gpus(failures),
     )
-    return CollectorResult(status=CollectorStatus.OK, data=asdict(state))
+    if state.cpu_model == UNKNOWN:
+        failures.append("CPU model unavailable")
+    if state.memory_total_bytes == 0:
+        failures.append("MemTotal unavailable or invalid")
+    return CollectorResult(
+        status=CollectorStatus.UNAVAILABLE if failures else CollectorStatus.OK,
+        data=asdict(state),
+        error="; ".join(dict.fromkeys(failures)),
+    )
 
 
 COLLECTOR = Collector(name="hardware", collect=_collect)

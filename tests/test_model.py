@@ -159,3 +159,14 @@ def test_unsupported_value_type() -> None:
     data["collectors"] = {"host": {"status": "ok", "error": "", "when": datetime(2026, 10, 5)}}
     with pytest.raises(ValueError, match="unsupported value type"):
         Snapshot.from_toml_dict(data)
+
+
+@pytest.mark.parametrize(("old", "new"), [(1, True), (1, 1.0), ([{"x": 1}], [{"x": True}])])
+def test_type_changes_are_differences(old: object, new: object) -> None:
+    """Nested and scalar type changes must agree across storage and diff."""
+    from lion.program.diff import diff_collectors
+
+    before = {"host": {"status": "ok", "value": old}}
+    after = {"host": {"status": "ok", "value": new}}
+    assert not collectors_equal(before, after)
+    assert diff_collectors(before, after)

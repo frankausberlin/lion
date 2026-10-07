@@ -3,9 +3,8 @@
 ## Development Setup
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/frankausberlin/lion.git
 cd lion
-direnv allow      # auto-activates .venv (or run: source .venv/bin/activate)
 uv sync           # install all dependencies
 ```
 

@@ -8,21 +8,20 @@ It assumes a Linux machine and a shell (the examples use Bash).
 
 - Linux
 - Python 3.12 or newer
-- [uv](https://docs.astral.sh/uv/) and [direnv](https://direnv.net/) (or your
-  own virtual environment handling)
+- [uv](https://docs.astral.sh/uv/)
 
 ## Install
 
 Clone the repository and prepare the environment:
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/frankausberlin/lion.git
 cd lion
-direnv allow     # or: source .venv/bin/activate
 uv sync
 ```
 
-Every command is then run through `uv run lion <command>`.
+Every command is then run through `uv run lion <command>`. No manual virtual
+environment activation or direnv configuration is required.
 
 ## Capture the first state
 
@@ -53,13 +52,23 @@ changed since the last scan.
 
 ```bash
 uv run lion history          # every stored state, oldest first, with its reference
-uv run lion diff previous    # the previous state against the latest
 ```
+
+After two unchanged scans there is still only **one** history entry: confirming
+it does not create a second state. Do not run `diff previous` yet; it requires
+at least two entries.
 
 `history` prints a stable reference per entry; `diff` accepts that reference,
 an alias such as `previous`, or a 1-based index. When the machine actually
 changes (for example after installing a package), the next `scan` appends a new
-distinct entry and `lion diff previous latest` shows exactly what changed.
+distinct entry. Once `history` lists at least two entries, compare them:
+
+```bash
+uv run lion diff previous latest
+```
+
+This shows exactly what changed. No package installation is needed just to
+complete this introductory walkthrough.
 
 ## Inspect the result as JSON
 
@@ -69,7 +78,7 @@ Every read command has a `--json` form, which is safe for scripts and CI:
 uv run lion scan --json
 uv run lion status --json
 uv run lion history --json
-uv run lion diff previous --json
+uv run lion diff previous --json  # only after at least two history entries exist
 ```
 
 With no stored state, `status --json` prints `null` and exits successfully.

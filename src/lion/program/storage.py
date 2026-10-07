@@ -346,6 +346,11 @@ def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
         latest = _load_head_for_write()
         if latest is not None:
             path, previous = latest
+            if datetime.fromisoformat(now) < datetime.fromisoformat(previous.zuletzt_bestaetigt):
+                raise HistoryError(
+                    "System clock is earlier than the latest confirmation; history unchanged. "
+                    "Correct the clock before scanning again."
+                )
             if previous.matches(collectors):
                 snapshot = replace(previous, zuletzt_bestaetigt=now)
                 _update_head(path, snapshot)

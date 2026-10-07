@@ -48,9 +48,9 @@ def _read_installed() -> dict[str, str] | None:
     return installed
 
 
-def _apt_mark(flag: str) -> list[str] | None:
+def _apt_mark(flag: str, failures: list[str] | None = None) -> list[str] | None:
     """Return a sorted selection from ``apt-mark``, or ``None`` if absent."""
-    output = run_tool(["apt-mark", flag], timeout=TIMEOUT_SECONDS)
+    output = run_tool(["apt-mark", flag], timeout=TIMEOUT_SECONDS, failures=failures)
     if output is None:
         return None
     return sorted({line.strip() for line in output.splitlines() if line.strip()})
@@ -58,16 +58,19 @@ def _apt_mark(flag: str) -> list[str] | None:
 
 def _collect() -> CollectorResult:
     """Collect package state without aborting when Dpkg or apt-mark is missing."""
+    failures: list[str] = []
     installed = _read_installed()
-    manual = _apt_mark("showmanual")
-    auto = _apt_mark("showauto")
-    held = _apt_mark("showhold")
+    if installed is None:
+        failures.append("dpkg status unavailable")
+    manual = _apt_mark("showmanual", failures)
+    auto = _apt_mark("showauto", failures)
+    held = _apt_mark("showhold", failures)
     if installed is None or manual is None or auto is None or held is None:
         empty = PackagesState(installed={}, manual=[], auto=[], held=[])
         return CollectorResult(
             status=CollectorStatus.UNAVAILABLE,
             data=asdict(empty),
-            error="dpkg status or apt-mark is unavailable",
+            error="; ".join(dict.fromkeys(failures)) or "dpkg status or apt-mark is unavailable",
         )
     state = PackagesState(installed=installed, manual=manual, auto=auto, held=held)
     return CollectorResult(status=CollectorStatus.OK, data=asdict(state))
