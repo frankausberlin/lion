@@ -320,35 +320,15 @@ through fixtures and mocks so the suite also passes on machines without them.
 ### End-to-end lifecycles
 
 ```bash
-just test-e2e  # requires Docker with a running daemon and just
+just test-e2e
 ```
 
-This builds an Ubuntu 24.04 image with the locked development dependencies and
-runs the installed `lion` executable as a subprocess. A locally built `.deb`
-(with no dependencies or maintainer scripts) is installed, scanned and purged.
-The test checks the complete package diff, create/confirm/append behavior,
-read-only status, persisted TOML, and all three historical states, including the
-return to the original state. It also checks that `lion history` lists those
-states oldest-first with their compact references and that `lion diff` resolves
-them by index, alias and compact reference — including the equal first/last
-states — and never writes. No collectors or package-manager calls are mocked.
+The opt-in Docker suite exercises the installed CLI with real package
+installation/removal and Shlib installation/removal in disposable environments.
+Ordinary `pytest`, `just test` and `just check` exclude these tests.
 
-The same container also tests Shlib installation and removal with a real Zsh,
-including literal secret values, script order, linked scripts, installer additions,
-syntax-failure handling and resulting permissions. All shell files live in a
-disposable home directory.
-
-Image construction needs network access; the test container runs with networking
-disabled, no host mounts and no privileged mode. Only its own package database is
-modified. The runner copies command logs, JUnit results and history into a unique
-`e2e-artifacts.*` directory before removing the container, even on test failure.
-These directories are gitignored and may be deleted after inspection.
-
-Ordinary `pytest`, `just test` and `just check` exclude the `e2e` marker. The test
-also skips unless the runner's opt-in flag, Docker marker and root user are
-present. Do not run the package lifecycle directly on a workstation. GitHub CI
-runs it in a separate job and uploads diagnostics on failure. This covers package
-changes; it does not validate physical GPU discovery.
+See [the E2E guide](tests/e2e/README.md) for prerequisites, isolation,
+covered scenarios, diagnostics and instructions for adding tests.
 
 ## Release
 
