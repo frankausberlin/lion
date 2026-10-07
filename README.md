@@ -36,7 +36,7 @@ Requires Linux and Python 3.12 or newer.
 ## Quickstart
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/frankausberlin/lion.git
 cd lion
 uv sync
 uv run lion scan     # capture the first state

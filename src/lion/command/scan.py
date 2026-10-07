@@ -10,6 +10,7 @@ import json
 import typer
 
 from lion.command import fail
+from lion.command.diagnostics import warn_incomplete
 from lion.program.storage import SaveOutcome, save_state
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
@@ -33,6 +34,7 @@ def run(json_output: bool = False) -> None:
     except (OSError, ValueError) as exc:
         fail(exc)
 
+    warn_incomplete(state)
     if json_output:
         payload: dict[str, object] = {
             "ereignis": outcome.event,

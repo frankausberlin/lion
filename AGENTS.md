@@ -199,3 +199,14 @@ just audit       # dependency vulnerability scan
   is a curated directory that links to it and never enumerates options.
 - Every statement has exactly one home: move prose between README and `docs/`
   instead of copying it, and link rather than restate.
+
+### Capture reliability
+
+- External-tool diagnostics retain stable causes without output or arguments.
+  Hardware retains available readings but marks incomplete discovery unavailable.
+- Scan/status warnings go to stderr, including unchanged incomplete captures;
+  preserve JSON stdout contracts.
+- Reject scans whose clock precedes the latest confirmation before modifying
+  history. Equal timestamps still use collision suffixes.
+- Exact comparison includes scalar types inside nested collections; only
+  MemTotal has the documented numeric tolerance.

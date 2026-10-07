@@ -305,3 +305,76 @@ def test_tool_timeout(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
     monkeypatch.setattr(tools.subprocess, "run", fake_run)
     assert hardware.COLLECTOR.collect().data["gpu"] == []
+
+
+@pytest.mark.parametrize(
+    ("failure", "message"),
+    [
+        (FileNotFoundError(), "executable not found"),
+        (subprocess.TimeoutExpired("tool", 10), "timed out"),
+        (PermissionError("sensitive detail"), "execution or decoding failed"),
+    ],
+)
+def test_tool_failure_diagnostics(monkeypatch: pytest.MonkeyPatch, failure: Exception, message: str) -> None:
+    """Keep stable failure causes without exposing subprocess output or arguments."""
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise failure
+
+    monkeypatch.setattr(tools.subprocess, "run", fail)
+    failures: list[str] = []
+    assert tools.run_tool(["tool", "secret"], timeout=10, failures=failures) is None
+    assert failures == [f"tool: {message}"]
+
+
+def test_nonzero_tool_diagnostic(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exit codes survive while potentially sensitive stdout does not."""
+
+    def run(*args: object, **kwargs: object) -> _Completed:
+        return _Completed(7, "secret")
+
+    monkeypatch.setattr(tools.subprocess, "run", run)
+    failures: list[str] = []
+    assert tools.run_tool(["tool"], timeout=10, failures=failures) is None
+    assert failures == ["tool: exit code 7"]
+
+
+def test_non_nvidia_machine_needs_no_nvidia_tool(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A successful empty PCI enumeration is different from failed discovery."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="model name: CPU", meminfo="MemTotal: 2048 kB")
+
+    def run(command: list[str], **kwargs: object) -> _Completed:
+        if command[0] == "lspci":
+            return _Completed(0, "")
+        raise FileNotFoundError
+
+    monkeypatch.setattr(tools.subprocess, "run", run)
+    assert hardware.COLLECTOR.collect().status == CollectorStatus.OK
+    _no_tools(monkeypatch)
+    result = hardware.COLLECTOR.collect()
+    assert result.status == CollectorStatus.UNAVAILABLE
+    assert "lspci: exit code 1" in result.error
+    assert result.data["cpu_model"] == "CPU"
+
+
+@pytest.mark.parametrize("pci_output", ["", "0000:01:00.0 VGA compatible controller: NVIDIA Corporation TU104\n"])
+def test_nvidia_banner_failure_survives_unbranded_name(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, pci_output: str
+) -> None:
+    """A successful NVIDIA query identifies NVIDIA even without a branded name."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="model name: CPU", meminfo="MemTotal: 2048 kB")
+
+    def run(command: list[str], **kwargs: object) -> _Completed:
+        if command[0] == "lspci":
+            return _Completed(0, pci_output)
+        if len(command) > 1:
+            return _Completed(0, "Tesla T4, 550.54, 15360 MiB, 00000000:01:00.0\n")
+        raise subprocess.TimeoutExpired(command, 10)
+
+    monkeypatch.setattr(tools.subprocess, "run", run)
+    result = hardware.COLLECTOR.collect()
+    assert result.status == CollectorStatus.UNAVAILABLE
+    assert result.error == "nvidia-smi: timed out"
+    assert result.data["gpu"] == [
+        {"name": "Tesla T4", "driver_version": "550.54", "memory_total_bytes": 15360 * 1024 * 1024}
+    ]

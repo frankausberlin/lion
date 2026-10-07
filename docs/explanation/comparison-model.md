@@ -25,7 +25,8 @@ canonical match of the `collectors` section, or a difference confined to
 
 `MemTotal` can wobble by a few KiB for purely technical reasons, which is not a
 hardware change. Only that one field has a tolerance; GPU memory and every other
-value compare exactly, and a valid reading never equals `0`. The timestamps do
+value compare exactly, including scalar types inside nested lists. A valid
+reading never equals `0`. The timestamps do
 not participate, but each collector's `status` and `error` do.
 
 ## Rendering a difference

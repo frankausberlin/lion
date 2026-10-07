@@ -413,3 +413,17 @@ def test_resolve_collision_references_are_distinct() -> None:
     assert resolve(f"{B_REF}~0001").ref == f"{B_REF}~0001"
     with pytest.raises(HistoryError, match="mehrdeutig"):
         resolve("2026-10-05T20:00:00Z")
+
+
+@pytest.mark.parametrize("hostname", ["lion", "changed"])
+def test_clock_rollback_leaves_history_unchanged(monkeypatch: pytest.MonkeyPatch, hostname: str) -> None:
+    """A rollback cannot move the head or silently invent an observation time."""
+    _freeze(monkeypatch, T1, T0, T2)
+    first = save_state(_host())
+    before = first.path.read_bytes()
+    with pytest.raises(HistoryError, match="clock"):
+        save_state(_host(hostname))
+    assert first.path.read_bytes() == before
+    assert len(_entry_files()) == 1
+    assert load_latest() == first.snapshot
+    assert save_state(_host(hostname)).snapshot.zuletzt_bestaetigt == T2.isoformat()

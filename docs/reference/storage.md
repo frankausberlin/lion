@@ -21,6 +21,13 @@ default data directory when `XDG_DATA_HOME` is unset).
   lock is released when the writer closes it or exits. `status` stays read-only
   and never takes the lock.
 
+## Clock rollback
+
+If the system clock precedes the latest confirmation, `scan` fails before
+modifying history. Correct the clock before retrying. Lion does not synthesize
+observation times or change existing references; equal timestamps still use
+the collision suffixes described above.
+
 ## Validation
 
 Every `.toml` entry is strictly validated: `schema_version = 1`, UTC offsets on

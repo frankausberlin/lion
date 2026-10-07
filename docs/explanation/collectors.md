@@ -34,3 +34,16 @@ collector section, which is what makes the comparison rules in the
 
 The data fields of each collector are listed in
 [Collectors](../reference/collectors.md).
+
+## Capture diagnostics
+
+External-tool failures retain a stable reason: missing executable, timeout,
+nonzero exit code, or execution/decoding failure. Output and arguments are not
+included. Hardware keeps available readings, but failed discovery, missing CPU
+model or missing/invalid MemTotal mark the section `unavailable`. NVIDIA tooling
+is optional when PCI discovery succeeds without NVIDIA and no NVIDIA query
+identifies a device. Optional per-device VRAM readings retain the zero fallback.
+
+`scan` and `status` warn on stderr for every non-OK collector, including unchanged
+failures and JSON mode. An incomplete capture can still be saved and exits
+successfully; its status and error are persisted and affect comparisons.
