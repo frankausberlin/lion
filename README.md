@@ -31,276 +31,35 @@ Requires Linux and Python 3.12 or newer.
 > * No initialization step is needed. `scan` creates its data directory automatically.
 > * Lion serve is only used in the agent harness
 > * tools, resources, prompts are not subcommands, just the description of the mcp functions used
+> * `shlib`, `scan`, `status`, `history` and `diff` exist today; `shell`, `watch`, `wiki`, `doctor` and `serve` are planned.
 
-## CLI structure
-
-Each CLI command is defined in `src/lion/command/<command>.py` (for example
-`scan.py`, `status.py`, `history.py` and `diff.py`) and exposed through a thin
-Typer decorator of the same name in `src/lion/cli.py`, which only wires
-options and delegates to the command's `run` function. Only `scan` (history) and
-`shlib` write; `status`, `history` and `diff` are strictly read-only. The shlib
-business logic (installation, removal, status, backups, file writes and syntax
-validation) lives in `src/lion/program/shlib.py`; `command/shlib.py` only
-calls it, prints the result and maps errors to CLI failures.
-
-Terminology: **status** is the read-only *command* that compares the current
-state with the last stored one, while **state** always refers to the internal
-representation (the collected collector mapping and the persisted `Snapshot`).
-The two words are not interchangeable.
-
-A command group that has a `status` subcommand runs it when invoked without
-arguments: `lion` is the same as `lion status`, and `lion shlib` is the same as
-`lion shlib status`. A group without a `status` subcommand shows its help
-instead. Every command has a detailed `--help` with its own examples.
-`lion --version` prints the version from the single source in
-`src/lion/__init__.py` and exits before any collector runs.
-
-## Zsh shell library
+## Quickstart
 
 ```bash
-lion shlib                  # same as shlib status; never writes
-lion shlib status --json    # installation, lock, script/export names and warnings
-lion shlib install
-lion shlib uninstall
+git clone <repo-url>
+cd lion
+uv sync
+uv run lion scan     # capture the first state
+uv run lion status   # compare the current state with the latest stored one
 ```
 
-Shlib manages `~/.zshrc` for the current user (no sudo). Zsh must be installed
-for syntax validation during installation and removal. A custom `ZDOTDIR`
-outside the home directory is rejected.
+See the [getting-started tutorial](docs/tutorials/getting-started.md) for the
+guided walkthrough.
 
-Installation backs up the existing `.zshrc` to `.zshrc.before-shlib` (numbered
-if already present), preserves its permissions, and moves its configuration
-into `~/.shlib/shlibs/00-original-zshrc.sh`. It creates `exports/`, `shlibs/`
-and the optional `dash/` directory below `~/.shlib`. The new `.zshrc` loads
-exports first, then scripts whose names start with two digits in lexical order.
-Keep export filenames valid shell identifiers and their permissions at `600`.
-Export values retain whitespace except trailing newlines, matching shell command
-substitution. `exports/.gitignore` excludes the secret files from normal Git adds.
-Do not force-add secrets to Git.
+## Documentation
 
-`.zshrc.lock` is a reference copy: shell startup displays differences, but does
-not prevent edits. `status` reports differences without displaying file contents
-or secret values. After reviewing intentional changes, refresh the reference
-with `cp ~/.zshrc ~/.zshrc.lock`.
+The full documentation lives in [`docs/`](docs/index.md), organized by
+[Diátaxis](https://diataxis.fr/):
 
-No extra Powerlevel10k or direnv hooks are inserted: existing setup stays in the
-original script. When splitting that script, keep instant-prompt initialization
-early and move the direnv hook to the end of your shell initialization. `dash/`
-is available for your own configuration symlinks; Lion does not populate it.
+- [Tutorials](docs/tutorials/getting-started.md) — learn by doing.
+- [How-to guides](docs/how-to/manage-shell-config.md) — one task at a time.
+- [Reference](docs/reference/cli.md) — CLI, data structures, storage and
+  collectors.
+- [Explanation](docs/explanation/architecture.md) — architecture, comparison
+  model and the write boundary.
+- [Decisions](docs/decisions/0001-no-root-write-boundary.md) — accepted ADRs.
 
-**Uninstall preserves the current configuration, not the pre-install state:**
-
-- Exports are consolidated into `~/.zshrc.exports` with mode `600` and literal,
-  shell-quoted values. `.zshrc` sources this file where the loader previously ran.
-- Script contents (also through symlinks) are inserted in load order, each with a
-  short filename comment. `.zshrc` keeps its original permissions.
-- Lines outside the SHLIB markers, including installer additions, remain in place.
-- Both generated files pass `zsh -f -n` before publication. Syntax diagnostics
-  are suppressed to avoid echoing secrets. Files are replaced atomically one at a
-  time; if rc replacement fails, the newly created exports file is removed.
-- A private `.zshrc.before-shlib-uninstall` backup is retained, as are `~/.shlib`,
-  `.zshrc.lock` and the original backups. Existing backups are never overwritten.
-
-Review file-relative script logic and top-level `return` statements: flattening
-can change their behavior. To deliberately return to the pre-Shlib configuration,
-inspect and restore the original `.zshrc.before-shlib` backup yourself; later
-configuration changes will then no longer be active.
-
-Already installed/uninstalled operations are no-ops. The documented manual
-SHLIB block is supported, while unknown changes inside that block require manual
-reconciliation. Existing `.zshrc.exports`, installation remnants, ambiguous
-markers, broken script symlinks and symlinked output files cause a clear error
-instead of an overwrite. Reinstallation after removal therefore requires
-reconciling retained files first. `install` and `uninstall` hold an exclusive
-process lock (`~/.shlib.lock`, separate from the reference copy `.zshrc.lock`)
-for the whole operation, so a concurrent lifecycle command fails fast with a
-clear message instead of interleaving; the lock file is retained but is not an
-installation remnant, and `status` never takes it. Do not edit shell
-configuration during an operation. Installation/removal never loads or executes
-the user's scripts.
-
-## Collectors
-
-Each collector lives with its dataclass in `src/lion/state/<collector>.py`
-and returns a section with a `status` (`ok`, `unavailable`, or `error`), an
-`error` message, and its data. A failing collector never aborts the whole
-capture: an exception is stored as an `error` section.
-
-Shared types (`CollectorStatus`, `CollectorResult`, `Collector`, and
-`collect_state`) live in `src/lion/state/collector.py`, and
-`src/lion/state/tools.py` provides the shared external-tool runner. The
-ordered registry is `src/lion/state/registry.py`, the persisted `Snapshot`
-model is `src/lion/state/model.py`, `src/lion/program/storage.py` owns
-the history, and `src/lion/program/diff.py` builds and renders the
-comparison.
-
-Version 1 ships three collectors:
-
-- **host** — hostname, distribution/version, kernel, architecture.
-- **hardware** — CPU model, logical CPU count, total memory, CUDA version, and
-  GPUs. Display controllers are enumerated with `lspci`; NVIDIA entries are
-  enriched with driver and memory details from `nvidia-smi`, and other cards get
-  their VRAM total from the DRM sysfs when the driver exposes it. Missing `/proc`
-  files use `Unknown`/`0`; when the helper tools are unavailable the GPU list is
-  empty. No volatile fields (clocks, temperatures, uptime).
-- **packages** — installed Dpkg packages (including held packages), keyed by
-  `name:architecture` when architecture metadata is present, plus sorted
-  `manual`, `auto`, and `held` selections from `apt-mark`. Missing Dpkg or
-  `apt-mark` marks the collector `unavailable`.
-
-## Comparison model
-
-`scan` writes and `status` only reads. A state has two timestamps: `erstscan`
-(first observation) and `zuletzt_bestaetigt` (last unchanged confirmation).
-
-- No stored state → a new entry is created (`created`).
-- Identical collector data → the latest entry's `zuletzt_bestaetigt` is
-  refreshed in place (`confirmed`); no new file is written.
-- Any difference → a new entry is appended (`appended`). The previous entry is
-  kept, so the history records every distinct state.
-
-Two states are compared using the shared rule in `src/lion/state/model.py`:
-an exact canonical match of the `collectors` section, or a difference confined to
-`hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
-`MemTotal` can wobble by a few KiB for purely technical reasons, which is not a
-hardware change. Only that one field has a tolerance; GPU memory and every other
-value compare exactly, and a valid reading never equals `0`. The timestamps do
-not participate, but each collector's `status` and `error` do. Returning states
-are not reactivated.
-
-`status` groups the difference per collector with `+` (added), `-` (removed),
-and `~` (changed) lines. If nothing changed, it says so; if no state exists, it
-tells you to run `lion scan`.
-
-## Stored states and `lion diff`
-
-`lion history` lists every stored state from oldest to newest and shows its
-stable reference. The reference is the file name without `.toml`, i.e. the
-`erstscan` in compact form (`2026-10-05T20-00-00.123456Z`), plus a `~NNNN`
-suffix for same-instant collisions. It never changes once published.
-`--limit N` shows only the newest `N` entries (oldest first within that
-selection) while keeping the global indices and stable references; the full
-history is still validated first, so a damaged older entry is never hidden.
-
-```bash
-uv run lion history
-uv run lion history --limit 5
-```
-
-```text
-  #  REF                           ZULETZT BESTÄTIGT
-  1  2026-10-05T18-00-00.123456Z   2026-10-05T20:00:00.123456+00:00
-  2  2026-10-05T20-00-00.123456Z   2026-10-05T20:00:00.123456+00:00  aktuell
-```
-
-`lion diff <alt> <neu>` compares two stored states without collecting or writing
-and reuses the same comparison rule as `status` (including the RAM tolerance).
-`<neu>` defaults to the latest state. References are resolved in this order:
-
-| Input | Meaning |
-| --- | --- |
-| `latest` / `head` / `aktuell` | newest entry by `zuletzt_bestaetigt` |
-| `previous` / `prev` / `vorherig` | the entry before that |
-| a bare number, e.g. `2` | 1-based index from `lion history` (1 = oldest) |
-| the compact reference | exact file name without `.toml` |
-| a unique prefix, e.g. `2026-10-05T18` | shortest unique match |
-| an ISO `erstscan`, e.g. `2026-10-05T18:00:00Z` | normalized for timezone and seconds |
-
-An ambiguous prefix or unknown reference fails with the valid references; fewer
-than two stored states is an error. `history` and `diff` validate every entry,
-so a damaged file stops them with its path instead of being skipped.
-
-## JSON output
-
-```bash
-uv run lion scan --json
-uv run lion status --json
-```
-
-`scan --json` outputs a single JSON object on stdout:
-
-```json
-{
-  "ereignis": "created",
-  "pfad": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
-  "zustand": {
-    "schema_version": 1,
-    "erstscan": "2026-10-05T20:00:00.123456+00:00",
-    "zuletzt_bestaetigt": "2026-10-05T20:00:00.123456+00:00",
-    "collectors": {"host": {"status": "ok", "error": "", "hostname": "workstation"}}
-  }
-}
-```
-
-`status --json` outputs the comparison:
-
-```json
-{
-  "geaendert": true,
-  "seit": "2026-10-05T20:00:00.123456+00:00",
-  "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
-}
-```
-
-With no stored state, `status --json` outputs `null` and exits successfully.
-Operational or invalid-state errors go to stderr with exit code `1` and no JSON
-on stdout. Because there is no interactive prompt, non-interactive CI and script
-use is safe.
-
-`history --json` outputs the listing:
-
-```json
-{
-  "eintraege": [
-    {
-      "index": 1,
-      "ref": "2026-10-05T20-00-00.123456Z",
-      "erstscan": "2026-10-05T20:00:00.123456+00:00",
-      "zuletzt_bestaetigt": "2026-10-05T20:00:00.123456+00:00",
-      "pfad": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
-      "aktuell": true
-    }
-  ]
-}
-```
-
-`diff --json` outputs the comparison:
-
-```json
-{
-  "von": {"ref": "2026-10-05T18-00-00.123456Z", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
-  "bis": {"ref": "2026-10-05T20-00-00.123456Z", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
-  "geaendert": true,
-  "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
-}
-```
-
-## Storage and compatibility
-
-The state history is TOML files under `$XDG_DATA_HOME/lion/history`, defaulting
-to `~/.local/share/lion/history`. New records use UTC timestamps and are named
-after their `erstscan`.
-
-New entries are published with a hard link so an existing entry is never
-overwritten; only refreshing `zuletzt_bestaetigt` rewrites the latest file, and
-it does so atomically via `os.replace`. This requires a filesystem supporting
-hard links.
-
-Concurrent scans serialize the complete read/compare/write operation using an
-exclusive process lock in `$XDG_DATA_HOME/lion/.history.lock` (under the default
-data directory when unset). The lock file remains in place; its lock is released
-when the writer closes it or exits. `status` remains read-only and does not lock.
-
-Every `.toml` entry is strictly validated (`schema_version = 1`, UTC offsets on
-both timestamps, a valid `status` per collector). Any unreadable or invalid
-entry stops `status` with its path in the error message instead of silently
-being skipped.
-
-The former `scans/` directory is no longer read and is left untouched; there is
-no migration. LION does not silently skip damaged files or fall back to older
-records. Existing history with unqualified package names remains readable; the
-first scan with architecture-qualified names records this representation change.
-The `manual`, `auto`, and `held` lists retain the names returned by `apt-mark`.
+Options are documented canonically in `lion <cmd> --help`.
 
 ## Development
 
@@ -309,32 +68,14 @@ just test       # tests and coverage; minimum 90%
 just lint       # lint, formatting and type check
 just fix        # auto-fix lint issues
 just check      # full quality gate
+just test-e2e   # opt-in Docker suite, excluded from just check
 ```
 
-Tests cover fixture-based collector readings, the history comparison model
-(create/confirm/append, dedup on status change, invalid entries), reference
-resolution, the diff and rendering, and the text/JSON CLI behavior of every
-read-only command. Collector tools (`nvidia-smi`, `apt-mark`, Dpkg) are exercised
-through fixtures and mocks so the suite also passes on machines without them.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow and conventions, and
+the [E2E guide](tests/e2e/README.md) for the Docker suite.
 
-### End-to-end lifecycles
+## License
 
-```bash
-just test-e2e
-```
-
-The opt-in Docker suite exercises the installed CLI with real package
-installation/removal and Shlib installation/removal in disposable environments.
-Ordinary `pytest`, `just test` and `just check` exclude these tests.
-
-See [the E2E guide](tests/e2e/README.md) for prerequisites, isolation,
-covered scenarios, diagnostics and instructions for adding tests.
-
-## Release
-
-```bash
-just bump patch
-git push origin main --tags
-```
+See [LICENSE](LICENSE).
 
 See [AGENTS.md](AGENTS.md) for AI agent guidelines.

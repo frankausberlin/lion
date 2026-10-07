@@ -53,6 +53,22 @@ External tools (`nvidia-smi`, `apt-mark`, Dpkg) are exercised through fixtures a
 mocks so the suite passes without them. Keep `just check` green, which includes
 coverage of at least 90%.
 
+## Documentation
+
+Public documentation lives in [`docs/`](docs/index.md) and follows
+[Diátaxis](https://diataxis.fr/): `tutorials/`, `how-to/`, `reference/` and
+`explanation/`. Place new content by intent and keep every statement in exactly
+one place. Accepted design decisions are recorded as ADRs under
+[`docs/decisions/`](docs/decisions/0000-template.md), one decision per file.
+
+Public docs, code, docstrings, `--help` texts and commit messages are English.
+Only the maintainer-local planning documents (untracked under `ignore/`) and the
+conversation with the maintainer are German.
+
+Command options stay canonical in `lion <cmd> --help`;
+[`docs/reference/cli.md`](docs/reference/cli.md) links to it instead of
+duplicating options.
+
 ## Conventions
 
 - **Python version:** 3.12

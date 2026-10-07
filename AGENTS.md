@@ -175,13 +175,27 @@ just audit       # dependency vulnerability scan
 
 ### Language and Project Documents
 
-- Code, docstrings, README, `--help` texts and commit messages stay English.
-  The conversation with the maintainer and the two project documents
-  [PROJECT_DEFINITION.de.md](PROJECT_DEFINITION.de.md) and
-  [ROADMAP.de.md](ROADMAP.de.md) are German; this is the only deliberate
-  exception to the English rule.
-- Read [PROJECT_DEFINITION.de.md](PROJECT_DEFINITION.de.md) for vision, scope,
-  terminology and principles, and [ROADMAP.de.md](ROADMAP.de.md) for phases and
-  open decisions. Both complement, and must not duplicate, README and `--help`.
+- Code, docstrings, README, `docs/`, `--help` texts and commit messages stay
+  English. The conversation with the maintainer and the two maintainer-local
+  planning documents are German; this is the only deliberate exception to the
+  English rule.
+- The German planning documents (`PROJECT_DEFINITION.de.md` for vision, scope,
+  terminology and principles; `ROADMAP.de.md` for phases and open decisions)
+  live maintainer-local and **untracked** under `ignore/`; they are absent in a
+  fresh clone. Read them locally when present, never link to them from tracked
+  files, and do not let them drift from the public README and `docs/`.
 - Development follows the Luxurious Python Stack and the `luxuspythonstack`
-  skill; workflow details stay here, not in the project definition.
+  skill; workflow details stay here, not in the planning documents.
+
+### Documentation (`docs/`)
+
+- `docs/` follows Diátaxis. Place new content by intent: `tutorials/`
+  (learning by doing), `how-to/` (one task), `reference/` (facts to look up),
+  `explanation/` (concepts and why). Decisions live as ADRs under
+  `docs/decisions/`, one decision per file.
+- `README.md` is the entry door and `docs/index.md` is the hub; keep both
+  links current.
+- Command depth stays canonical in `lion <cmd> --help`. `docs/reference/cli.md`
+  is a curated directory that links to it and never enumerates options.
+- Every statement has exactly one home: move prose between README and `docs/`
+  instead of copying it, and link rather than restate.
