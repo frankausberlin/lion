@@ -2,27 +2,35 @@
 
 # Lion
 
-**LION — Linux Operator Nerd** collects the machine state through small
-collectors, keeps a history of distinct states, and compares the current state
-with the latest stored one for people, scripts, and agents.
-The project, CLI, repository, and Python distribution/import package are all
-named `lion`.
+*(🚧 WIP)* The project is in an early stage of development.
+
+
+**LION - Linux Operator Nerd** tracks the machine status with collectors, enables structured system individualization with the shell library (shlib), optimizes agentic work on the system with an mcp server, enables the storage and management of shell recordings, offers a monitoring mechanism for commands with regex-based qualification and creates an OKF v0.2 compliant wiki about the system.
+
+***Lion requires no root and modifies no system files. Its writes are confined to Lion's own directories and the shell startup files it manages.***
+
 
 ## Getting started
 
 Requires Linux and Python 3.12 or newer.
 
-```bash
-uv sync
-uv run lion scan             # collect the current state and save it
-uv run lion status           # compare the current state with the latest saved one
-uv run lion history          # list every stored state and its stable reference
-uv run lion diff 1 2         # compare two stored states
-uv run lion --version        # print the package version
-uv run lion --help
-```
+|`lion`|command|sub|params|description|
+|-|-|-|-|-|
+||||--help\|--version|Shows the the help / version|
+||**shlib**<br><br><br>|[*status*]<br>*install*<br>*uninstall*||Shows the status of the Shlib system<br>Installs the Shlib system<br>Removes the Shlib system|
+||**scan**||--json|collect the current state and save it|
+||[**status**]||--json|compare the current state with the latest saved one|
+||**history**||--json\|--limit &lt;nr>|list every stored state and its stable reference|
+||**diff**||&lt;nr>\|&lt;nr> &lt;nr>\|previous|compare two stored states|
+||**shell**<br><br><br>|[*status*]<br>*insert*<br>*remove*||Shows whether the watch hook is inserted in zsh<br>Inserts the watch hook into zsh<br>Removes the watch hook from zsh|
+||**watch**<br><br><br><br>|[*status*]<br>*start*<br>*stop*<br>*dog*||Shows the status of lion watch<br>start watching<br>stop watching and offer the option to enter a description of the recording<br>Start in watch-dog-mode (requires confirmation of critical orders)|
+||**wiki**<br><br>|[*status*]<br>*sync*||Shows the status of the wiki<br>Rebuild the wiki with the current status and recording list|
+||**doctor**|||makes doctor stuff (under construction)|
+||**serve**<br><br><br>|*tools*<br>*resources*<br>*prompts*||Tools for agents to access Lion functions<br>The lion states and the recordings<br>Short recipes for agents to work optimally|
 
-No initialization step is needed. `scan` creates its data directory automatically.
+> * No initialization step is needed. `scan` creates its data directory automatically.
+> * Lion serve is only used in the agent harness
+> * tools, resources, prompts are not subcommands, just the description of the mcp functions used
 
 ## CLI structure
 
