@@ -11,6 +11,12 @@ running Docker daemon. The image build needs network access to fetch base
 images, OS packages and the locked Python dependencies. Python and Zsh for
 these tests are installed inside the image.
 
+The build requires BuildKit (the default since Docker 23) for its cache
+mounts; the legacy builder is not supported (`DOCKER_BUILDKIT=0` fails on the
+`RUN --mount` steps). The image installs only the `e2e` dependency group
+(`pytest`), not the `dev` group, so the heavy development tools never enter the
+test container.
+
 ```bash
 just test-e2e
 ```
@@ -20,7 +26,9 @@ No separate manual image setup is needed. Each invocation runs
 
 1. Creates a unique `e2e-artifacts.*` directory in the repository root.
 2. Builds the `lion-e2e` image using the local source,
-   [Dockerfile](Dockerfile) and `uv.lock`; Docker may reuse cached layers.
+   [Dockerfile](Dockerfile) and `uv.lock`; Docker may reuse cached layers. The
+   dependency layer is copied and installed before `src/`, so a source change
+   only rebuilds the project and test layers.
 3. Creates a fresh container with networking disabled and
    `LION_E2E_CONTAINER=1`, without host mounts or privileged mode.
 4. Runs pytest against `tests/e2e` with the `e2e` marker, temporary files
@@ -35,9 +43,9 @@ after changing code or tests so the image contains the current files.
 
 Package installation and removal happen only in the container's package
 database. The package scenario requires root **inside the disposable
-container**; Lion itself does not require root. Shlib uses a temporary
-`HOME` and `ZDOTDIR`, and package-history tests use a temporary
-`XDG_DATA_HOME`.
+container**; Lion itself does not require root. Shlib and the `doctor` scenario
+use a temporary `HOME` and `ZDOTDIR`, and package-history and `doctor` tests use
+a temporary `XDG_DATA_HOME`.
 
 Run this suite only through `just test-e2e`. Do not enable the opt-in flag
 manually on a workstation or execute the package mutation steps there.
@@ -55,11 +63,20 @@ count as a successful E2E validation.
 | --- | --- |
 | [Package lifecycle](test_package_lifecycle.py) | Builds a local dependency-free package without maintainer scripts; scans the baseline, installs, scans, purges and scans again. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. |
 | [Shlib lifecycle](test_shlib_lifecycle.py) | Installs and uninstalls with real Zsh in a temporary home. Checks literal export values, linked scripts, load order, installer additions, syntax-failure handling, file permissions and repeated uninstall. |
+| [Doctor environment](test_doctor_environment.py) | Runs `doctor` over a real filesystem: the deterministic bare profile, pure JSON, read-only preservation, reco permissions/content, hostile-filename safety, no-overwrite on a second run, damaged history and legacy `scans/`, and an unusable data path. |
+| [Doctor shlib](test_doctor_shlib.py) | Installs the real shell library and inspects the resulting `shlib.*` findings: clean install, missing reference copy, drifted `.zshrc`, missing directory, `dash/` defects, ambiguous markers and a foreign `ZDOTDIR`. |
 
 The package scenario retains three distinct history entries even when removal
 restores the initial collector data. The shlib scenario compares shell behavior
-before and after flattening. Physical GPU discovery is outside this suite's
-coverage.
+before and after flattening.
+
+Physical GPU discovery is outside this suite's coverage. The image deliberately
+installs no `lspci` and no `nvidia-smi`, which keeps the `doctor` hardware and
+`tools.lspci` findings deterministic; the environment scenario asserts that
+both tools are absent, so a base-image change fails loudly. One consequence is
+that a clean `ok`/`skip`-only `doctor` run is not reachable in this image, since
+a missing `lspci` is always at least a `warn`; the "clean run writes nothing"
+invariant therefore stays a unit test in `tests/test_doctor.py`.
 
 ## Results and troubleshooting
 
@@ -69,10 +86,10 @@ Read the pytest summary in the terminal and the final
 | Artifact | Purpose |
 | --- | --- |
 | `junit.xml` | Test results and assertion failures. |
-| `work/**/commands.log` | Package-scenario commands, exit codes, stdout and stderr. |
+| `work/**/commands.log` | Package- and doctor-scenario commands, exit codes, stdout and stderr. |
 | `work/**/shlib-commands.log` | Shlib-scenario commands and output. |
 | `work/**/data/lion/history/*.toml` | Persisted package-scenario snapshots. |
-| Other files under `work/` | Temporary shell configuration and package fixture files. |
+| Other files under `work/` | Temporary shell configuration, `recos/`, and package fixture files. |
 
 If the build fails before container creation, the diagnostics directory may be
 empty; use the terminal build output. For Docker connection errors, verify the
@@ -89,8 +106,10 @@ gitignored and can be deleted after inspection.
 
 ## Adding a scenario
 
-- Add a `test_*.py` file here with `pytestmark = pytest.mark.e2e` and the
-  appropriate container guards used by the existing tests.
+- Add a `test_*.py` file here with `pytestmark = pytest.mark.e2e`. The shared
+  [conftest.py](conftest.py) guards every test with the container check and
+  provides the `runner` (logged subprocess) and `env` (isolated child
+  environment) fixtures; no extra imports are needed.
 - Invoke the installed `lion` command as a subprocess. Use real tools for the
   lifecycle under test rather than mocking collectors or package-manager calls.
 - Isolate writable state with `tmp_path` and pass environment overrides only

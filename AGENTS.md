@@ -185,7 +185,8 @@ just audit       # dependency vulnerability scan
   for the full quality gate. Keep the configured coverage minimum of 90%;
   coverage does not replace assertions about behavior.
 - Ordinary pytest runs and `just check` exclude the `e2e` marker. When changing
-  package detection, persisted CLI lifecycles, shlib or the E2E runner, also run
+  package detection, persisted CLI lifecycles, shlib, the `doctor` checks or the
+  reco paths, or the E2E runner, also run
   `just test-e2e`. Never run the real package lifecycle on a workstation.
 - Read [tests/e2e/README.md](tests/e2e/README.md) before running or extending
   the E2E suite. It owns setup, isolation, diagnostics and scenario guidance.
