@@ -195,15 +195,10 @@ def status(home: Path) -> dict[str, object]:
     }
 
 
-def _install(home: Path) -> list[str]:
-    rc, lock = home / ".zshrc", home / ".zshrc.lock"
-    _regular_target(rc)
-    old = _read(rc) if rc.exists() else ""
-    if _parts(old) is not None:
-        return ["Shlib is already installed; no files changed."]
-    root = home / ".shlib"
+def _require_clean_install_target(home: Path, root: Path) -> None:
+    """Reject existing shlib paths that an install must not overwrite."""
     original = root / "shlibs" / "00-original-zshrc.sh"
-    for path in (lock, original, home / ".zshrc.exports"):
+    for path in (home / ".zshrc.lock", original, home / ".zshrc.exports"):
         if path.exists() or path.is_symlink():
             raise ValueError(f"Existing file requires manual reconciliation: {path}")
     for path in (root, root / "exports", root / "shlibs", root / "dash"):
@@ -214,6 +209,18 @@ def _install(home: Path) -> list[str]:
     ignore = root / "exports" / ".gitignore"
     if ignore.is_symlink() or (ignore.exists() and _read(ignore) != "*\n!.gitignore\n"):
         raise ValueError(f"Existing exports ignore file requires manual reconciliation: {ignore}")
+
+
+def _install(home: Path) -> list[str]:
+    rc, lock = home / ".zshrc", home / ".zshrc.lock"
+    _regular_target(rc)
+    old = _read(rc) if rc.exists() else ""
+    if _parts(old) is not None:
+        return ["Shlib is already installed; no files changed."]
+    root = home / ".shlib"
+    original = root / "shlibs" / "00-original-zshrc.sh"
+    _require_clean_install_target(home, root)
+    ignore = root / "exports" / ".gitignore"
     _ = _exports(root / "exports")
     _validate(old)
     _validate(BLOCK)
