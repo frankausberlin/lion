@@ -9,8 +9,18 @@ import pytest
 import tomli_w
 
 from lion.program import storage
+from lion.program.checks import CheckStatus, DoctorContext
 from lion.program.diff import diff_collectors
-from lion.program.storage import HistoryError, get_history_dir, list_entries, load_latest, resolve, save_state
+from lion.program.storage import (
+    HistoryError,
+    get_data_dir,
+    get_history_dir,
+    inspect_history,
+    list_entries,
+    load_latest,
+    resolve,
+    save_state,
+)
 from lion.state.model import Snapshot
 
 T0 = datetime(2026, 10, 5, 20, 0, 0, tzinfo=UTC)
@@ -427,3 +437,131 @@ def test_clock_rollback_leaves_history_unchanged(monkeypatch: pytest.MonkeyPatch
     assert len(_entry_files()) == 1
     assert load_latest() == first.snapshot
     assert save_state(_host(hostname)).snapshot.zuletzt_bestaetigt == T2.isoformat()
+
+
+def _ctx(tmp_path: Path) -> DoctorContext:
+    return DoctorContext(state={}, home=tmp_path)
+
+
+def test_inspect_history_empty() -> None:
+    """An empty or missing history yields no inspections."""
+    assert inspect_history() == []
+
+
+def test_inspect_history_reports_each_entry() -> None:
+    """A valid and a damaged entry are both reported without raising."""
+    get_history_dir().mkdir(parents=True)
+    _write_entry("a.toml", T0.isoformat(), T0.isoformat())
+    (get_history_dir() / "broken.toml").write_text("broken = [")
+
+    inspections = inspect_history()
+
+    by_name = {inspection.path.name: inspection for inspection in inspections}
+    assert by_name["a.toml"].snapshot is not None
+    assert by_name["a.toml"].error == ""
+    assert by_name["broken.toml"].snapshot is None
+    assert "broken.toml" in by_name["broken.toml"].error
+
+
+def test_history_checks_skip_when_empty(tmp_path: Path) -> None:
+    """No stored state is a neutral skip, not a problem."""
+    findings = storage.history_checks(_ctx(tmp_path))
+    assert [finding.status for finding in findings] == [CheckStatus.SKIP]
+
+
+def test_history_checks_ok_and_error(tmp_path: Path) -> None:
+    """Valid entries aggregate to ok and a damaged one is an error with its path."""
+    get_history_dir().mkdir(parents=True)
+    _write_entry("a.toml", T0.isoformat(), T0.isoformat())
+    (get_history_dir() / "broken.toml").write_text("broken = [")
+
+    findings = storage.history_checks(_ctx(tmp_path))
+    by_name = {finding.name: finding for finding in findings}
+
+    assert by_name["history.entries"].status == CheckStatus.OK
+    assert by_name["history.broken.toml"].status == CheckStatus.ERROR
+    assert "broken.toml" in by_name["history.broken.toml"].message
+
+
+def test_history_checks_detects_non_monotonic(tmp_path: Path) -> None:
+    """A decreasing confirmation time by file name is a warning."""
+    get_history_dir().mkdir(parents=True)
+    _write_entry("a.toml", T0.isoformat(), T2.isoformat())
+    _write_entry("b.toml", T1.isoformat(), T1.isoformat())
+
+    findings = storage.history_checks(_ctx(tmp_path))
+
+    assert any(finding.name == "history.order" and finding.status == CheckStatus.WARN for finding in findings)
+
+
+def test_history_checks_warns_on_legacy_scans(tmp_path: Path) -> None:
+    """The legacy ``scans/`` directory is reported as a warning."""
+    (get_data_dir() / "scans").mkdir(parents=True)
+
+    findings = storage.history_checks(_ctx(tmp_path))
+
+    assert any(finding.name == "history.scans" and finding.status == CheckStatus.WARN for finding in findings)
+
+
+def test_storage_checks_ok(tmp_path: Path) -> None:
+    """A writable data directory reports data_dir, history and recos as ok."""
+    findings = storage.storage_checks(_ctx(tmp_path))
+    assert [finding.status for finding in findings] == [CheckStatus.OK, CheckStatus.OK, CheckStatus.OK]
+
+
+def test_storage_checks_error_when_not_writable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-writable base directory is a single error."""
+
+    def deny_access(_path: object, _mode: int) -> bool:
+        return False
+
+    monkeypatch.setattr(storage.os, "access", deny_access)
+
+    findings = storage.storage_checks(_ctx(tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].status == CheckStatus.ERROR
+    assert findings[0].name == "storage.data_dir"
+
+
+def test_storage_checks_error_on_unreadable_subdir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An existing but non-writable ``history/`` is an error while recos stays ok."""
+    history = get_history_dir()
+    history.mkdir(parents=True)
+
+    def access(path: str | Path, mode: int) -> bool:
+        return Path(path) != history
+
+    monkeypatch.setattr(storage.os, "access", access)
+
+    findings = {finding.name: finding.status for finding in storage.storage_checks(_ctx(tmp_path))}
+
+    assert findings["storage.data_dir"] == CheckStatus.OK
+    assert findings["storage.history"] == CheckStatus.ERROR
+    assert findings["storage.recos"] == CheckStatus.OK
+
+
+def test_storage_checks_error_when_data_dir_is_file(tmp_path: Path) -> None:
+    """A regular file at the data-dir path is a single error, not a false ok."""
+    data_dir = get_data_dir()
+    data_dir.parent.mkdir(parents=True, exist_ok=True)
+    data_dir.write_text("not a directory")
+
+    findings = storage.storage_checks(_ctx(tmp_path))
+
+    assert len(findings) == 1
+    assert findings[0].status == CheckStatus.ERROR
+    assert findings[0].name == "storage.data_dir"
+
+
+def test_storage_checks_error_when_subdir_is_file(tmp_path: Path) -> None:
+    """A regular file where ``history/`` belongs is an error, not a false ok."""
+    history = get_history_dir()
+    history.parent.mkdir(parents=True, exist_ok=True)
+    history.write_text("not a directory")
+
+    findings = {finding.name: finding.status for finding in storage.storage_checks(_ctx(tmp_path))}
+
+    assert findings["storage.data_dir"] == CheckStatus.OK
+    assert findings["storage.history"] == CheckStatus.ERROR
+    assert findings["storage.recos"] == CheckStatus.OK

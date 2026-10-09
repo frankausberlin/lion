@@ -114,6 +114,16 @@ just audit       # dependency vulnerability scan
   `lion/__init__.py` eagerly and without collecting; `lion history --limit N`
   limits the already-validated listing to the newest N entries without
   renumbering them.
+- `doctor` is a read-only check framework: `program/checks.py` holds the shared
+  `CheckStatus`/`Finding`/`DoctorContext`/`Check` types (a leaf module, so the
+  owning check modules never import the aggregator and create a cycle); the
+  checks are owned by `state/diagnosis.py` (`collector_checks`, `tool_checks`),
+  `program/storage.py` (`history_checks`, `storage_checks`) and
+  `program/shlib.py` (`shlib_checks`); `program/doctor.py` only runs, orders and
+  renders them; `command/doctor.py` resolves the home, collects once and
+  publishes at most one `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any
+  finding is `warn`/`error`. `doctor` writes nothing when everything is
+  `ok`/`skip`, and LION never executes a reco (see ADR 0007).
 - Collector contract: never let one collector abort the capture, use `status`
   `unavailable`/`error` plus an `error` message instead, and never store
   volatile fields (clocks, temperatures, uptime).
@@ -126,6 +136,11 @@ just audit       # dependency vulnerability scan
   (the file name without `.toml`); `resolve` accepts aliases, 1-based indices,
   exact references, unique prefixes and ISO timestamps, validates every entry,
   and fails loudly on ambiguous or unknown references.
+- `doctor` is read-only except for at most one recommended script under
+  `$XDG_DATA_HOME/lion/recos` (published with `os.link`, never overwritten,
+  mode `700`, created only when a finding is `warn`/`error`); it never executes
+  the script and never stores a snapshot. Findings use `ok`/`warn`/`error`/`skip`
+  (`skip` neutral); the exit code is `1` only on `error`.
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
   unique string package selections and GPU lists with unique, nonempty `pci_id`
   ignore order. Other lists, duplicates and malformed identities remain atomic.
@@ -170,7 +185,8 @@ just audit       # dependency vulnerability scan
   for the full quality gate. Keep the configured coverage minimum of 90%;
   coverage does not replace assertions about behavior.
 - Ordinary pytest runs and `just check` exclude the `e2e` marker. When changing
-  package detection, persisted CLI lifecycles, shlib or the E2E runner, also run
+  package detection, persisted CLI lifecycles, shlib, the `doctor` checks or the
+  reco paths, or the E2E runner, also run
   `just test-e2e`. Never run the real package lifecycle on a workstation.
 - Read [tests/e2e/README.md](tests/e2e/README.md) before running or extending
   the E2E suite. It owns setup, isolation, diagnostics and scenario guidance.

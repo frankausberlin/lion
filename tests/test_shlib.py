@@ -17,6 +17,7 @@ from lion.cli import app
 from lion.command.shlib import Action
 from lion.command.shlib import run as run_shlib
 from lion.program import shlib
+from lion.program.checks import CheckStatus, DoctorContext
 
 runner = CliRunner()
 
@@ -331,3 +332,81 @@ def test_documented_manual_installation(home: Path) -> None:
     invoke("uninstall")
     assert rc.read_text().startswith("# p10k stays here\n")
     assert rc.read_text().endswith("# direnv stays at the end\n")
+
+
+def _doctor_ctx(home: Path) -> DoctorContext:
+    return DoctorContext(state={}, home=home)
+
+
+def test_shlib_checks_not_installed_is_skip(home: Path) -> None:
+    """An absent installation is a neutral skip."""
+    findings = shlib.shlib_checks(_doctor_ctx(home))
+    assert [finding.status for finding in findings] == [CheckStatus.SKIP]
+
+
+def test_shlib_checks_installed_ok(home: Path) -> None:
+    """A clean installation reports ok."""
+    invoke("install")
+    findings = shlib.shlib_checks(_doctor_ctx(home))
+    assert [finding.status for finding in findings] == [CheckStatus.OK]
+
+
+def test_shlib_checks_reports_warnings(home: Path) -> None:
+    """Export warnings and a changed reference become warnings."""
+    invoke("install")
+    token = home / ".shlib" / "exports" / "bad-name"
+    token.write_text("SECRET")
+    token.chmod(0o644)
+    (home / ".zshrc").write_text("# changed\n" + (home / ".zshrc").read_text())
+
+    findings = shlib.shlib_checks(_doctor_ctx(home))
+    statuses = [finding.status for finding in findings]
+
+    assert statuses.count(CheckStatus.WARN) >= 3
+    assert all("SECRET" not in finding.message for finding in findings)
+    assert any(finding.name == "shlib.lock" for finding in findings)
+
+
+def test_shlib_checks_dash_entries(home: Path) -> None:
+    """A regular file and a broken symlink in ``dash`` are warnings."""
+    invoke("install")
+    dash = home / ".shlib" / "dash"
+    (dash / "regular").write_text("x")
+    (dash / "broken").symlink_to(home / "missing")
+
+    findings = {finding.name: finding.status for finding in shlib.shlib_checks(_doctor_ctx(home))}
+
+    assert findings["shlib.dash.regular"] == CheckStatus.WARN
+    assert findings["shlib.dash.broken"] == CheckStatus.WARN
+
+
+def test_shlib_checks_ambiguous_markers_is_error(home: Path) -> None:
+    """Ambiguous markers become an error finding instead of raising."""
+    (home / ".zshrc").write_text(shlib.START + "\n" + shlib.START + "\n")
+
+    findings = shlib.shlib_checks(_doctor_ctx(home))
+
+    assert len(findings) == 1
+    assert findings[0].status == CheckStatus.ERROR
+    assert findings[0].name == "shlib.status"
+
+
+def test_shlib_checks_missing_dash_dir_is_ok(home: Path) -> None:
+    """A missing ``dash`` directory is not a problem."""
+    invoke("install")
+    (home / ".shlib" / "dash").rmdir()
+
+    findings = shlib.shlib_checks(_doctor_ctx(home))
+
+    assert [finding.status for finding in findings] == [CheckStatus.OK]
+
+
+def test_shlib_checks_dash_ignores_hidden(home: Path) -> None:
+    """Hidden entries in ``dash`` are ignored."""
+    invoke("install")
+    dash = home / ".shlib" / "dash"
+    (dash / ".hidden").write_text("x")
+
+    findings = shlib.shlib_checks(_doctor_ctx(home))
+
+    assert [finding.status for finding in findings] == [CheckStatus.OK]

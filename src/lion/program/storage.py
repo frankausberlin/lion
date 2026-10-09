@@ -6,6 +6,7 @@ appends a new distinct state. ``status`` never writes and only reads.
 
 import fcntl
 import os
+import tempfile
 import tomllib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ from typing import Literal, cast
 
 import tomli_w
 
+from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.state.model import Snapshot
 
 Event = Literal["created", "confirmed", "appended"]
@@ -38,6 +40,11 @@ def get_data_dir() -> Path:
 def get_history_dir() -> Path:
     """Return the LION state history directory."""
     return get_data_dir() / "history"
+
+
+def get_recos_dir() -> Path:
+    """Return the LION recommendation-script directory."""
+    return get_data_dir() / "recos"
 
 
 class HistoryError(ValueError):
@@ -296,23 +303,31 @@ def _stage(directory: Path, snapshot: Snapshot) -> Path:
     return temporary
 
 
+def _link_new(directory: Path, temporary: Path, stamp: datetime, extension: str) -> Path:
+    """Publish ``temporary`` via a hard link, never overwriting a file.
+
+    A collision adds a ``~``/``NNNN`` suffix. ``~`` sorts after ``.`` (the start
+    of ``.toml``), so a suffixed name orders after the base name and the
+    newest-entry tie-break holds.
+    """
+    counter = 0
+    while True:
+        suffix = "" if counter == 0 else f"~{counter:04d}"
+        path = directory / f"{stamp.strftime(COMPACT_TIMESTAMP_FORMAT)}{suffix}{extension}"
+        try:
+            os.link(temporary, path)
+        except FileExistsError:
+            counter += 1
+            continue
+        return path
+
+
 def _write_new_file(history_dir: Path, snapshot: Snapshot) -> Path:
     """Publish a completed entry via a hard link, never overwriting a file."""
     temporary = _stage(history_dir, snapshot)
     try:
         stamp = datetime.fromisoformat(snapshot.erstscan).astimezone(UTC)
-        counter = 0
-        while True:
-            # "~" sorts after "." (the start of ".toml"), so a collision-suffixed
-            # name orders after the base name and the newest-entry tie-break holds.
-            suffix = "" if counter == 0 else f"~{counter:04d}"
-            path = history_dir / f"{stamp.strftime(COMPACT_TIMESTAMP_FORMAT)}{suffix}.toml"
-            try:
-                os.link(temporary, path)
-            except FileExistsError:
-                counter += 1
-                continue
-            return path
+        return _link_new(history_dir, temporary, stamp, ".toml")
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -359,3 +374,200 @@ def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
         path = _write_new_file(get_history_dir(), snapshot)
         event: Event = "created" if latest is None else "appended"
         return SaveOutcome(event=event, path=path, snapshot=snapshot)
+
+
+@dataclass(frozen=True)
+class HistoryInspection:
+    """The outcome of inspecting one history entry without raising."""
+
+    path: Path
+    snapshot: Snapshot | None = None
+    error: str = ""
+
+
+def inspect_history() -> list[HistoryInspection]:
+    """Inspect every history entry without aborting on the first bad one.
+
+    Unlike :func:`list_entries` and :func:`load_latest`, this never raises for a
+    single damaged entry: each file is reported with its own status so ``doctor``
+    can list every problem instead of stopping at the first.
+    """
+    results: list[HistoryInspection] = []
+    for path in _entry_paths():
+        try:
+            results.append(HistoryInspection(path=path, snapshot=_load_entry(path)))
+        except (OSError, ValueError) as exc:
+            results.append(HistoryInspection(path=path, error=str(exc)))
+    return results
+
+
+def _history_order_findings(valid: list[tuple[str, Snapshot]]) -> list[Finding]:
+    """Warn when confirmation times are not non-decreasing by file name."""
+    previous: datetime | None = None
+    for _name, snapshot in sorted(valid, key=lambda item: item[0]):
+        instant = datetime.fromisoformat(snapshot.zuletzt_bestaetigt)
+        if previous is not None and instant < previous:
+            return [
+                Finding(
+                    topic="history",
+                    name="history.order",
+                    status=CheckStatus.WARN,
+                    message="Bestätigungszeiten sind nicht monoton zur Dateireihenfolge.",
+                    hint="Die neueste Auswahl kann verfälscht sein; die Zeitstempel prüfen.",
+                )
+            ]
+        previous = instant
+    return []
+
+
+def history_checks(_ctx: DoctorContext) -> list[Finding]:
+    """Check history integrity and legacy layout without raising."""
+    findings: list[Finding] = []
+    inspections = inspect_history()
+    if not inspections:
+        findings.append(
+            Finding(
+                topic="history",
+                name="history.entries",
+                status=CheckStatus.SKIP,
+                message="Keine History vorhanden.",
+                hint="Optional: 'lion scan' erfasst den ersten Zustand.",
+            )
+        )
+    else:
+        valid: list[tuple[str, Snapshot]] = []
+        for inspection in inspections:
+            snapshot = inspection.snapshot
+            if snapshot is None:
+                findings.append(
+                    Finding(
+                        topic="history",
+                        name=f"history.{inspection.path.name}",
+                        status=CheckStatus.ERROR,
+                        message=f"Beschädigter Eintrag: {inspection.error}",
+                        hint="Datei prüfen, sichern oder entfernen; LION überspringt sie nicht.",
+                    )
+                )
+            else:
+                valid.append((inspection.path.name, snapshot))
+        if valid:
+            findings.append(
+                Finding(
+                    topic="history",
+                    name="history.entries",
+                    status=CheckStatus.OK,
+                    message=f"{len(valid)} gültige Einträge.",
+                )
+            )
+            findings.extend(_history_order_findings(valid))
+    if (get_data_dir() / "scans").is_dir():
+        findings.append(
+            Finding(
+                topic="history",
+                name="history.scans",
+                status=CheckStatus.WARN,
+                message="Legacy-Verzeichnis 'scans/' vorhanden; es wird nicht mehr gelesen.",
+                hint="Die alten Dateien nach einer Prüfung manuell entfernen.",
+            )
+        )
+    return findings
+
+
+def _nearest_existing(path: Path) -> Path | None:
+    """Return the closest existing ancestor of ``path``, or ``None``."""
+    current = path
+    while not current.exists():
+        if current.parent == current:
+            return None
+        current = current.parent
+    return current
+
+
+def storage_checks(_ctx: DoctorContext) -> list[Finding]:
+    """Check that the data directory and its subdirectories are writable.
+
+    This is read-only: it never creates a directory or a lock file. The nearest
+    existing ancestor decides whether ``history/`` and ``recos/`` could be
+    created there.
+    """
+    findings: list[Finding] = []
+    data_dir = get_data_dir()
+    base = _nearest_existing(data_dir)
+    if base is None or not base.is_dir() or not os.access(base, os.W_OK):
+        findings.append(
+            Finding(
+                topic="storage",
+                name="storage.data_dir",
+                status=CheckStatus.ERROR,
+                message=f"Datenverzeichnis ist nicht schreibbar: {data_dir}",
+                hint="Rechte auf $XDG_DATA_HOME (oder das Benutzer-Home) prüfen.",
+            )
+        )
+        return findings
+    findings.append(
+        Finding(
+            topic="storage",
+            name="storage.data_dir",
+            status=CheckStatus.OK,
+            message=f"Datenverzeichnis schreibbar: {base}",
+        )
+    )
+    for label, directory in (("history", get_history_dir()), ("recos", get_recos_dir())):
+        if directory.exists():
+            writable = directory.is_dir() and os.access(directory, os.W_OK)
+        else:
+            writable = os.access(base, os.W_OK)
+        if writable:
+            findings.append(
+                Finding(
+                    topic="storage",
+                    name=f"storage.{label}",
+                    status=CheckStatus.OK,
+                    message=f"'{label}' ist schreibbar.",
+                )
+            )
+        else:
+            findings.append(
+                Finding(
+                    topic="storage",
+                    name=f"storage.{label}",
+                    status=CheckStatus.ERROR,
+                    message=f"'{label}' ist nicht schreibbar: {directory}",
+                    hint="Rechte prüfen; LION legt keine Verzeichnisse ohne Schreibrecht an.",
+                )
+            )
+    return findings
+
+
+def publish_reco(content: str) -> Path:
+    """Publish one recommendation script atomically, never overwriting one.
+
+    The ``recos/`` directory is created on demand with mode ``700``, the script
+    is written and fsynced to a temporary file with mode ``700``, and then
+    published with a hard link under ``<compact-timestamp>.sh`` (plus a
+    ``~NNNN`` suffix on collision). The destination is never overwritten and a
+    symlink there is never followed.
+
+    Args:
+        content: The complete script text.
+
+    Returns:
+        The path of the newly published script.
+
+    Raises:
+        OSError: If the directory or the script cannot be written.
+    """
+    recos_dir = get_recos_dir()
+    recos_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+    stamp = datetime.now(UTC)
+    fd, name = tempfile.mkstemp(prefix=".reco.", suffix=".tmp", dir=recos_dir)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o700)
+            _ = stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        return _link_new(recos_dir, temporary, stamp, ".sh")
+    finally:
+        temporary.unlink(missing_ok=True)

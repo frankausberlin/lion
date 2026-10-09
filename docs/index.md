@@ -20,6 +20,8 @@ reference reproduces it, and the other pages explain, guide and link.
   use and remove the Zsh shell library.
 - [Compare stored states](how-to/compare-states.md) — list the history and diff
   two states.
+- [Diagnose with doctor](how-to/diagnose-with-doctor.md) — run the read-only
+  diagnosis and review its fix script.
 
 ## Reference
 
@@ -50,3 +52,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0004 — A single RAM tolerance](decisions/0004-memory-total-tolerance.md)
 - [0005 — The CLI reference is generated](decisions/0005-generated-cli-reference.md)
 - [0006 — System profile and structural diff](decisions/0006-system-profile-and-structural-diff.md)
+- [0007 — `doctor` recommends, the human executes](decisions/0007-doctor-reco-human-executed.md)

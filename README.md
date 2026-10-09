@@ -32,6 +32,7 @@
 |[**status**]||--json|<li>compare the current state with the latest saved one|
 |**history**||--json\|--limit &lt;nr>|<li>list every stored state and its stable reference|
 |**diff**||&lt;nr>\|&lt;nr> &lt;nr>\|previous|<li>compare two stored states|
+|**doctor**||--json\|--show|<li>read-only diagnosis; writes a reviewable fix script when needed|
 
 ### planned
 
@@ -40,13 +41,12 @@
 |**shell**<br><br><br>|[*status*]<br>*insert*<br>*remove*||<li>Shows whether the watch hook is inserted in zsh<br><li>Inserts the watch hook into zsh<br><li>Removes the watch hook from zsh|
 |**watch**<br><br><br><br>|[*status*]<br>*start*<br>*stop*<br>*dog*||<li>Shows the status of lion watch<br><li>start watching<br><li>stop watching and offer the option to enter a description of the recording<br><li>Start in watch-dog-mode (requires confirmation of critical orders)|
 |**wiki**<br><br>|[*status*]<br>*sync*||<li>Shows the status of the wiki<br>Rebuild the wiki with the current status and recording list|
-|**doctor**|||<li>makes doctor stuff (under construction)|
 |**serve**<br><br><br>|*tools*<br>*resources*<br>*prompts*||<li>Tools for agents to access Lion functions<br><li>The lion states and the recordings<br><li>Short recipes for agents to work optimally|
 
 > * No initialization step is needed. `scan` creates its data directory automatically.
 > * Lion serve is only used in the agent harness
 > * tools, resources, prompts are not subcommands, just the description of the mcp functions used
-> * `shlib`, `scan`, `status`, `history` and `diff` exist today; `shell`, `watch`, `wiki`, `doctor` and `serve` are planned.
+> * `shlib`, `scan`, `status`, `history`, `diff` and `doctor` exist today; `shell`, `watch`, `wiki` and `serve` are planned.
 
 
 ## Quickstart

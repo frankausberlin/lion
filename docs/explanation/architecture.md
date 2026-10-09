@@ -7,7 +7,7 @@ LION separates the machine-state core from the CLI:
 | Layer | Location | Responsibility |
 | --- | --- | --- |
 | Collector framework | `src/lion/state/` | Collect the machine state, the snapshot model and its comparison rules. |
-| Programs | `src/lion/program/` | State history storage, the collector diff, and the shell library. |
+| Programs | `src/lion/program/` | State history storage, the collector diff, the shell library and the doctor checks. |
 | Commands | `src/lion/command/` | One module per command with a single `run` function. |
 | CLI | `src/lion/cli.py` | Typer decorators and command wiring only. |
 | Help texts | `src/lion/main.py` | The English epilogs and sub-app help. |
@@ -24,10 +24,18 @@ and syntax validation) lives in `src/lion/program/shlib.py`; `command/shlib.py`
 only calls it, prints the result and maps errors to CLI failures.
 `program/shlib.py` never imports Typer.
 
+`doctor` is a read-only framework: the shared check types live in
+`program/checks.py`, the checks are owned by the modules that own the data
+(`state/diagnosis.py` for collectors and tools, `program/storage.py` for history
+and storage, `program/shlib.py` for the shell library) and `program/doctor.py`
+only runs, orders and renders them. `command/doctor.py` resolves the home, runs
+the checks and publishes at most one reco script.
+
 ## Write boundary
 
-Only `scan` (to the state history) and `shlib` (to the shell configuration)
-write. `status`, `history` and `diff` are strictly read-only. See the
+Only `scan` (to the state history), `shlib` (to the shell configuration) and
+`doctor` (a reviewable recommendation script, never executed) write. `status`,
+`history` and `diff` are strictly read-only. See the
 [write boundary](write-boundary.md).
 
 ## Terminology: `status` vs. `state`
