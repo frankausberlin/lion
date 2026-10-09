@@ -53,3 +53,8 @@ def test_shlib_lifecycle(runner: Callable[..., str], env: dict[str, str]) -> Non
     assert root.exists() and linked.exists()
     run("lion", "shlib", "uninstall")
     assert not (Path.cwd() / "SHOULD_NOT_EXIST").exists()
+    # A reinstall after uninstall must fail loudly and leave the rc untouched (ADR-0008).
+    retained = rc.read_bytes()
+    run("lion", "shlib", "install", expected=1)
+    assert rc.read_bytes() == retained
+    assert not (home / ".zshrc.before-shlib.1").exists()
