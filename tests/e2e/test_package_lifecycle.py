@@ -2,8 +2,8 @@
 
 import json
 import os
-import subprocess
 import tomllib
+from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
@@ -20,32 +20,23 @@ def _mapping(value: object) -> dict[str, object]:
     return cast("dict[str, object]", value)
 
 
-def _run(args: list[str], env: dict[str, str], log: Path) -> str:
-    with log.open("a", encoding="utf-8") as stream:
-        stream.write(f"$ {args!r}\n")
-        stream.flush()
-        result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=60)
-        stream.write(f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}\n")
-    assert result.returncode == 0, f"{args!r}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    return result.stdout
-
-
 def _history(data: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in sorted((data / "lion" / "history").glob("*.toml"))}
 
 
-def test_package_lifecycle(tmp_path: Path) -> None:
+def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict[str, str]) -> None:
     """Detect installation and removal while preserving every distinct state."""
-    if os.environ.get("LION_E2E_CONTAINER") != "1" or not Path("/.dockerenv").exists() or os.geteuid() != 0:
-        pytest.skip("Requires the disposable root container started by just test-e2e")
+    if os.geteuid() != 0:
+        pytest.fail("Package lifecycle requires root inside the disposable container")
 
-    data = tmp_path / "data"
-    env = {**os.environ, "XDG_DATA_HOME": str(data), "LC_ALL": "C"}
-    log = tmp_path / "commands.log"
+    data = Path(env["XDG_DATA_HOME"])
+
+    def run(args: list[str]) -> str:
+        return runner(*args, env=env)
 
     def lion(command: str) -> dict[str, object]:
         before = _history(data)
-        output = _mapping(json.loads(_run(["lion", command, "--json"], env, log)))
+        output = _mapping(json.loads(run(["lion", command, "--json"])))
         if command == "status":
             assert _history(data) == before, "status changed the history"
         return output
@@ -64,25 +55,32 @@ def test_package_lifecycle(tmp_path: Path) -> None:
         assert tomllib.loads(path.read_text(encoding="utf-8")) == snapshot
         return output
 
-    def status(expected: dict[str, object]) -> None:
+    def status(expected: dict[str, object], structural: bool = False) -> None:
         output = lion("status")
         assert output["geaendert"] is bool(expected)
         assert output["unterschiede"] == expected
+        assert output["struktur_geaendert"] is structural
 
     # Build a package locally: no repository downloads, dependencies or maintainer scripts.
     root = tmp_path / "package"
     (root / "DEBIAN").mkdir(parents=True)
-    (root / "DEBIAN" / "control").write_text(
-        f"Package: {PACKAGE}\nVersion: {VERSION}\nArchitecture: all\n"
-        "Maintainer: LION Tests <tests@example.invalid>\n"
-        "Description: LION end-to-end fixture\n",
-        encoding="utf-8",
-    )
     payload = root / "usr" / "share" / PACKAGE
     payload.mkdir(parents=True)
     (payload / "probe.txt").write_text("LION E2E fixture\n", encoding="utf-8")
-    deb = tmp_path / f"{PACKAGE}.deb"
-    _run(["dpkg-deb", "--build", "--root-owner-group", str(root), str(deb)], env, log)
+
+    def build(version: str) -> Path:
+        (root / "DEBIAN" / "control").write_text(
+            f"Package: {PACKAGE}\nVersion: {version}\nArchitecture: all\n"
+            "Maintainer: LION Tests <tests@example.invalid>\n"
+            "Description: LION end-to-end fixture\n",
+            encoding="utf-8",
+        )
+        deb = tmp_path / f"{PACKAGE}-{version}.deb"
+        run(["dpkg-deb", "--build", "--root-owner-group", str(root), str(deb)])
+        return deb
+
+    deb = build(VERSION)
+    upgrade = build("2.0.0")
 
     initial = scan("created", 1)
     initial_state = _mapping(initial["zustand"])
@@ -104,7 +102,7 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     assert str(confirmed_state["zuletzt_bestaetigt"]) > str(initial_state["zuletzt_bestaetigt"])
     assert confirmed_state["collectors"] == initial_collectors
 
-    _run(["dpkg", "--install", str(deb)], env, log)
+    run(["dpkg", "--install", str(deb)])
     status(
         {
             "packages": {
@@ -113,7 +111,8 @@ def test_package_lifecycle(tmp_path: Path) -> None:
                     f"manual[{PACKAGE}]": PACKAGE,
                 },
             }
-        }
+        },
+        structural=True,
     )
     installed = scan("appended", 2)
     installed_collectors = _mapping(_mapping(installed["zustand"])["collectors"])
@@ -127,40 +126,57 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     }
     status({})
 
-    _run(["dpkg", "--purge", PACKAGE], env, log)
+    run(["dpkg", "--install", str(upgrade)])
+    upgrade_changes: dict[str, object] = {
+        "packages": {"changed": {f"installed.{IDENTITY}": {"old": VERSION, "new": "2.0.0"}}}
+    }
+    status(upgrade_changes)
+    upgraded = scan("appended", 3)
+    assert _mapping(_mapping(upgraded["zustand"])["collectors"]) == {
+        **installed_collectors,
+        "packages": {
+            **_mapping(installed_collectors["packages"]),
+            "installed": {**_mapping(packages["installed"]), IDENTITY: "2.0.0"},
+        },
+    }
+    status({})
+
+    run(["dpkg", "--purge", PACKAGE])
     status(
         {
             "packages": {
                 "removed": {
-                    f"installed.{IDENTITY}": VERSION,
+                    f"installed.{IDENTITY}": "2.0.0",
                     f"manual[{PACKAGE}]": PACKAGE,
                 },
             }
-        }
+        },
+        structural=True,
     )
-    removed = scan("appended", 3)
-    assert removed["pfad"] not in (initial["pfad"], installed["pfad"])
+    removed = scan("appended", 4)
+    assert removed["pfad"] not in (initial["pfad"], installed["pfad"], upgraded["pfad"])
     assert _mapping(removed["zustand"])["collectors"] == initial_collectors
     status({})
 
-    # --- lion history and lion diff over the three real persisted states ---
+    # --- lion history and lion diff over the four real persisted states ---
 
     def diff(*references: str) -> dict[str, object]:
-        return _mapping(json.loads(_run(["lion", "diff", *references, "--json"], env, log)))
+        return _mapping(json.loads(run(["lion", "diff", *references, "--json"])))
 
-    refs = [Path(str(state["pfad"])).stem for state in (initial, installed, removed)]
+    refs = [Path(str(state["pfad"])).stem for state in (initial, installed, upgraded, removed)]
     before_read = _history(data)
 
-    listing = _mapping(json.loads(_run(["lion", "history", "--json"], env, log)))
+    listing = _mapping(json.loads(run(["lion", "history", "--json"])))
     entries = cast("list[dict[str, object]]", listing["eintraege"])
-    assert [entry["index"] for entry in entries] == [1, 2, 3]
+    assert [entry["index"] for entry in entries] == [1, 2, 3, 4]
     assert [entry["ref"] for entry in entries] == refs
     assert entries[-1]["aktuell"] is True
-    human = _run(["lion", "history"], env, log)
+    human = run(["lion", "history"])
     assert all(ref in human for ref in refs)
 
     install_delta = diff("1", "2")
     assert install_delta["geaendert"] is True
+    assert install_delta["struktur_geaendert"] is True
     assert _mapping(install_delta["von"])["ref"] == refs[0]
     assert _mapping(install_delta["bis"])["ref"] == refs[1]
     assert _mapping(_mapping(install_delta["unterschiede"])["packages"])["added"] == {
@@ -168,14 +184,19 @@ def test_package_lifecycle(tmp_path: Path) -> None:
         f"manual[{PACKAGE}]": PACKAGE,
     }
 
+    upgrade_delta = diff("2", "3")
+    assert upgrade_delta["unterschiede"] == upgrade_changes
+    assert upgrade_delta["struktur_geaendert"] is False
+
     purge_delta = diff("previous", "latest")
+    assert purge_delta["struktur_geaendert"] is True
     assert _mapping(_mapping(purge_delta["unterschiede"])["packages"])["removed"] == {
-        f"installed.{IDENTITY}": VERSION,
+        f"installed.{IDENTITY}": "2.0.0",
         f"manual[{PACKAGE}]": PACKAGE,
     }
 
     # The purge restored the initial collectors: the first and last states are equal,
     # whether referenced by index or by their compact reference.
-    assert diff("1", "3")["geaendert"] is False
-    assert diff(refs[0], refs[2])["geaendert"] is False
+    assert diff("1", "4")["geaendert"] is False
+    assert diff(refs[0], refs[3])["geaendert"] is False
     assert _history(data) == before_read, "history or diff changed the history"

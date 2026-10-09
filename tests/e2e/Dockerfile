@@ -16,5 +16,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --group e2e --python /usr/bin/python3 --no-managed-python
 COPY tests/e2e/ tests/e2e/
 ENV PATH="/app/.venv/bin:$PATH"
-RUN mkdir /artifacts
+RUN useradd --uid 10001 --no-create-home --shell /bin/sh lion-e2e \
+    && mkdir /artifacts
 CMD ["uv", "run", "--no-sync", "pytest", "tests/e2e", "-m", "e2e", "-v", "--basetemp=/artifacts/work", "--junitxml=/artifacts/junit.xml"]

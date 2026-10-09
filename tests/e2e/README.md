@@ -43,7 +43,11 @@ after changing code or tests so the image contains the current files.
 
 Package installation and removal happen only in the container's package
 database. The package scenario requires root **inside the disposable
-container**; Lion itself does not require root. Shlib and the `doctor` scenario
+container**; Lion itself does not require root. The permissions scenarios
+switch to the dedicated unprivileged `lion-e2e` user
+using `runuser --preserve-environment`; only their temporary directories are
+owned by that user. Package mutation remains root-only. Shlib and the
+`doctor` scenarios
 use a temporary `HOME` and `ZDOTDIR`, and package-history and `doctor` tests use
 a temporary `XDG_DATA_HOME`.
 
@@ -54,19 +58,23 @@ checks the effective user. These checks prevent accidental execution and
 must remain in new scenarios.
 
 Ordinary `pytest`, `just test` and `just check` exclude the `e2e` marker.
-The Docker command explicitly selects it. A skipped lifecycle test does not
-count as a successful E2E validation.
+The Docker command explicitly selects it. The opted-in container run fails
+if any scenario is skipped; missing root
+privileges or a missing Docker marker are errors. Outside the runner, guards
+skip the suite to prevent accidental system mutations.
 
 ## Existing scenarios
 
 | Test | Behavior checked |
 | --- | --- |
-| [Package lifecycle](test_package_lifecycle.py) | Builds a local dependency-free package without maintainer scripts; scans the baseline, installs, scans, purges and scans again. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. |
+| [Package lifecycle](test_package_lifecycle.py) | Builds two local dependency-free package versions without maintainer scripts; scans the baseline, installs, upgrades, purges and scans each state. Checks structural changes for install/removal and a nonstructural version change for upgrade. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. |
 | [Shlib lifecycle](test_shlib_lifecycle.py) | Installs and uninstalls with real Zsh in a temporary home. Checks literal export values, linked scripts, load order, installer additions, syntax-failure handling, file permissions and repeated uninstall. |
 | [Doctor environment](test_doctor_environment.py) | Runs `doctor` over a real filesystem: the deterministic bare profile, pure JSON, read-only preservation, reco permissions/content, hostile-filename safety, no-overwrite on a second run, damaged history and legacy `scans/`, and an unusable data path. |
+| [Doctor permissions](test_doctor_permissions.py) | Runs scan, shlib installation and doctor as the unprivileged `lion-e2e` user. Checks preservation of existing history, shell files, exports and permissions; denied reco publication returns JSON/exit 1 without partial files. |
+| [Runner diagnostics](test_runner.py) | A real subprocess timeout retains the command and partial stdout/stderr. |
 | [Doctor shlib](test_doctor_shlib.py) | Installs the real shell library and inspects the resulting `shlib.*` findings: clean install, missing reference copy, drifted `.zshrc`, missing directory, `dash/` defects, ambiguous markers and a foreign `ZDOTDIR`. |
 
-The package scenario retains three distinct history entries even when removal
+The package scenario retains four distinct history entries even when removal
 restores the initial collector data. The shlib scenario compares shell behavior
 before and after flattening.
 
@@ -86,8 +94,8 @@ Read the pytest summary in the terminal and the final
 | Artifact | Purpose |
 | --- | --- |
 | `junit.xml` | Test results and assertion failures. |
-| `work/**/commands.log` | Package- and doctor-scenario commands, exit codes, stdout and stderr. |
-| `work/**/shlib-commands.log` | Shlib-scenario commands and output. |
+| `work/**/commands.log` | Package-, shlib- and doctor-scenario commands, exit codes, stdout and stderr. |
+| `work/**/user-commands.log` | Non-root doctor and shlib commands and output. |
 | `work/**/data/lion/history/*.toml` | Persisted package-scenario snapshots. |
 | Other files under `work/` | Temporary shell configuration, `recos/`, and package fixture files. |
 
