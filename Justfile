@@ -27,6 +27,17 @@ fix:
     uv run ruff check --fix .
     uv run ruff format .
 
+# Remove local caches and generated artifacts (keeps .venv, sources and docs)
+clean:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov .refactor site
+    rm -rf build dist ./*.egg-info
+    rm -rf e2e-artifacts.*
+    find . -path ./.venv -prune -o -path ./.git -prune -o -type d -name __pycache__ -print -exec rm -rf {} +
+    find . -path ./.venv -prune -o -path ./.git -prune -o -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -exec rm -f {} +
+    echo "Cleaned caches and generated artifacts (kept .venv, SESSION.md and JOURNAL.md)."
+
 # Regenerate docs/reference/cli.md from the Typer app
 docs:
     uv run python scripts/gen_cli_docs.py

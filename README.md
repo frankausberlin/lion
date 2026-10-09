@@ -84,6 +84,7 @@ just test       # tests and coverage; minimum 90%
 just lint       # lint, formatting and type check
 just fix        # auto-fix lint issues
 just check      # full quality gate
+just clean      # remove caches and generated artifacts
 just test-e2e   # opt-in Docker suite, excluded from just check
 ```
 
