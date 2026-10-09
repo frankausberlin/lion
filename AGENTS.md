@@ -167,6 +167,12 @@ just audit       # dependency vulnerability scan
   publication, fails a concurrent call with a clear message, is released on
   error or process exit, and is never created by `shlib status`. The retained
   lock file must not count as an installation remnant.
+- Shlib reinstall after uninstall stays fail-loud: `install` refuses (exit `1`)
+  while artifacts of a previous installation remain and never adopts or removes
+  them — the user reconciles first (ADR 0008). The config file, if ever needed,
+  lives at `$XDG_CONFIG_HOME/lion/config.toml` (TOML, integer `schema_version`);
+  a missing file means built-in defaults, an unreadable or invalid file is a
+  loud error; there is no config code in Phase 1 (ADR 0009).
 - External tools (`nvidia-smi`, `lspci`, `apt-mark`, Dpkg) are environment-dependent and
   are exercised through fixtures/mocks in ordinary tests. The opt-in
   `tests/e2e/` suite exercises real Dpkg and apt-mark in a disposable Docker

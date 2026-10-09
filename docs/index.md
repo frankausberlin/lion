@@ -53,3 +53,5 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0005 — The CLI reference is generated](decisions/0005-generated-cli-reference.md)
 - [0006 — System profile and structural diff](decisions/0006-system-profile-and-structural-diff.md)
 - [0007 — `doctor` recommends, the human executes](decisions/0007-doctor-reco-human-executed.md)
+- [0008 — A reinstall after uninstall fails loudly](decisions/0008-shlib-reinstall-fail-loud.md)
+- [0009 — Config file location and format conventions](decisions/0009-config-file-conventions.md)
