@@ -211,6 +211,33 @@ def _unknown(reference: str, entries: list[Entry]) -> HistoryError:
     return HistoryError(f"Unbekannte Referenz '{reference}'. Gültig: {options}")
 
 
+def _resolve_fuzzy(entries: list[Entry], token: str, lowered: str, reference: str) -> Entry:
+    """Resolve a non-alias, non-index reference to a unique entry.
+
+    An exact reference is resolved before derived tokens: for a same-instant
+    collision pair ``X``/``X~0001`` the compact token derived from the shared
+    ``erstscan`` equals ``X``, which would otherwise make ``X`` ambiguous.
+
+    Raises:
+        HistoryError: If the reference is missing or ambiguous.
+    """
+    exact_ref = [entry for entry in entries if entry.ref.lower() == lowered]
+    if len(exact_ref) == 1:
+        return exact_ref[0]
+    if exact_ref:
+        raise _ambiguous(reference, exact_ref)
+    for matches in (
+        _match_exact(entries, _input_variants(lowered)),
+        _match_prefix(entries, _input_variants(lowered)),
+        _match_instant(entries, token),
+    ):
+        if len(matches) == 1:
+            return matches[0]
+        if matches:
+            raise _ambiguous(reference, matches)
+    raise _unknown(reference, entries)
+
+
 def resolve(reference: str) -> Entry:
     """Resolve a compact reference, index, alias, prefix or ISO timestamp.
 
@@ -249,24 +276,7 @@ def resolve(reference: str) -> Entry:
         if not 1 <= index <= len(entries):
             raise HistoryError(f"Index {index} liegt außerhalb von 1..{len(entries)}.")
         return entries[index - 1]
-    # Resolve an exact reference before derived tokens: for a same-instant
-    # collision pair ``X``/``X~0001`` the compact token derived from the shared
-    # ``erstscan`` equals ``X``, which would otherwise make ``X`` ambiguous.
-    exact_ref = [entry for entry in entries if entry.ref.lower() == lowered]
-    if len(exact_ref) == 1:
-        return exact_ref[0]
-    if exact_ref:
-        raise _ambiguous(reference, exact_ref)
-    for matches in (
-        _match_exact(entries, _input_variants(lowered)),
-        _match_prefix(entries, _input_variants(lowered)),
-        _match_instant(entries, token),
-    ):
-        if len(matches) == 1:
-            return matches[0]
-        if matches:
-            raise _ambiguous(reference, matches)
-    raise _unknown(reference, entries)
+    return _resolve_fuzzy(entries, token, lowered, reference)
 
 
 def _load_head_for_write() -> tuple[Path, Snapshot] | None:
