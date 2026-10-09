@@ -251,20 +251,15 @@ def _collect_vram_totals() -> dict[str, int]:
     return totals
 
 
-def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
-    """Merge ``lspci`` devices with ``nvidia-smi`` details so no GPU is lost.
+def _discard_spurious_nvidia_failure(
+    failures: list[str] | None, nvidia: list[_NvidiaGpu], devices: list[_PciGpu]
+) -> None:
+    """Drop a redundant ``nvidia-smi`` failure when PCI proves no NVIDIA card.
 
-    ``lspci`` is the source of truth for which GPUs exist, because
-    ``nvidia-smi`` only ever reports NVIDIA cards. NVIDIA entries are matched
-    to their PCI slot and carry the richer driver and memory data; every other
-    card is reported with its kernel driver and its VRAM read from DRM sysfs
-    when the driver exposes it.
+    Vendor evidence is read before richer NVIDIA names replace the PCI
+    descriptions. The ``tools`` collector separately records whether
+    ``nvidia-smi`` exists, so its absence on a non-NVIDIA host is not an error.
     """
-    nvidia = _collect_nvidia_gpus(failures)
-    nvidia_by_id = {entry.pci_id: entry.state for entry in nvidia if entry.pci_id}
-    devices = _collect_pci_gpus(failures)
-    # Keep vendor evidence before richer NVIDIA names replace PCI descriptions.
-    # The ``tools`` collector separately records whether ``nvidia-smi`` exists.
     if (
         failures is not None
         and not nvidia
@@ -272,9 +267,11 @@ def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
         and not any(failure.startswith("lspci:") for failure in failures)
     ):
         failures[:] = [failure for failure in failures if not failure.startswith("nvidia-smi:")]
-    if not devices:
-        return sorted((entry.state for entry in nvidia), key=lambda gpu: gpu.pci_id)
-    vram_totals = _collect_vram_totals()
+
+
+def _merge_gpus(devices: list[_PciGpu], nvidia: list[_NvidiaGpu], vram_totals: dict[str, int]) -> list[GpuState]:
+    """Merge ``lspci`` devices with NVIDIA states by PCI slot, sorted by id."""
+    nvidia_by_id = {entry.pci_id: entry.state for entry in nvidia if entry.pci_id}
     gpus: list[GpuState] = []
     matched: set[str] = set()
     for device in devices:
@@ -297,6 +294,23 @@ def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
         if entry.pci_id not in matched:
             gpus.append(entry.state)
     return sorted(gpus, key=lambda gpu: gpu.pci_id)
+
+
+def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
+    """Merge ``lspci`` devices with ``nvidia-smi`` details so no GPU is lost.
+
+    ``lspci`` is the source of truth for which GPUs exist, because
+    ``nvidia-smi`` only ever reports NVIDIA cards. NVIDIA entries are matched
+    to their PCI slot and carry the richer driver and memory data; every other
+    card is reported with its kernel driver and its VRAM read from DRM sysfs
+    when the driver exposes it.
+    """
+    nvidia = _collect_nvidia_gpus(failures)
+    devices = _collect_pci_gpus(failures)
+    _discard_spurious_nvidia_failure(failures, nvidia, devices)
+    if not devices:
+        return sorted((entry.state for entry in nvidia), key=lambda gpu: gpu.pci_id)
+    return _merge_gpus(devices, nvidia, _collect_vram_totals())
 
 
 def _gpu_vendor(gpus: list[GpuState]) -> str:
