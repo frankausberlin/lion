@@ -243,16 +243,12 @@ def _install(home: Path) -> list[str]:
     return messages
 
 
-def _uninstall(home: Path) -> list[str]:
-    rc = home / ".zshrc"
-    _regular_target(rc)
-    text = _read(rc) if rc.exists() else ""
-    parts = _parts(text)
-    if parts is None:
-        return ["Shlib is not installed; no files changed."]
-    before, block, after = parts
-    # The documented manual loader is supported; unknown custom commands inside
-    # the managed block need reconciliation instead of being silently discarded.
+def _reject_custom_block(block: str) -> None:
+    """Reject a managed block that is neither ours nor the documented legacy one.
+
+    The documented manual loader is supported; unknown custom commands inside the
+    managed block need reconciliation instead of being silently discarded.
+    """
     legacy = [
         'SHLIB_RC_FILE="$HOME/.zshrc"; SHLIB_LOCK_FILE="$HOME/.zshrc.lock"',
         '[ -f "$SHLIB_LOCK_FILE" ] && ! cmp -s "$SHLIB_RC_FILE" "$SHLIB_LOCK_FILE" '
@@ -266,6 +262,17 @@ def _uninstall(home: Path) -> list[str]:
     commands = [line for line in block.splitlines() if line.strip() and not line.startswith("#")]
     if block != BLOCK and commands != legacy:
         raise ValueError("Custom SHLIB block: reconcile its commands before uninstalling.")
+
+
+def _uninstall(home: Path) -> list[str]:
+    rc = home / ".zshrc"
+    _regular_target(rc)
+    text = _read(rc) if rc.exists() else ""
+    parts = _parts(text)
+    if parts is None:
+        return ["Shlib is not installed; no files changed."]
+    before, block, after = parts
+    _reject_custom_block(block)
     root = home / ".shlib"
     if not (root / "shlibs").is_dir() or not (root / "exports").is_dir():
         raise ValueError("Incomplete shlib installation: exports/ and shlibs/ must exist.")
