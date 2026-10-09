@@ -140,6 +140,27 @@ Any `added` or `removed` entry makes the change *structural*; a diff with only
 `changed` entries is a pure value change, echoed as `struktur_geaendert` and the
 leading `Struktur geändert.` line in text output.
 
+## `doctor --json`
+
+```json
+{
+  "status": "error",
+  "geprueft": ["collectors", "tools", "history", "storage", "shlib"],
+  "befunde": [
+    {"topic": "tools", "name": "tools.nvidia_smi", "status": "warn",
+     "message": "…", "hint": "…", "commands": ["sudo …"]}
+  ],
+  "zusammenfassung": {"ok": 5, "warn": 2, "error": 1, "skip": 3},
+  "reco_pfad": "/home/user/.local/share/lion/recos/2026-10-09T12-00-00.123456Z.sh"
+}
+```
+
+`status` is the aggregate `ok`/`warn`/`error` (`skip` is neutral). Each finding
+has a stable `name`, its `topic`, one of the four statuses, a `message`, an
+optional `hint` and any `commands` that would be executable. `reco_pfad` is
+`null` when nothing was written (a clean run). See
+[Diagnose with doctor](../how-to/diagnose-with-doctor.md).
+
 ## Config (planned)
 
 A configuration file (`$XDG_CONFIG_HOME/lion/config.toml`) is planned but not

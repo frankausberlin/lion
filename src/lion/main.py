@@ -13,6 +13,7 @@ Common commands:
   lion scan            collect and store the current state
   lion history         list stored states with their stable references
   lion diff 1 2        compare two stored states
+  lion doctor          diagnose the machine and write a reviewable fix script
   lion shlib           manage the Zsh shell library (~/.shlib)
   lion --version       print the installed version
 
@@ -58,6 +59,21 @@ Examples:
   lion diff 1          compare entry 1 with the latest entry
   lion diff 1 2        compare entries 1 and 2
   lion diff previous   compare the previous entry with the latest
+"""
+
+DOCTOR_EPILOG = """Read-only. 'doctor' runs a fresh collection and checks the collectors, the external
+tools, the history, the data directory and the shell library. It never stores
+that state and never runs a fix.
+
+Findings use 'ok', 'warn', 'error' and 'skip'. If anything is 'warn' or 'error',
+exactly one reviewable script is written under $XDG_DATA_HOME/lion/recos/ for
+you to read and run yourself; LION never runs it.
+
+Examples:
+
+  lion doctor          show the diagnosis and the reco script path
+  lion doctor --show   also print the reco script to stdout
+  lion doctor --json   emit the findings as a single JSON object
 """
 
 SHLIB_HELP = """Manage the Zsh shell library that keeps ~/.zshrc small by moving configuration

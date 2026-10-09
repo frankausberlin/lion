@@ -17,6 +17,7 @@ import typer
 
 from lion import __version__
 from lion.command.diff import run as run_diff
+from lion.command.doctor import run as run_doctor
 from lion.command.history import run as run_history
 from lion.command.scan import run as run_scan
 from lion.command.shlib import Action
@@ -24,6 +25,7 @@ from lion.command.shlib import run as run_shlib
 from lion.command.status import run as run_status
 from lion.main import (
     DIFF_EPILOG,
+    DOCTOR_EPILOG,
     HISTORY_EPILOG,
     ROOT_EPILOG,
     SCAN_EPILOG,
@@ -98,6 +100,18 @@ def diff(
 ) -> None:
     """Compare two stored states without collecting or writing."""
     run_diff(reference, second, json_output)
+
+
+@app.command(epilog=DOCTOR_EPILOG)
+def doctor(
+    json_output: Annotated[bool, typer.Option("--json", help="Output the findings as JSON.")] = False,
+    show: Annotated[
+        bool,
+        typer.Option("--show", help="Also print the generated reco script (text mode only)."),
+    ] = False,
+) -> None:
+    """Run a read-only diagnosis and write a reviewable fix script."""
+    run_doctor(json_output, show)
 
 
 shlib_app = typer.Typer(

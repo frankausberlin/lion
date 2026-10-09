@@ -21,6 +21,9 @@ from collections.abc import Generator
 from contextlib import contextmanager
 from enum import StrEnum
 from pathlib import Path
+from typing import cast
+
+from lion.program.checks import CheckStatus, DoctorContext, Finding
 
 START = "# >>>>>> SHLIB for zsh"
 END = "# <<<<<< SHLIB for zsh"
@@ -296,3 +299,99 @@ def uninstall(home: Path) -> list[str]:
     """Flatten the shell library under ``home`` and return the report lines."""
     with mutation_lock(home):
         return _uninstall(home)
+
+
+def _dash_checks(directory: Path) -> list[Finding]:
+    """Check that every visible entry in ``dash`` is a live symlink."""
+    findings: list[Finding] = []
+    if not directory.is_dir():
+        return findings
+    for path in sorted(directory.iterdir(), key=lambda item: item.name):
+        if path.name.startswith("."):
+            continue
+        if not path.is_symlink():
+            findings.append(
+                Finding(
+                    topic="shlib",
+                    name=f"shlib.dash.{path.name}",
+                    status=CheckStatus.WARN,
+                    message=f"'dash' sollte nur Symlinks enthalten: {path.name} ist kein Symlink.",
+                    hint="Datei verschieben und als Symlink neu anlegen.",
+                )
+            )
+        elif not path.exists():
+            findings.append(
+                Finding(
+                    topic="shlib",
+                    name=f"shlib.dash.{path.name}",
+                    status=CheckStatus.WARN,
+                    message=f"Kaputter Symlink in 'dash': {path.name}",
+                    hint="Ziel reparieren oder den Symlink entfernen.",
+                )
+            )
+    return findings
+
+
+def shlib_checks(ctx: DoctorContext) -> list[Finding]:
+    """Check the shell-library installation state without writing.
+
+    This builds on :func:`status`; a ``ValueError`` (ambiguous markers, a
+    foreign ``ZDOTDIR``) becomes an ``error`` finding instead of aborting the
+    whole doctor run.
+    """
+    try:
+        result = status(ctx.home)
+    except (OSError, ValueError) as exc:
+        return [
+            Finding(
+                topic="shlib",
+                name="shlib.status",
+                status=CheckStatus.ERROR,
+                message=f"Shlib-Status nicht lesbar: {exc}",
+                hint="~/.zshrc und ~/.shlib manuell prüfen.",
+            )
+        ]
+    findings: list[Finding] = []
+    if not result.get("installed"):
+        findings.append(
+            Finding(
+                topic="shlib",
+                name="shlib.installed",
+                status=CheckStatus.SKIP,
+                message="Shlib ist nicht installiert.",
+                hint="Optional: 'lion shlib install' aktiviert die Shell-Library.",
+            )
+        )
+        return findings
+    findings.append(
+        Finding(
+            topic="shlib",
+            name="shlib.installed",
+            status=CheckStatus.OK,
+            message="Shlib ist installiert.",
+        )
+    )
+    warnings = result.get("warnings")
+    if isinstance(warnings, list):
+        for warning in cast("list[object]", warnings):
+            findings.append(
+                Finding(
+                    topic="shlib",
+                    name="shlib.warnings",
+                    status=CheckStatus.WARN,
+                    message=str(warning),
+                    hint="Installation prüfen oder 'lion shlib install' erneut ausführen.",
+                )
+            )
+    if result.get("lock") == "changed":
+        findings.append(
+            Finding(
+                topic="shlib",
+                name="shlib.lock",
+                status=CheckStatus.WARN,
+                message="~/.zshrc weicht von der Referenzkopie ~/.zshrc.lock ab.",
+                hint="Beabsichtigte Änderungen übernehmen oder die Referenz verwerfen.",
+            )
+        )
+    findings.extend(_dash_checks(ctx.home / ".shlib" / "dash"))
+    return findings

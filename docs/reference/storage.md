@@ -10,6 +10,21 @@ after their `erstscan` in compact form (`2026-10-05T20-00-00.123456Z`), plus a
 The writer's lock file lives at `$XDG_DATA_HOME/lion/.history.lock` (under the
 default data directory when `XDG_DATA_HOME` is unset).
 
+## Recommendation scripts
+
+`lion doctor` writes at most one reviewable fix script per run under
+`$XDG_DATA_HOME/lion/recos`, defaulting to `~/.local/share/lion/recos`. Each file
+is named after the run's UTC timestamp in compact form
+(`2026-10-09T12-00-00.123456Z.sh`), plus a `~NNNN` suffix for same-instant
+collisions. The directory and each script use mode `700`.
+
+The directory is created only when a fix is actually needed: a run whose findings
+are all `ok`/`skip` writes nothing. A script is published with a hard link
+(`os.link`), so an existing file is never overwritten and a symlink there is
+never followed. LION never executes a script; a human reads and runs it. See
+[Diagnose with doctor](../how-to/diagnose-with-doctor.md) and
+[ADR 0007](../decisions/0007-doctor-reco-human-executed.md).
+
 ## Publication and mutation
 
 - New entries are published with a hard link (`os.link`) so an existing entry is
