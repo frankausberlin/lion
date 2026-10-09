@@ -5,7 +5,9 @@ Typer decorators and the command wiring. ``main`` imports the app lazily so the
 two modules stay importable in either order without a cycle.
 """
 
-ROOT_EPILOG = """Common commands:
+ROOT_EPILOG = """Running 'lion' without a command is the same as 'lion status'.
+
+Common commands:
 
   lion                 compare the current state with the latest stored one
   lion scan            collect and store the current state
