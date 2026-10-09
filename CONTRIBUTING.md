@@ -64,9 +64,13 @@ Public docs, code, docstrings, `--help` texts and commit messages are English.
 Only the maintainer-local planning documents (untracked under `ignore/`) and the
 conversation with the maintainer are German.
 
-Command options stay canonical in `lion <cmd> --help`;
-[`docs/reference/cli.md`](docs/reference/cli.md) links to it instead of
-duplicating options.
+Command options stay canonical in `lion <cmd> --help`. The CLI reference
+[`docs/reference/cli.md`](docs/reference/cli.md) is generated from the Typer
+app; never edit it by hand, and regenerate it after CLI changes:
+
+```bash
+just docs
+```
 
 ## Conventions
 

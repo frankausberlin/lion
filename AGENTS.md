@@ -196,7 +196,9 @@ just audit       # dependency vulnerability scan
 - `README.md` is the entry door and `docs/index.md` is the hub; keep both
   links current.
 - Command depth stays canonical in `lion <cmd> --help`. `docs/reference/cli.md`
-  is a curated directory that links to it and never enumerates options.
+  is generated from the Typer app by `just docs` (`scripts/gen_cli_docs.py`);
+  never edit it by hand, and regenerate it after any CLI change. The source of
+  truth is `src/lion/cli.py` together with the help texts in `src/lion/main.py`.
 - Every statement has exactly one home: move prose between README and `docs/`
   instead of copying it, and link rather than restate.
 

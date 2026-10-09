@@ -5,9 +5,9 @@ compares stored states, and manages the Zsh configuration through the shell
 library (`shlib`). Everything runs locally and needs no root. See the
 [README](../README.md) for the pitch, the quickstart and the canonical promise.
 
-This documentation follows the [Diátaxis](https://diataxis.fr/) structure. The
-options of every command are documented canonically in `lion <cmd> --help`; the
-pages below explain, guide and link, they do not duplicate that depth.
+This documentation follows the [Diátaxis](https://diataxis.fr/) structure.
+Command depth stays canonical in `lion <cmd> --help`; the generated CLI
+reference reproduces it, and the other pages explain, guide and link.
 
 ## Tutorials
 
@@ -23,8 +23,8 @@ pages below explain, guide and link, they do not duplicate that depth.
 
 ## Reference
 
-- [CLI](reference/cli.md) — the command directory and where to find each
-  command's options.
+- [CLI](reference/cli.md) — the generated command reference: usage and options
+  for every command, produced from the app by `just docs`.
 - [Data structures](reference/data-structures.md) — the stored snapshot, the
   shlib status and the JSON output shapes.
 - [Storage](reference/storage.md) — paths, files, locks and compatibility.
@@ -48,3 +48,4 @@ pages below explain, guide and link, they do not duplicate that depth.
 - [0002 — `status` reads, `scan` writes](decisions/0002-status-read-only-scan-writes.md)
 - [0003 — History published with `os.link`](decisions/0003-history-publication-os-link.md)
 - [0004 — A single RAM tolerance](decisions/0004-memory-total-tolerance.md)
+- [0005 — The CLI reference is generated](decisions/0005-generated-cli-reference.md)

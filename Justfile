@@ -26,6 +26,10 @@ fix:
     uv run ruff check --fix .
     uv run ruff format .
 
+# Regenerate docs/reference/cli.md from the Typer app
+docs:
+    uv run python scripts/gen_cli_docs.py
+
 # Audit dependencies for known security vulnerabilities
 audit:
     uv run pip-audit
