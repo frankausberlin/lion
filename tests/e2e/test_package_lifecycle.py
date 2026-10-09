@@ -108,8 +108,10 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     status(
         {
             "packages": {
-                "added": {f"installed.{IDENTITY}": VERSION},
-                "changed": {"manual": {"old": manual, "new": installed_manual}},
+                "added": {
+                    f"installed.{IDENTITY}": VERSION,
+                    f"manual[{PACKAGE}]": PACKAGE,
+                },
             }
         }
     )
@@ -129,8 +131,10 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     status(
         {
             "packages": {
-                "removed": {f"installed.{IDENTITY}": VERSION},
-                "changed": {"manual": {"old": installed_manual, "new": manual}},
+                "removed": {
+                    f"installed.{IDENTITY}": VERSION,
+                    f"manual[{PACKAGE}]": PACKAGE,
+                },
             }
         }
     )
@@ -159,10 +163,16 @@ def test_package_lifecycle(tmp_path: Path) -> None:
     assert install_delta["geaendert"] is True
     assert _mapping(install_delta["von"])["ref"] == refs[0]
     assert _mapping(install_delta["bis"])["ref"] == refs[1]
-    assert _mapping(_mapping(install_delta["unterschiede"])["packages"])["added"] == {f"installed.{IDENTITY}": VERSION}
+    assert _mapping(_mapping(install_delta["unterschiede"])["packages"])["added"] == {
+        f"installed.{IDENTITY}": VERSION,
+        f"manual[{PACKAGE}]": PACKAGE,
+    }
 
     purge_delta = diff("previous", "latest")
-    assert _mapping(_mapping(purge_delta["unterschiede"])["packages"])["removed"] == {f"installed.{IDENTITY}": VERSION}
+    assert _mapping(_mapping(purge_delta["unterschiede"])["packages"])["removed"] == {
+        f"installed.{IDENTITY}": VERSION,
+        f"manual[{PACKAGE}]": PACKAGE,
+    }
 
     # The purge restored the initial collectors: the first and last states are equal,
     # whether referenced by index or by their compact reference.
