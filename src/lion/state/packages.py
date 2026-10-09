@@ -20,6 +20,28 @@ class PackagesState:
     held: list[str]
 
 
+def _parse_stanza(block: str) -> tuple[str, str] | None:
+    """Parse one Dpkg stanza into ``(identity, version)``, or ``None``."""
+    fields: dict[str, str] = {}
+    for line in block.splitlines():
+        # Indented lines continue the preceding field (usually Description).
+        if line.startswith((" ", "\t")):
+            continue
+        key, separator, value = line.partition(":")
+        if separator:
+            fields[key.strip()] = value.strip()
+    status = fields.get("Status", "").split()
+    if len(status) != 3 or status[2] != "installed":
+        return None
+    name = fields.get("Package")
+    version = fields.get("Version")
+    if not name or not version:
+        return None
+    architecture = fields.get("Architecture")
+    identity = f"{name}:{architecture}" if architecture else name
+    return identity, version
+
+
 def _read_installed() -> dict[str, str] | None:
     """Parse the Dpkg database, or ``None`` when it cannot be read."""
     try:
@@ -28,23 +50,9 @@ def _read_installed() -> dict[str, str] | None:
         return None
     installed: dict[str, str] = {}
     for block in text.split("\n\n"):
-        fields: dict[str, str] = {}
-        for line in block.splitlines():
-            # Indented lines continue the preceding field (usually Description).
-            if line.startswith((" ", "\t")):
-                continue
-            key, separator, value = line.partition(":")
-            if separator:
-                fields[key.strip()] = value.strip()
-        status = fields.get("Status", "").split()
-        if len(status) != 3 or status[2] != "installed":
-            continue
-        name = fields.get("Package")
-        version = fields.get("Version")
-        if name and version:
-            architecture = fields.get("Architecture")
-            identity = f"{name}:{architecture}" if architecture else name
-            installed[identity] = version
+        parsed = _parse_stanza(block)
+        if parsed is not None:
+            installed[parsed[0]] = parsed[1]
     return installed
 
 
