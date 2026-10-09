@@ -14,11 +14,12 @@ lint:
 typecheck:
     uv run basedpyright
 
-# Full local quality gate (lint + typecheck + tests)
+# Full local quality gate (lint + typecheck + docs + tests)
 check:
     uv run ruff check .
     uv run ruff format --check .
     uv run basedpyright
+    just docs-check
     uv run pytest --cov=src --cov-report=term-missing
 
 # Fix linting issues
@@ -29,6 +30,10 @@ fix:
 # Regenerate docs/reference/cli.md from the Typer app
 docs:
     uv run python scripts/gen_cli_docs.py
+
+# Verify docs/reference/cli.md matches the Typer app (no write)
+docs-check:
+    uv run python scripts/gen_cli_docs.py --check
 
 # Audit dependencies for known security vulnerabilities
 audit:

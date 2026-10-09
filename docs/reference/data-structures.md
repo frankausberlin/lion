@@ -73,10 +73,14 @@ stored file.
 ```json
 {
   "geaendert": true,
+  "struktur_geaendert": false,
   "seit": "2026-10-05T20:00:00.123456+00:00",
   "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
 }
 ```
+
+`struktur_geaendert` is `true` when any collector, key or list entry was added
+or removed (see [The `unterschiede` shape](#the-unterschiede-shape)).
 
 With no stored state it prints `null` and exits successfully. Operational or
 invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
@@ -105,6 +109,7 @@ invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
   "von": {"ref": "…", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
   "bis": {"ref": "…", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
   "geaendert": true,
+  "struktur_geaendert": false,
   "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
 }
 ```
@@ -123,6 +128,17 @@ Each collector carries one or more of:
 
 A collector that was added or removed wholesale is reported with the single key
 `"(collector)"`.
+
+Only `hardware.gpu` with unique, nonempty `pci_id` values (keys like
+`gpu[0000:01:00.0]`) and unique string selections `packages.manual`,
+`packages.auto` and `packages.held` (keys like `manual[zsh]`) are compared
+per identity. A different GPU slot appears as `removed` + `added`; a replacement
+in the same slot appears as changed fields. Other lists, duplicate identities
+and malformed entries retain their complete ordered value under `changed`.
+
+Any `added` or `removed` entry makes the change *structural*; a diff with only
+`changed` entries is a pure value change, echoed as `struktur_geaendert` and the
+leading `Struktur geändert.` line in text output.
 
 ## Config (planned)
 

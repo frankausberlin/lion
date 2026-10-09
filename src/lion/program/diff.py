@@ -4,6 +4,7 @@ import json
 from collections.abc import Mapping
 from typing import cast
 
+from lion.state.comparison import list_items
 from lion.state.model import value_equal
 
 CollectorDiff = dict[str, dict[str, dict[str, object]]]
@@ -13,6 +14,72 @@ def _as_mapping(value: object) -> Mapping[str, object] | None:
     if isinstance(value, dict):
         return cast("Mapping[str, object]", value)
     return None
+
+
+def _as_list(value: object) -> list[object] | None:
+    if isinstance(value, list):
+        return cast("list[object]", value)
+    return None
+
+
+def _tidy(
+    added: dict[str, object],
+    removed: dict[str, object],
+    changed: dict[str, object],
+) -> dict[str, dict[str, object]]:
+    result: dict[str, dict[str, object]] = {}
+    if added:
+        result["added"] = added
+    if removed:
+        result["removed"] = removed
+    if changed:
+        result["changed"] = changed
+    return result
+
+
+def _absorb(
+    fragment: Mapping[str, Mapping[str, object]],
+    added: dict[str, object],
+    removed: dict[str, object],
+    changed: dict[str, object],
+) -> None:
+    added.update(fragment.get("added", {}))
+    removed.update(fragment.get("removed", {}))
+    changed.update(fragment.get("changed", {}))
+
+
+def _diff_list(
+    old: list[object],
+    new: list[object],
+    path: str,
+    collector: str,
+) -> dict[str, dict[str, object]]:
+    """Compare two lists, element-wise when they carry a usable identity.
+
+    GPU lists with unique ``pci_id`` are matched per slot (keys like
+    ``gpu[0000:01:00.0]``); unique string package selections are compared per
+    value (keys like ``manual[zsh]``). Other or ambiguous lists stay atomic.
+    """
+    added: dict[str, object] = {}
+    removed: dict[str, object] = {}
+    changed: dict[str, object] = {}
+    old_by = list_items(f"{collector}.{path}", old)
+    new_by = list_items(f"{collector}.{path}", new)
+    if old_by is not None and new_by is not None:
+        for key in sorted(set(old_by) | set(new_by)):
+            item_path = f"{path}[{key}]"
+            if key not in old_by:
+                added[item_path] = new_by[key]
+            elif key not in new_by:
+                removed[item_path] = old_by[key]
+            else:
+                old_item = _as_mapping(old_by[key])
+                new_item = _as_mapping(new_by[key])
+                if old_item is not None and new_item is not None:
+                    _absorb(_diff_mapping(old_item, new_item, item_path, collector), added, removed, changed)
+    elif not value_equal(f"{collector}.{path}", old, new):
+        changed[path] = {"old": old, "new": new}
+    return _tidy(added, removed, changed)
 
 
 def _diff_mapping(
@@ -33,21 +100,18 @@ def _diff_mapping(
         else:
             old_value = old[key]
             new_value = new[key]
+            old_list = _as_list(old_value)
+            new_list = _as_list(new_value)
+            if old_list is not None and new_list is not None:
+                _absorb(_diff_list(old_list, new_list, path, collector), added, removed, changed)
+                continue
             old_map = _as_mapping(old_value)
             new_map = _as_mapping(new_value)
             if old_map is not None and new_map is not None:
-                for category, entries in _diff_mapping(old_map, new_map, path, collector).items():
-                    {"added": added, "removed": removed, "changed": changed}[category].update(entries)
+                _absorb(_diff_mapping(old_map, new_map, path, collector), added, removed, changed)
             elif not value_equal(f"{collector}.{path}", old_value, new_value):
                 changed[path] = {"old": old_value, "new": new_value}
-    result: dict[str, dict[str, object]] = {}
-    if added:
-        result["added"] = added
-    if removed:
-        result["removed"] = removed
-    if changed:
-        result["changed"] = changed
-    return result
+    return _tidy(added, removed, changed)
 
 
 def diff_collectors(
@@ -88,6 +152,15 @@ def _category(section: Mapping[str, object], key: str) -> Mapping[str, object]:
     if isinstance(value, dict):
         return cast("Mapping[str, object]", value)
     return {}
+
+
+def has_structural_change(diff: Mapping[str, Mapping[str, object]]) -> bool:
+    """Return whether a diff contains a structural change.
+
+    A structural change adds or removes a collector, key or list entry; a pure
+    value change only appears under ``changed``.
+    """
+    return any(_category(section, "added") or _category(section, "removed") for section in diff.values())
 
 
 def render(diff: Mapping[str, Mapping[str, object]]) -> str:

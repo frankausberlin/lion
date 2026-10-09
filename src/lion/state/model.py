@@ -7,6 +7,7 @@ from datetime import datetime
 from typing import TypeGuard, cast
 
 from lion.state.collector import CollectorStatus
+from lion.state.comparison import list_items
 
 SCHEMA_VERSION = 1
 VALID_STATUSES = frozenset(status.value for status in CollectorStatus)
@@ -58,7 +59,8 @@ def value_equal(path: str, old: object, new: object) -> bool:
     """Return whether two state values are equal under the comparison rules.
 
     Only :data:`MEMORY_TOTAL_PATH` uses a tolerance; every other value is
-    compared exactly. ``status`` and ``scan`` share this rule.
+    compared exactly, with order ignored only for unambiguous GPU lists and
+    package selections. ``status`` and ``scan`` share this rule.
 
     Args:
         path: The full dotted path of the value, e.g. ``hardware.memory_total_bytes``.
@@ -70,6 +72,11 @@ def value_equal(path: str, old: object, new: object) -> bool:
     """
     if path == MEMORY_TOTAL_PATH:
         return memory_total_equal(old, new)
+    if isinstance(old, list) and isinstance(new, list):
+        old_items = list_items(path, cast("list[object]", old))
+        new_items = list_items(path, cast("list[object]", new))
+        if old_items is not None and new_items is not None:
+            return _mapping_equal(old_items, new_items, path)
     return json.dumps(old, sort_keys=True) == json.dumps(new, sort_keys=True)
 
 
@@ -101,9 +108,10 @@ def collectors_equal(
 ) -> bool:
     """Return whether two collector sections describe the same machine state.
 
-    Equality is the exact canonical match, or a difference confined to
-    ``hardware.memory_total_bytes`` within the RAM tolerance. This is the single
-    rule shared by ``status`` and the ``scan`` history decision, so both agree.
+    Equality ignores ordering for known lists with unique identities and
+    applies the RAM tolerance to ``hardware.memory_total_bytes``. Other values
+    compare exactly. This rule is shared by ``status`` and the ``scan`` history
+    decision, so both agree.
 
     Args:
         old: The previously stored collector sections.

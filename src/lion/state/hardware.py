@@ -11,24 +11,55 @@ UNKNOWN = "Unknown"
 TIMEOUT_SECONDS = 10
 _DISPLAY_CLASSES = ("vga compatible controller", "3d controller", "display controller")
 SYSFS_DRM = "/sys/class/drm"
+SYSFS_PCI = "/sys/bus/pci/devices"
+
+VENDOR_UNKNOWN = "unknown"
+VENDOR_NONE = "none"
+VENDOR_MIXED = "mixed"
+
+_PCI_VENDORS = {0x10DE: "nvidia", 0x1002: "amd", 0x8086: "intel"}
+
+
+def _read_gpu_vendor(pci_id: str, name: str) -> str:
+    """Read the numeric PCI vendor, falling back to the device description.
+
+    Vendor identity does not depend on a proprietary, open-source or passthrough
+    driver being active. Unknown numeric vendors stay unknown.
+    """
+    try:
+        with open(os.path.join(SYSFS_PCI, pci_id, "vendor"), encoding="utf-8") as handle:
+            vendor_id = int(handle.read().strip(), 16)
+    except (OSError, ValueError):
+        description = name.lower()
+        if description.startswith("nvidia "):
+            return "nvidia"
+        if description.startswith(("amd ", "amd/ati ", "advanced micro devices")):
+            return "amd"
+        if description.startswith("intel "):
+            return "intel"
+        return VENDOR_UNKNOWN
+    return _PCI_VENDORS.get(vendor_id, VENDOR_UNKNOWN)
 
 
 @dataclass(frozen=True)
 class GpuState:
-    """One GPU, enriched with ``nvidia-smi`` details when available."""
+    """One GPU with its PCI identity, kernel driver and readings."""
 
+    pci_id: str
     name: str
+    vendor: str
+    driver: str
     driver_version: str
     memory_total_bytes: int
 
 
 @dataclass
 class _PciGpu:
-    """A display controller found by ``lspci``; the driver is filled while parsing."""
+    """A display controller found by ``lspci``; its kernel driver is filled while parsing."""
 
     pci_id: str
     name: str
-    driver_version: str = ""
+    driver: str = ""
 
 
 @dataclass(frozen=True)
@@ -47,6 +78,8 @@ class HardwareState:
     cpu_logical_cores: int
     memory_total_bytes: int
     cuda_version: str
+    gpu_vendor: str
+    compute_platform: str
     gpu: list[GpuState]
 
 
@@ -148,7 +181,7 @@ def _collect_pci_gpus(failures: list[str] | None = None) -> list[_PciGpu]:
                 devices.append(current)
             continue
         if current is not None and line.strip().startswith("Kernel driver in use:"):
-            current.driver_version = line.split(":", 1)[1].strip()
+            current.driver = line.split(":", 1)[1].strip()
     return devices
 
 
@@ -166,12 +199,16 @@ def _collect_nvidia_gpus(failures: list[str] | None = None) -> list[_NvidiaGpu]:
         fields = [field.strip() for field in line.split(",")]
         if len(fields) != 4:
             continue
+        pci_id = _normalize_pci_id(fields[3])
         state = GpuState(
+            pci_id=pci_id,
             name=fields[0],
+            vendor="nvidia",
+            driver="nvidia",
             driver_version=fields[1],
             memory_total_bytes=_parse_mib(fields[2]),
         )
-        gpus.append(_NvidiaGpu(pci_id=_normalize_pci_id(fields[3]), state=state))
+        gpus.append(_NvidiaGpu(pci_id=pci_id, state=state))
     return gpus
 
 
@@ -227,15 +264,16 @@ def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
     nvidia_by_id = {entry.pci_id: entry.state for entry in nvidia if entry.pci_id}
     devices = _collect_pci_gpus(failures)
     # Keep vendor evidence before richer NVIDIA names replace PCI descriptions.
+    # The ``tools`` collector separately records whether ``nvidia-smi`` exists.
     if (
         failures is not None
         and not nvidia
-        and not any("nvidia" in device.name.lower() for device in devices)
+        and not any(_read_gpu_vendor(device.pci_id, device.name) == "nvidia" for device in devices)
         and not any(failure.startswith("lspci:") for failure in failures)
     ):
         failures[:] = [failure for failure in failures if not failure.startswith("nvidia-smi:")]
     if not devices:
-        return [entry.state for entry in nvidia]
+        return sorted((entry.state for entry in nvidia), key=lambda gpu: gpu.pci_id)
     vram_totals = _collect_vram_totals()
     gpus: list[GpuState] = []
     matched: set[str] = set()
@@ -247,19 +285,58 @@ def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
         else:
             gpus.append(
                 GpuState(
+                    pci_id=device.pci_id,
                     name=device.name,
-                    driver_version=device.driver_version,
+                    vendor=_read_gpu_vendor(device.pci_id, device.name),
+                    driver=device.driver,
+                    driver_version="",
                     memory_total_bytes=vram_totals.get(device.pci_id, 0),
                 )
             )
     for entry in nvidia:
         if entry.pci_id not in matched:
             gpus.append(entry.state)
-    return gpus
+    return sorted(gpus, key=lambda gpu: gpu.pci_id)
+
+
+def _gpu_vendor(gpus: list[GpuState]) -> str:
+    """Summarize the vendors of every detected GPU.
+
+    Returns ``none`` without GPUs, the single shared vendor when they agree,
+    ``unknown`` when only unidentified drivers were seen, and ``mixed`` when
+    several different vendors are present.
+    """
+    vendors = {gpu.vendor for gpu in gpus}
+    if not vendors:
+        return VENDOR_NONE
+    if vendors == {VENDOR_UNKNOWN}:
+        return VENDOR_UNKNOWN
+    if len(vendors) == 1:
+        return next(iter(vendors))
+    return VENDOR_MIXED
+
+
+def _compute_platform(gpus: list[GpuState]) -> str:
+    """Return a driver-derived hint for later compute diagnostics.
+
+    ``nvidia`` suggests CUDA and ``amdgpu``/``radeon`` suggests ROCm. This
+    heuristic proves neither GPU support, installed runtimes nor working compute.
+    ``none`` means no matching driver evidence, not proof of no capability.
+    """
+    drivers = {gpu.driver for gpu in gpus}
+    has_nvidia = "nvidia" in drivers
+    has_amd = bool(drivers & {"amdgpu", "radeon"})
+    if has_nvidia and has_amd:
+        return "mixed"
+    if has_nvidia:
+        return "cuda"
+    if has_amd:
+        return "rocm"
+    return "none"
 
 
 def _collect_cuda_version(failures: list[str] | None = None) -> str:
-    """Best-effort CUDA version parsed from the standard nvidia-smi banner."""
+    """Read driver-reported CUDA support from the banner, not a toolkit version."""
     output = run_tool(["nvidia-smi"], timeout=TIMEOUT_SECONDS, failures=failures)
     if not output:
         return ""
@@ -274,12 +351,18 @@ def _collect_cuda_version(failures: list[str] | None = None) -> str:
 def _collect() -> CollectorResult:
     """Collect hardware facts; missing tools or files never fail the capture."""
     failures: list[str] = []
+    # Collect the CUDA version before the GPU list: the GPU merge suppresses a
+    # redundant ``nvidia-smi`` failure once PCI discovery proves no NVIDIA card.
+    cuda_version = _collect_cuda_version(failures)
+    gpus = _collect_gpus(failures)
     state = HardwareState(
         cpu_model=_read_cpu_model(),
         cpu_logical_cores=os.cpu_count() or 0,
         memory_total_bytes=_read_memory_total(),
-        cuda_version=_collect_cuda_version(failures),
-        gpu=_collect_gpus(failures),
+        cuda_version=cuda_version,
+        gpu_vendor=_gpu_vendor(gpus),
+        compute_platform=_compute_platform(gpus),
+        gpu=gpus,
     )
     if state.cpu_model == UNKNOWN:
         failures.append("CPU model unavailable")

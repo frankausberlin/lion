@@ -10,7 +10,7 @@ import json
 import typer
 
 from lion.command import fail, reference_json
-from lion.program.diff import diff_collectors, render
+from lion.program.diff import diff_collectors, has_structural_change, render
 from lion.program.storage import HistoryError, list_entries, resolve
 
 
@@ -31,15 +31,19 @@ def run(reference: str, second: str | None = None, json_output: bool = False) ->
         fail(exc)
 
     diff = diff_collectors(old.snapshot.collectors, new.snapshot.collectors)
+    structural = has_structural_change(diff)
     if json_output:
         payload: dict[str, object] = {
             "von": reference_json(old),
             "bis": reference_json(new),
             "geaendert": bool(diff),
+            "struktur_geaendert": structural,
             "unterschiede": diff,
         }
         typer.echo(json.dumps(payload))
         return
     typer.echo(f"Vergleich {old.ref} → {new.ref}")
+    if structural:
+        typer.echo("Struktur geändert.")
     rendered = render(diff)
     typer.echo(rendered if rendered else "Keine Unterschiede.")

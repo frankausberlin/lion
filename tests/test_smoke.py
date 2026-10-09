@@ -9,7 +9,7 @@ from typer.testing import CliRunner, Result
 from lion.cli import app
 from lion.command import scan as scan_command
 from lion.command import status as status_command
-from lion.program.storage import get_data_dir, get_history_dir
+from lion.program.storage import get_data_dir, get_history_dir, load_latest, save_state
 
 runner = CliRunner()
 
@@ -127,6 +127,21 @@ def test_status_changed(state: dict[str, dict[str, object]]) -> None:
     assert "~ hostname: lion-test -> server" in result.stdout
 
 
+def test_status_structural_change(state: dict[str, dict[str, object]]) -> None:
+    """A new key is reported as a structural change in text and JSON."""
+    _invoke("scan")
+    state["host"]["architecture"] = "x86_64"
+
+    result = _invoke("status")
+    assert result.exit_code == 0
+    assert "Struktur geändert." in result.stdout
+    assert "+ architecture = x86_64" in result.stdout
+
+    payload = json.loads(_invoke("status", "--json").stdout)
+    assert payload["geaendert"] is True
+    assert payload["struktur_geaendert"] is True
+
+
 def test_status_json_changed(state: dict[str, dict[str, object]]) -> None:
     """``status --json`` exposes the structured difference."""
     _invoke("scan")
@@ -135,6 +150,7 @@ def test_status_json_changed(state: dict[str, dict[str, object]]) -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["geaendert"] is True
+    assert payload["struktur_geaendert"] is False
     assert payload["seit"]
     assert payload["unterschiede"]["host"]["changed"]["hostname"] == {"old": "lion-test", "new": "server"}
 
@@ -181,3 +197,42 @@ def test_incomplete_capture_warns_even_when_unchanged(state: dict[str, dict[str,
     assert len(before) == 1
     assert _invoke("status").exit_code == 0
     assert before == {p.name: p.read_bytes() for p in get_history_dir().glob("*.toml")}
+
+
+def test_old_snapshot_without_new_fields_is_additive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An old-format snapshot stays readable and a scan appends exactly one entry."""
+    old_state: dict[str, dict[str, object]] = {
+        "host": {"status": "ok", "error": "", "hostname": "lion-test"},
+        "hardware": {"status": "ok", "error": "", "cpu_model": "Test CPU", "gpu": []},
+    }
+    save_state(old_state)
+    before = load_latest()
+    assert before is not None
+    assert "tools" not in before.collectors
+    assert "gpu_vendor" not in before.collectors["hardware"]
+
+    new_state: dict[str, dict[str, object]] = {
+        "host": {"status": "ok", "error": "", "hostname": "lion-test"},
+        "hardware": {
+            "status": "ok",
+            "error": "",
+            "cpu_model": "Test CPU",
+            "gpu_vendor": "none",
+            "compute_platform": "none",
+            "gpu": [],
+        },
+        "tools": {"status": "ok", "error": "", "available": {"lspci": True, "zsh": True}},
+    }
+
+    def fake_collect(collectors: object) -> dict[str, dict[str, object]]:
+        return new_state
+
+    monkeypatch.setattr(scan_command, "collect_state", fake_collect)
+    result = _invoke("scan")
+
+    assert result.exit_code == 0
+    assert "Neuer Zustand gespeichert" in result.stdout
+    assert len(list(get_history_dir().glob("*.toml"))) == 2
+    latest = load_latest()
+    assert latest is not None
+    assert latest.collectors["tools"]["available"] == {"lspci": True, "zsh": True}

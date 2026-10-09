@@ -26,7 +26,18 @@ def _data() -> dict[str, object]:
             "hardware": {
                 "status": "ok",
                 "error": "",
-                "gpu": [{"name": "GPU", "driver_version": "1.0", "memory_total_bytes": 1024}],
+                "gpu_vendor": "nvidia",
+                "compute_platform": "cuda",
+                "gpu": [
+                    {
+                        "pci_id": "0000:01:00.0",
+                        "name": "GPU",
+                        "vendor": "nvidia",
+                        "driver": "nvidia",
+                        "driver_version": "1.0",
+                        "memory_total_bytes": 1024,
+                    }
+                ],
             },
         },
     }
@@ -37,6 +48,30 @@ def test_round_trip() -> None:
     snapshot = Snapshot.from_toml_dict(_data())
     assert snapshot.schema_version == model.SCHEMA_VERSION
     assert snapshot.to_toml_dict() == _data()
+
+
+def test_old_format_snapshot_remains_valid() -> None:
+    """A snapshot predating the profile fields and ``tools`` collector loads."""
+    data: dict[str, object] = {
+        "schema_version": 1,
+        "erstscan": "2026-10-05T20:00:00+00:00",
+        "zuletzt_bestaetigt": "2026-10-05T20:30:00+00:00",
+        "collectors": {
+            "host": {"status": "ok", "error": "", "hostname": "lion"},
+            "hardware": {
+                "status": "ok",
+                "error": "",
+                "cpu_model": "CPU",
+                "cpu_logical_cores": 8,
+                "memory_total_bytes": 1024,
+                "cuda_version": "",
+                "gpu": [{"name": "GPU", "driver_version": "1.0", "memory_total_bytes": 512}],
+            },
+        },
+    }
+    snapshot = Snapshot.from_toml_dict(data)
+    assert "tools" not in snapshot.collectors
+    assert "gpu_vendor" not in snapshot.collectors["hardware"]
 
 
 def test_canonical_order_independent() -> None:

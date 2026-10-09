@@ -2,6 +2,7 @@
 
 import subprocess
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -39,6 +40,7 @@ def _patch_proc(
     drm = tmp_path / "drm"
     drm.mkdir(exist_ok=True)
     monkeypatch.setattr(hardware, "SYSFS_DRM", str(drm))
+    monkeypatch.setattr(hardware, "SYSFS_PCI", str(tmp_path / "pci"), raising=False)
 
 
 def _no_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -103,6 +105,8 @@ def test_missing_proc_files(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert result.data["memory_total_bytes"] == 0
     assert result.data["gpu"] == []
     assert result.data["cuda_version"] == ""
+    assert result.data["gpu_vendor"] == "none"
+    assert result.data["compute_platform"] == "none"
 
 
 def test_collect_full_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -145,10 +149,33 @@ def test_collect_full_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> 
     assert result.data["cpu_logical_cores"] == 12
     assert result.data["memory_total_bytes"] == 2048 * 1024
     assert result.data["cuda_version"] == "12.6"
+    assert result.data["gpu_vendor"] == "mixed"
+    assert result.data["compute_platform"] == "mixed"
     assert result.data["gpu"] == [
-        {"name": "AMD/ATI Navi 14 [Radeon RX 5500]", "driver_version": "amdgpu", "memory_total_bytes": 0},
-        {"name": "NVIDIA RTX 4090", "driver_version": "560.10", "memory_total_bytes": 24564 * 1024 * 1024},
-        {"name": "second", "driver_version": "1.0", "memory_total_bytes": 1024 * 1024 * 1024},
+        {
+            "pci_id": "0000:25:00.0",
+            "name": "AMD/ATI Navi 14 [Radeon RX 5500]",
+            "vendor": "amd",
+            "driver": "amdgpu",
+            "driver_version": "",
+            "memory_total_bytes": 0,
+        },
+        {
+            "pci_id": "0000:2d:00.0",
+            "name": "NVIDIA RTX 4090",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "driver_version": "560.10",
+            "memory_total_bytes": 24564 * 1024 * 1024,
+        },
+        {
+            "pci_id": "0000:3b:00.0",
+            "name": "second",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "driver_version": "1.0",
+            "memory_total_bytes": 1024 * 1024 * 1024,
+        },
     ]
 
 
@@ -170,13 +197,46 @@ def test_collect_amd_and_nvidia_without_nvidia_smi(monkeypatch: pytest.MonkeyPat
     monkeypatch.setattr(tools.subprocess, "run", fake_run)
 
     assert hardware.COLLECTOR.collect().data["gpu"] == [
-        {"name": "AMD/ATI Navi 14 [Radeon RX 5500]", "driver_version": "amdgpu", "memory_total_bytes": 0},
         {
+            "pci_id": "0000:25:00.0",
+            "name": "AMD/ATI Navi 14 [Radeon RX 5500]",
+            "vendor": "amd",
+            "driver": "amdgpu",
+            "driver_version": "",
+            "memory_total_bytes": 0,
+        },
+        {
+            "pci_id": "0000:2d:00.0",
             "name": "NVIDIA Corporation GA104 [GeForce RTX 3060 Ti]",
-            "driver_version": "nvidia",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "driver_version": "",
             "memory_total_bytes": 0,
         },
     ]
+    result = hardware.COLLECTOR.collect()
+    assert result.data["gpu_vendor"] == "mixed"
+    assert result.data["compute_platform"] == "mixed"
+
+
+def test_missing_nvidia_smi_keeps_cuda_hint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A missing ``nvidia-smi`` hides the CUDA version but not the driver hint."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="", meminfo="")
+    lspci_output = (
+        "0000:2d:00.0 VGA compatible controller: NVIDIA Corporation AD102 [GeForce RTX 4090]\n"
+        "\tKernel driver in use: nvidia\n"
+    )
+
+    def fake_run(command: list[str], **kwargs: object) -> _Completed:
+        if command[:1] == ["lspci"]:
+            return _Completed(0, lspci_output)
+        return _Completed(1, "")
+
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+    result = hardware.COLLECTOR.collect()
+    assert result.data["gpu_vendor"] == "nvidia"
+    assert result.data["compute_platform"] == "cuda"
+    assert result.data["cuda_version"] == ""
 
 
 def test_collect_non_nvidia_vram_from_sysfs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -201,7 +261,14 @@ def test_collect_non_nvidia_vram_from_sysfs(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.setattr(tools.subprocess, "run", fake_run)
 
     assert hardware.COLLECTOR.collect().data["gpu"] == [
-        {"name": "AMD/ATI Navi 14 [Radeon RX 5500]", "driver_version": "amdgpu", "memory_total_bytes": 8573157376}
+        {
+            "pci_id": "0000:25:00.0",
+            "name": "AMD/ATI Navi 14 [Radeon RX 5500]",
+            "vendor": "amd",
+            "driver": "amdgpu",
+            "driver_version": "",
+            "memory_total_bytes": 8573157376,
+        }
     ]
 
 
@@ -234,9 +301,30 @@ def test_gpu_pci_domains_remain_distinct(monkeypatch: pytest.MonkeyPatch, tmp_pa
 
     monkeypatch.setattr(tools.subprocess, "run", fake_run)
     assert hardware.COLLECTOR.collect().data["gpu"] == [
-        {"name": "AMD first", "driver_version": "", "memory_total_bytes": 1024},
-        {"name": "NVIDIA card", "driver_version": "560.10", "memory_total_bytes": 8192 * 1024 * 1024},
-        {"name": "AMD second", "driver_version": "", "memory_total_bytes": 2048},
+        {
+            "pci_id": "0000:01:00.0",
+            "name": "AMD first",
+            "vendor": "amd",
+            "driver": "",
+            "driver_version": "",
+            "memory_total_bytes": 1024,
+        },
+        {
+            "pci_id": "0001:01:00.0",
+            "name": "NVIDIA card",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "driver_version": "560.10",
+            "memory_total_bytes": 8192 * 1024 * 1024,
+        },
+        {
+            "pci_id": "0002:01:00.0",
+            "name": "AMD second",
+            "vendor": "amd",
+            "driver": "",
+            "driver_version": "",
+            "memory_total_bytes": 2048,
+        },
     ]
 
 
@@ -253,7 +341,14 @@ def test_malformed_gpu_lines(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) ->
     monkeypatch.setattr(tools.subprocess, "run", fake_run)
     assert hardware.COLLECTOR.collect().data["gpu"] == []
     assert hardware.COLLECTOR.collect().data["gpu"] == [
-        {"name": "name", "driver_version": "driver", "memory_total_bytes": 0}
+        {
+            "pci_id": "0000:01:00.0",
+            "name": "name",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "driver_version": "driver",
+            "memory_total_bytes": 0,
+        }
     ]
 
 
@@ -376,5 +471,110 @@ def test_nvidia_banner_failure_survives_unbranded_name(
     assert result.status == CollectorStatus.UNAVAILABLE
     assert result.error == "nvidia-smi: timed out"
     assert result.data["gpu"] == [
-        {"name": "Tesla T4", "driver_version": "550.54", "memory_total_bytes": 15360 * 1024 * 1024}
+        {
+            "pci_id": "0000:01:00.0",
+            "name": "Tesla T4",
+            "vendor": "nvidia",
+            "driver": "nvidia",
+            "driver_version": "550.54",
+            "memory_total_bytes": 15360 * 1024 * 1024,
+        }
     ]
+
+
+def _collect_with_lspci(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, lspci_output: str) -> dict[str, object]:
+    """Collect hardware from a fixed ``lspci`` output without other tools."""
+    _patch_proc(monkeypatch, tmp_path, cpuinfo="model name: CPU", meminfo="MemTotal: 2048 kB")
+
+    def fake_run(command: list[str], **kwargs: object) -> _Completed:
+        if command[:1] == ["lspci"]:
+            return _Completed(0, lspci_output)
+        return _Completed(1, "")
+
+    monkeypatch.setattr(tools.subprocess, "run", fake_run)
+    return hardware.COLLECTOR.collect().data
+
+
+def test_single_amd_gpu_is_rocm_platform(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A lone AMD driver yields a ROCm hint, not a verified capability."""
+    data = _collect_with_lspci(
+        monkeypatch,
+        tmp_path,
+        "0000:25:00.0 VGA compatible controller: Advanced Micro Devices Navi\n\tKernel driver in use: amdgpu\n",
+    )
+    assert data["gpu_vendor"] == "amd"
+    assert data["compute_platform"] == "rocm"
+
+
+def test_unidentified_driver_is_unknown(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A display controller without a recognizable kernel driver stays unknown."""
+    data = _collect_with_lspci(
+        monkeypatch,
+        tmp_path,
+        "0000:01:00.0 VGA compatible controller: Contoso Graphics\n\tKernel driver in use: nouveau\n",
+    )
+    assert data["gpu_vendor"] == "unknown"
+    assert data["compute_platform"] == "none"
+    assert data["gpu"] == [
+        {
+            "pci_id": "0000:01:00.0",
+            "name": "Contoso Graphics",
+            "vendor": "unknown",
+            "driver": "nouveau",
+            "driver_version": "",
+            "memory_total_bytes": 0,
+        }
+    ]
+
+
+def test_gpus_are_sorted_by_pci_id(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The GPU list is deterministic regardless of ``lspci`` order."""
+    data = _collect_with_lspci(
+        monkeypatch,
+        tmp_path,
+        "0000:3b:00.0 VGA compatible controller: AMD second\n\tKernel driver in use: amdgpu\n"
+        "0000:25:00.0 VGA compatible controller: AMD first\n\tKernel driver in use: amdgpu\n",
+    )
+    assert [entry["pci_id"] for entry in cast("list[dict[str, object]]", data["gpu"])] == [
+        "0000:25:00.0",
+        "0000:3b:00.0",
+    ]
+
+
+@pytest.mark.parametrize("driver", ["nouveau", "vfio-pci", ""])
+def test_vendor_does_not_depend_on_active_driver(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, driver: str) -> None:
+    """A NVIDIA PCI description identifies the vendor even without its driver."""
+    output = "0000:01:00.0 VGA compatible controller: NVIDIA Corporation GPU\n"
+    if driver:
+        output += f"\tKernel driver in use: {driver}\n"
+    data = _collect_with_lspci(monkeypatch, tmp_path, output)
+    gpu = cast("list[dict[str, object]]", data["gpu"])[0]
+    assert gpu["vendor"] == "nvidia"
+    assert gpu["driver"] == driver
+    assert data["gpu_vendor"] == "nvidia"
+    assert data["compute_platform"] == "none"
+
+
+@pytest.mark.parametrize(
+    ("vendor_id", "expected"), [("0x10de", "nvidia"), ("0x1002", "amd"), ("0x8086", "intel"), ("0xffff", "unknown")]
+)
+def test_numeric_pci_vendor_is_independent_of_name_and_driver(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, vendor_id: str, expected: str
+) -> None:
+    """Numeric PCI vendor evidence wins over a misleading device description."""
+    slot = tmp_path / "pci" / "0000:01:00.0"
+    slot.mkdir(parents=True)
+    (slot / "vendor").write_text(vendor_id + "\n")
+    data = _collect_with_lspci(
+        monkeypatch, tmp_path, "0000:01:00.0 VGA compatible controller: NVIDIA Corporation GPU\n"
+    )
+    assert cast("list[dict[str, object]]", data["gpu"])[0]["vendor"] == expected
+
+
+def test_unreadable_or_invalid_vendor_uses_pci_description(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """An invalid numeric vendor still permits a branded PCI description."""
+    slot = tmp_path / "pci" / "0000:01:00.0"
+    slot.mkdir(parents=True)
+    (slot / "vendor").write_text("not a number")
+    data = _collect_with_lspci(monkeypatch, tmp_path, "0000:01:00.0 VGA compatible controller: Intel Corporation GPU\n")
+    assert cast("list[dict[str, object]]", data["gpu"])[0]["vendor"] == "intel"

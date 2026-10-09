@@ -81,16 +81,21 @@ just audit       # dependency vulnerability scan
 - `src/lion/state/` holds the collector framework: `collector.py` defines the
   shared `CollectorStatus`, `CollectorResult`, `Collector`, and `collect_state`
   (no collector imports, to avoid cycles); `tools.py` provides the shared
-  external-tool runner `run_tool`; each collector (`host.py`, `hardware.py`,
-  `packages.py`) keeps its frozen dataclass next to a private `_collect()` and
-  exports `COLLECTOR`; `registry.py` exposes the ordered `COLLECTORS`; `model.py`
+  external-tool runner `run_tool`; `tooling.py` is the separate `tools`
+  collector of tool availability; each collector (`host.py`, `hardware.py`,
+  `packages.py`, `tooling.py`) keeps its frozen dataclass next to a private
+  `_collect()` and exports `COLLECTOR`; `registry.py` exposes the ordered
+  `COLLECTORS`; `model.py`
   defines the persisted `Snapshot` and its strict validation, the exact
   `canonical_collectors`, and the shared `collectors_equal`/`value_equal`
   comparison rules (including the RAM tolerance).
 - `program/storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
   (`~/.local/share/lion/history`): `list_entries`/`resolve`/`load_latest`,
   `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
-- `program/diff.py` provides `diff_collectors` and `render`; `cli.py` keeps only the
+- `program/diff.py` provides `diff_collectors`, `has_structural_change` and
+  `render` (known lists share identities from `state/comparison.py` — PCI
+  slots for GPUs and unique strings for package selections — and
+  `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
   module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
   read only) with a `run` function and `--json` support. The English CLI help
@@ -121,12 +126,16 @@ just audit       # dependency vulnerability scan
   (the file name without `.toml`); `resolve` accepts aliases, 1-based indices,
   exact references, unique prefixes and ISO timestamps, validates every entry,
   and fails loudly on ambiguous or unknown references.
-- Two states are equal when `collectors_equal` holds: either the exact
-  `canonical_collectors` match, or the only difference is
-  `hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
-  Timestamps are excluded; each collector's `status`/`error` is included. Only
-  this one field has a tolerance; GPU memory and all other values compare
-  exactly, and a valid reading never equals `0`.
+- `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
+  unique string package selections and GPU lists with unique, nonempty `pci_id`
+  ignore order. Other lists, duplicates and malformed identities remain atomic.
+  Only `hardware.memory_total_bytes` has the 1 MiB tolerance; timestamps are
+  excluded, statuses/errors included, and scalar types compare exactly.
+- GPU vendor identity comes from PCI metadata independently of the active driver.
+  `compute_platform` is a driver-derived hint, not verified compute support or
+  runtime installation. The `tools` collector records PATH visibility only.
+  PCI ids identify slots: a replacement in the same slot is a field change.
+  Any `added`/`removed` is structural (`struktur_geaendert`).
 - New history entries are published with `os.link` and never overwrite; only the
   latest entry's `zuletzt_bestaetigt` refresh uses `os.replace`. Collision
   filenames use a `~NNNN` suffix so they sort after the base name and the
@@ -208,8 +217,10 @@ just audit       # dependency vulnerability scan
   links current.
 - Command depth stays canonical in `lion <cmd> --help`. `docs/reference/cli.md`
   is generated from the Typer app by `just docs` (`scripts/gen_cli_docs.py`);
-  never edit it by hand, and regenerate it after any CLI change. The source of
-  truth is `src/lion/cli.py` together with the help texts in `src/lion/main.py`.
+  never edit it by hand, and regenerate it after any CLI change. `just check`
+  verifies it is current (`scripts/gen_cli_docs.py --check`), so CI fails on a
+  stale page. The source of truth is `src/lion/cli.py` together with the help
+  texts in `src/lion/main.py`.
 - Every statement has exactly one home: move prose between README and `docs/`
   instead of copying it, and link rather than restate.
 

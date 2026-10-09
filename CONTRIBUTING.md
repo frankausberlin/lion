@@ -31,15 +31,17 @@ just fix          # auto-fix formatting and lint issues
 - `src/lion/state/collector.py` — shared `CollectorStatus`, `CollectorResult`,
   `Collector`, and `collect_state`; keep it free of collector imports.
 - `src/lion/state/tools.py` — shared `run_tool` helper for external tools.
+- `src/lion/state/tooling.py` — the `tools` collector of tool availability.
 - `src/lion/state/<collector>.py` — one collector per file (`host`,
-  `hardware`, `packages`), each with its frozen dataclass, a private `_collect()`,
-  and a `COLLECTOR` export.
+  `hardware`, `packages`, `tooling`), each with its frozen dataclass, a private
+  `_collect()`, and a `COLLECTOR` export.
 - `src/lion/state/registry.py` — ordered `COLLECTORS` tuple.
 - `src/lion/state/model.py` — `Snapshot`, strict validation, and the shared
   `collectors_equal`/`value_equal` comparison rules (including the RAM tolerance).
 - `src/lion/program/storage.py` — history persistence (`list_entries`,
   `resolve`, `load_latest`, `save_state`).
-- `src/lion/program/diff.py` — `diff_collectors` and terminal `render`.
+- `src/lion/program/diff.py` — `diff_collectors`, `has_structural_change` and
+  terminal `render` (lists match by identity; `added`/`removed` are structural).
 - `src/lion/command/<command>.py` — one module per command (`scan` writes;
   `status`, `history` and `diff` read only); `cli.py` keeps the Typer decorators.
 
@@ -69,7 +71,8 @@ Command options stay canonical in `lion <cmd> --help`. The CLI reference
 app; never edit it by hand, and regenerate it after CLI changes:
 
 ```bash
-just docs
+just docs         # regenerate the page
+just docs-check   # verify it matches the app (also part of `just check`)
 ```
 
 ## Conventions

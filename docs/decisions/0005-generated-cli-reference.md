@@ -24,8 +24,10 @@ application in `src/lion/cli.py` together with the help texts in
 - The page can no longer disagree with `--help`: both derive from the same app.
 - Editing the page by hand is pointless — the next `just docs` overwrites it.
   This is intended, not a bug.
-- Regeneration is manual and unguarded, so between two runs the committed page
-  can lag the code. This is accepted for the current, small command surface.
+- Regeneration is manual but guarded: `just docs-check`
+  (`scripts/gen_cli_docs.py --check`) is part of `just check` and CI and fails
+  when the committed page differs from the application, so the page cannot
+  silently lag the code.
 - Planned commands do not exist in the app and cannot be generated; they stay a
   hand-written list in the README.
 - A defect in the generator would silently drop content, so the page is only as
