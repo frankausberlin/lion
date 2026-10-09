@@ -129,10 +129,12 @@ Each collector carries one or more of:
 A collector that was added or removed wholesale is reported with the single key
 `"(collector)"`.
 
-Lists are compared element-wise when they carry an identity: table lists that
-share a `pci_id` (keyed like `gpu[0000:01:00.0]`) and scalar lists (keyed like
-`manual[zsh]`). Swapping a GPU therefore appears as `removed` + `added` instead
-of one opaque value change. Every other list stays a single atomic value.
+Only `hardware.gpu` with unique, nonempty `pci_id` values (keys like
+`gpu[0000:01:00.0]`) and unique string selections `packages.manual`,
+`packages.auto` and `packages.held` (keys like `manual[zsh]`) are compared
+per identity. A different GPU slot appears as `removed` + `added`; a replacement
+in the same slot appears as changed fields. Other lists, duplicate identities
+and malformed entries retain their complete ordered value under `changed`.
 
 Any `added` or `removed` entry makes the change *structural*; a diff with only
 `changed` entries is a pure value change, echoed as `struktur_geaendert` and the

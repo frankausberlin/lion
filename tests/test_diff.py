@@ -70,14 +70,13 @@ def test_scalar_list_changes_are_structural() -> None:
 
 
 def test_scalar_list_removal_and_type_safety() -> None:
-    """Removed scalar entries are structural and ``True`` never matches ``1``."""
+    """Malformed package selections stay atomic and ``True`` never matches ``1``."""
     old = {"packages": {"status": "ok", "error": "", "manual": ["zsh", True]}}
     new = {"packages": {"status": "ok", "error": "", "manual": [1]}}
     diff = diff_collectors(old, new)
     assert diff == {
         "packages": {
-            "added": {"manual[1]": 1},
-            "removed": {"manual[zsh]": "zsh", "manual[True]": True},
+            "changed": {"manual": {"old": ["zsh", True], "new": [1]}},
         }
     }
 

@@ -34,19 +34,24 @@ Because capture never aborts, a persisted snapshot always contains every
 collector section, which is what makes the comparison rules in the
 [comparison model](comparison-model.md) well defined.
 
-## Capability versus availability
+## Hardware identity, compute hints and tool visibility
 
-Two facts are deliberately kept apart:
+Three facts are kept apart:
 
-- **Capability** is derived from hardware and drivers and lives in `hardware`:
-  `gpu_vendor` and `compute_platform`. An NVIDIA kernel driver yields `cuda`
-  even when `nvidia-smi` is not installed; `amdgpu`/`radeon` yields `rocm` as a
-  capability, not proof that ROCm is installed.
-- **Availability** is where a tool simply exists on `PATH`, recorded in the
-  `tools` collector as `available` booleans. A missing tool is never a warning.
+- **Identity:** `gpu_vendor` is derived from numeric PCI vendor metadata, with
+  branded PCI descriptions as fallback. The active driver is recorded separately;
+  a NVIDIA GPU remains NVIDIA with `nouveau`, `vfio-pci` or no driver.
+- **Compute hint:** `compute_platform` is derived from matching kernel drivers.
+  `nvidia` suggests CUDA and `amdgpu`/`radeon` suggests ROCm. It does not verify
+  model support, runtime installation or successful compute. `none` means no
+  matching driver evidence, not proof that compute is impossible.
+- **Tool visibility:** `tools.available` reports executable visibility on the
+  current `PATH`. A missing tool is data, not a warning; visibility does not
+  prove successful execution.
 
-Together they keep "NVIDIA card present, but `nvidia-smi` missing" visible
-instead of collapsing it into "no GPU" or "no CUDA".
+The future doctor consumes these facts and checks operational requirements
+separately. Vendor identity keeps "NVIDIA card present, but `nvidia-smi` missing"
+visible even when no supported compute driver is active.
 
 The data fields of each collector are listed in
 [Collectors](../reference/collectors.md).
