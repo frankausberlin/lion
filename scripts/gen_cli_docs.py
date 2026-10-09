@@ -1,13 +1,15 @@
-"""Regenerate ``docs/reference/cli.md`` from the Typer application.
+"""Regenerate or verify ``docs/reference/cli.md`` from the Typer application.
 
 The CLI reference is a generated artifact: the source of truth is the app in
 ``src/lion/cli.py`` together with the help texts in ``src/lion/main.py``. This
 script runs Typer's own documentation generator, prepends the "do not edit"
 header and writes ``docs/reference/cli.md`` in place.
 
-Run it through ``just docs``. Never edit the output by hand.
+Run it through ``just docs`` (write) or ``just docs-check`` (verify only). Never
+edit the output by hand.
 """
 
+import argparse
 import subprocess
 import sys
 from pathlib import Path
@@ -21,8 +23,8 @@ HEADER = """<!-- Generated file. Do not edit by hand. -->
 """
 
 
-def main() -> None:
-    """Generate ``docs/reference/cli.md`` and write it in place."""
+def build_document() -> str:
+    """Return the full CLI reference (header plus generated body) as text."""
     command = [
         sys.executable,
         "-m",
@@ -41,8 +43,31 @@ def main() -> None:
         raise SystemExit(f"typer docs generation failed with exit code {result.returncode}")
 
     body = result.stdout.rstrip("\n") + "\n"
-    OUTPUT.write_text(HEADER + body, encoding="utf-8")
-    print(f"Wrote {OUTPUT.relative_to(REPO_ROOT)}")
+    return HEADER + body
+
+
+def main() -> None:
+    """Write ``docs/reference/cli.md`` or, with ``--check``, verify it is current."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="do not write; fail if the committed page differs from the generated one",
+    )
+    arguments = parser.parse_args()
+
+    relative = OUTPUT.relative_to(REPO_ROOT)
+    content = build_document()
+
+    if arguments.check:
+        current = OUTPUT.read_text(encoding="utf-8") if OUTPUT.exists() else ""
+        if current != content:
+            raise SystemExit(f"{relative} is out of date; run `just docs`.")
+        print(f"{relative} is up to date.")
+        return
+
+    OUTPUT.write_text(content, encoding="utf-8")
+    print(f"Wrote {relative}")
 
 
 if __name__ == "__main__":

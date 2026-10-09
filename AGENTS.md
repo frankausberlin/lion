@@ -208,8 +208,10 @@ just audit       # dependency vulnerability scan
   links current.
 - Command depth stays canonical in `lion <cmd> --help`. `docs/reference/cli.md`
   is generated from the Typer app by `just docs` (`scripts/gen_cli_docs.py`);
-  never edit it by hand, and regenerate it after any CLI change. The source of
-  truth is `src/lion/cli.py` together with the help texts in `src/lion/main.py`.
+  never edit it by hand, and regenerate it after any CLI change. `just check`
+  verifies it is current (`scripts/gen_cli_docs.py --check`), so CI fails on a
+  stale page. The source of truth is `src/lion/cli.py` together with the help
+  texts in `src/lion/main.py`.
 - Every statement has exactly one home: move prose between README and `docs/`
   instead of copying it, and link rather than restate.
 

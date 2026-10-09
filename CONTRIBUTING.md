@@ -69,7 +69,8 @@ Command options stay canonical in `lion <cmd> --help`. The CLI reference
 app; never edit it by hand, and regenerate it after CLI changes:
 
 ```bash
-just docs
+just docs         # regenerate the page
+just docs-check   # verify it matches the app (also part of `just check`)
 ```
 
 ## Conventions
