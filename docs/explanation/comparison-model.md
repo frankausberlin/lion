@@ -35,6 +35,25 @@ not participate, but each collector's `status` and `error` do.
 `~` (changed) lines. If nothing changed it says so; if no state exists it tells
 you to run `lion scan`.
 
+## Structural versus value changes
+
+A change is **structural** when something was added or removed: a whole
+collector, a key, or a list entry. It is a **value change** when only an existing
+value differs. Structural changes are the more consequential kind — a collector
+or field appearing means the comparison baseline shifted — so `status` and
+`diff` flag them separately: the JSON carries `struktur_geaendert` and the text
+output leads with `Struktur geändert.`.
+
+Lists are compared with identity where one exists. GPUs are matched by
+`pci_id`, so swapping a card appears as one removed and one added entry rather
+than an opaque value change; scalar lists such as `manual` are compared per
+value. Lists without a usable identity stay a single atomic value.
+
+`scan` needs no extra rule: a structural change is already a difference, so it
+appends a new entry on its own. Old snapshots stay valid because new collectors
+and fields are additive; the first scan after such an upgrade shows the new
+fields once as a structural addition.
+
 ## Who uses it
 
 - `status` compares the freshly collected state with the latest stored one and

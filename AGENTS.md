@@ -81,16 +81,20 @@ just audit       # dependency vulnerability scan
 - `src/lion/state/` holds the collector framework: `collector.py` defines the
   shared `CollectorStatus`, `CollectorResult`, `Collector`, and `collect_state`
   (no collector imports, to avoid cycles); `tools.py` provides the shared
-  external-tool runner `run_tool`; each collector (`host.py`, `hardware.py`,
-  `packages.py`) keeps its frozen dataclass next to a private `_collect()` and
-  exports `COLLECTOR`; `registry.py` exposes the ordered `COLLECTORS`; `model.py`
+  external-tool runner `run_tool`; `tooling.py` is the separate `tools`
+  collector of tool availability; each collector (`host.py`, `hardware.py`,
+  `packages.py`, `tooling.py`) keeps its frozen dataclass next to a private
+  `_collect()` and exports `COLLECTOR`; `registry.py` exposes the ordered
+  `COLLECTORS`; `model.py`
   defines the persisted `Snapshot` and its strict validation, the exact
   `canonical_collectors`, and the shared `collectors_equal`/`value_equal`
   comparison rules (including the RAM tolerance).
 - `program/storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
   (`~/.local/share/lion/history`): `list_entries`/`resolve`/`load_latest`,
   `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
-- `program/diff.py` provides `diff_collectors` and `render`; `cli.py` keeps only the
+- `program/diff.py` provides `diff_collectors`, `has_structural_change` and
+  `render` (lists match by identity — `pci_id` for GPUs, value for scalars — and
+  `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
   module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
   read only) with a `run` function and `--json` support. The English CLI help
@@ -127,6 +131,13 @@ just audit       # dependency vulnerability scan
   Timestamps are excluded; each collector's `status`/`error` is included. Only
   this one field has a tolerance; GPU memory and all other values compare
   exactly, and a valid reading never equals `0`.
+- `hardware` splits GPU identity (`pci_id`/`vendor`/`driver`/`driver_version`)
+  and derives `gpu_vendor`/`compute_platform` from the kernel drivers
+  (capability); the separate `tools` collector records availability, and a
+  missing tool is data, not a warning. `diff` matches list entries by identity
+  (`pci_id` for tables, value for scalars) and treats any `added`/`removed` as a
+  structural change (`struktur_geaendert`); `scan` needs no extra rule because a
+  structural change is already a difference.
 - New history entries are published with `os.link` and never overwrite; only the
   latest entry's `zuletzt_bestaetigt` refresh uses `os.replace`. Collision
   filenames use a `~NNNN` suffix so they sort after the base name and the

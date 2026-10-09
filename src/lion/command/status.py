@@ -11,7 +11,7 @@ import typer
 
 from lion.command import fail
 from lion.command.diagnostics import warn_incomplete
-from lion.program.diff import diff_collectors, render
+from lion.program.diff import diff_collectors, has_structural_change, render
 from lion.program.storage import get_data_dir, load_latest
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
@@ -47,6 +47,7 @@ def run(json_output: bool = False) -> None:
     if json_output:
         payload: dict[str, object] = {
             "geaendert": bool(diff),
+            "struktur_geaendert": has_structural_change(diff),
             "seit": latest.zuletzt_bestaetigt,
             "unterschiede": diff,
         }
@@ -54,4 +55,6 @@ def run(json_output: bool = False) -> None:
     elif not diff:
         typer.echo(f"Seit dem letzten Scan am {latest.zuletzt_bestaetigt} hat sich nichts geändert.")
     else:
+        if has_structural_change(diff):
+            typer.echo("Struktur geändert.")
         typer.echo(render(diff))

@@ -73,10 +73,14 @@ stored file.
 ```json
 {
   "geaendert": true,
+  "struktur_geaendert": false,
   "seit": "2026-10-05T20:00:00.123456+00:00",
   "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
 }
 ```
+
+`struktur_geaendert` is `true` when any collector, key or list entry was added
+or removed (see [The `unterschiede` shape](#the-unterschiede-shape)).
 
 With no stored state it prints `null` and exits successfully. Operational or
 invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
@@ -105,6 +109,7 @@ invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
   "von": {"ref": "…", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
   "bis": {"ref": "…", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
   "geaendert": true,
+  "struktur_geaendert": false,
   "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
 }
 ```
@@ -123,6 +128,15 @@ Each collector carries one or more of:
 
 A collector that was added or removed wholesale is reported with the single key
 `"(collector)"`.
+
+Lists are compared element-wise when they carry an identity: table lists that
+share a `pci_id` (keyed like `gpu[0000:01:00.0]`) and scalar lists (keyed like
+`manual[zsh]`). Swapping a GPU therefore appears as `removed` + `added` instead
+of one opaque value change. Every other list stays a single atomic value.
+
+Any `added` or `removed` entry makes the change *structural*; a diff with only
+`changed` entries is a pure value change, echoed as `struktur_geaendert` and the
+leading `Struktur geändert.` line in text output.
 
 ## Config (planned)
 

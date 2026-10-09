@@ -1,6 +1,6 @@
 """Tests for the recursive collector diff and its rendering."""
 
-from lion.program.diff import diff_collectors, render
+from lion.program.diff import diff_collectors, has_structural_change, render
 
 RAM_OLD = 99005419520
 RAM_NEW = 99005415424
@@ -20,6 +20,17 @@ def _hardware(memory_total_bytes: int, gpu: list[dict[str, object]] | None = Non
         "memory_total_bytes": memory_total_bytes,
         "cuda_version": "",
         "gpu": gpu if gpu is not None else [],
+    }
+
+
+def _gpu(pci_id: str, name: str = "GPU", memory_total_bytes: int = 1024) -> dict[str, object]:
+    return {
+        "pci_id": pci_id,
+        "name": name,
+        "vendor": "nvidia",
+        "driver": "nvidia",
+        "driver_version": "1.0",
+        "memory_total_bytes": memory_total_bytes,
     }
 
 
@@ -49,12 +60,66 @@ def test_nested_leaf_mapping() -> None:
     }
 
 
-def test_list_change_is_leaf() -> None:
-    """Lists are compared as whole leaf values."""
+def test_scalar_list_changes_are_structural() -> None:
+    """Scalar lists such as ``manual`` are compared per value, not atomically."""
     old = {"packages": {"status": "ok", "error": "", "manual": ["bash"]}}
     new = {"packages": {"status": "ok", "error": "", "manual": ["bash", "zsh"]}}
     diff = diff_collectors(old, new)
-    assert diff == {"packages": {"changed": {"manual": {"old": ["bash"], "new": ["bash", "zsh"]}}}}
+    assert diff == {"packages": {"added": {"manual[zsh]": "zsh"}}}
+    assert has_structural_change(diff) is True
+
+
+def test_scalar_list_removal_and_type_safety() -> None:
+    """Removed scalar entries are structural and ``True`` never matches ``1``."""
+    old = {"packages": {"status": "ok", "error": "", "manual": ["zsh", True]}}
+    new = {"packages": {"status": "ok", "error": "", "manual": [1]}}
+    diff = diff_collectors(old, new)
+    assert diff == {
+        "packages": {
+            "added": {"manual[1]": 1},
+            "removed": {"manual[zsh]": "zsh", "manual[True]": True},
+        }
+    }
+
+
+def test_table_list_without_identity_stays_atomic() -> None:
+    """Table lists that share no identity key remain one atomic value."""
+    old = {"hardware": _hardware(RAM_OLD, gpu=[{"name": "a"}])}
+    new = {"hardware": _hardware(RAM_OLD, gpu=[{"name": "b"}])}
+    assert diff_collectors(old, new) == {
+        "hardware": {"changed": {"gpu": {"old": [{"name": "a"}], "new": [{"name": "b"}]}}}
+    }
+
+
+def test_gpu_swap_is_structural() -> None:
+    """A different ``pci_id`` reads as removed + added, not one value change."""
+    old = {"hardware": _hardware(RAM_OLD, gpu=[_gpu("0000:01:00.0", "Old")])}
+    new = {"hardware": _hardware(RAM_OLD, gpu=[_gpu("0000:02:00.0", "New")])}
+    diff = diff_collectors(old, new)
+    assert diff == {
+        "hardware": {
+            "added": {"gpu[0000:02:00.0]": _gpu("0000:02:00.0", "New")},
+            "removed": {"gpu[0000:01:00.0]": _gpu("0000:01:00.0", "Old")},
+        }
+    }
+    assert has_structural_change(diff) is True
+
+
+def test_same_gpu_memory_change_is_a_value_change() -> None:
+    """The same ``pci_id`` with changed VRAM is a field-level value change."""
+    old = {"hardware": _hardware(RAM_OLD, gpu=[_gpu("0000:01:00.0", memory_total_bytes=1024)])}
+    new = {"hardware": _hardware(RAM_OLD, gpu=[_gpu("0000:01:00.0", memory_total_bytes=2048)])}
+    diff = diff_collectors(old, new)
+    assert diff == {"hardware": {"changed": {"gpu[0000:01:00.0].memory_total_bytes": {"old": 1024, "new": 2048}}}}
+    assert has_structural_change(diff) is False
+
+
+def test_has_structural_change_detects_key_changes() -> None:
+    """Added or removed collectors and keys are structural; a value is not."""
+    added = diff_collectors({"host": _host()}, {"host": _host(), "tools": {"status": "ok"}})
+    assert has_structural_change(added) is True
+    assert has_structural_change(diff_collectors({"host": _host()}, {"host": _host(hostname="s")})) is False
+    assert has_structural_change({}) is False
 
 
 def test_collector_added_and_removed() -> None:

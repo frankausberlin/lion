@@ -49,3 +49,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0003 — History published with `os.link`](decisions/0003-history-publication-os-link.md)
 - [0004 — A single RAM tolerance](decisions/0004-memory-total-tolerance.md)
 - [0005 — The CLI reference is generated](decisions/0005-generated-cli-reference.md)
+- [0006 — System profile and structural diff](decisions/0006-system-profile-and-structural-diff.md)

@@ -208,9 +208,27 @@ def test_diff_json() -> None:
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
     assert payload["geaendert"] is True
+    assert payload["struktur_geaendert"] is False
     assert payload["von"]["ref"] == A_REF
     assert payload["bis"]["ref"] == B_REF
     assert payload["unterschiede"]["host"]["changed"]["hostname"] == {"old": "one", "new": "two"}
+
+
+def test_diff_marks_structural_change() -> None:
+    """An added key is reported as structural in text and JSON."""
+    _write(A_REF, A_ISO, _host("one"))
+    _write(
+        B_REF,
+        B_ISO,
+        {"host": {"status": "ok", "error": "", "hostname": "one", "architecture": "x86_64"}},
+    )
+
+    text = _invoke("diff", "1", "2")
+    assert text.exit_code == 0
+    assert "Struktur geändert." in text.stdout
+    payload = json.loads(_invoke("diff", "1", "2", "--json").stdout)
+    assert payload["geaendert"] is True
+    assert payload["struktur_geaendert"] is True
 
 
 def test_diff_no_changes() -> None:
@@ -221,7 +239,10 @@ def test_diff_no_changes() -> None:
     text = _invoke("diff", "1", "2")
     assert text.exit_code == 0
     assert "Keine Unterschiede." in text.stdout
-    assert json.loads(_invoke("diff", "1", "2", "--json").stdout)["geaendert"] is False
+    assert "Struktur geändert." not in text.stdout
+    payload = json.loads(_invoke("diff", "1", "2", "--json").stdout)
+    assert payload["geaendert"] is False
+    assert payload["struktur_geaendert"] is False
 
 
 def test_diff_reuses_ram_tolerance() -> None:
