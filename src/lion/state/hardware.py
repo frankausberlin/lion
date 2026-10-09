@@ -11,25 +11,34 @@ UNKNOWN = "Unknown"
 TIMEOUT_SECONDS = 10
 _DISPLAY_CLASSES = ("vga compatible controller", "3d controller", "display controller")
 SYSFS_DRM = "/sys/class/drm"
+SYSFS_PCI = "/sys/bus/pci/devices"
 
 VENDOR_UNKNOWN = "unknown"
 VENDOR_NONE = "none"
 VENDOR_MIXED = "mixed"
 
-# The kernel driver is the reliable vendor evidence: a branded card can lack a
-# usable driver, while ``nvidia-smi`` only ever sees NVIDIA cards.
-_DRIVER_VENDORS = {
-    "nvidia": "nvidia",
-    "amdgpu": "amd",
-    "radeon": "amd",
-    "i915": "intel",
-    "xe": "intel",
-}
+_PCI_VENDORS = {0x10DE: "nvidia", 0x1002: "amd", 0x8086: "intel"}
 
 
-def _derive_vendor(driver: str) -> str:
-    """Derive a GPU vendor from its kernel driver module."""
-    return _DRIVER_VENDORS.get(driver.strip().lower(), VENDOR_UNKNOWN)
+def _read_gpu_vendor(pci_id: str, name: str) -> str:
+    """Read the numeric PCI vendor, falling back to the device description.
+
+    Vendor identity does not depend on a proprietary, open-source or passthrough
+    driver being active. Unknown numeric vendors stay unknown.
+    """
+    try:
+        with open(os.path.join(SYSFS_PCI, pci_id, "vendor"), encoding="utf-8") as handle:
+            vendor_id = int(handle.read().strip(), 16)
+    except (OSError, ValueError):
+        description = name.lower()
+        if description.startswith("nvidia "):
+            return "nvidia"
+        if description.startswith(("amd ", "amd/ati ", "advanced micro devices")):
+            return "amd"
+        if description.startswith("intel "):
+            return "intel"
+        return VENDOR_UNKNOWN
+    return _PCI_VENDORS.get(vendor_id, VENDOR_UNKNOWN)
 
 
 @dataclass(frozen=True)
@@ -194,7 +203,7 @@ def _collect_nvidia_gpus(failures: list[str] | None = None) -> list[_NvidiaGpu]:
         state = GpuState(
             pci_id=pci_id,
             name=fields[0],
-            vendor=_derive_vendor("nvidia"),
+            vendor="nvidia",
             driver="nvidia",
             driver_version=fields[1],
             memory_total_bytes=_parse_mib(fields[2]),
@@ -259,7 +268,7 @@ def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
     if (
         failures is not None
         and not nvidia
-        and not any("nvidia" in device.name.lower() for device in devices)
+        and not any(_read_gpu_vendor(device.pci_id, device.name) == "nvidia" for device in devices)
         and not any(failure.startswith("lspci:") for failure in failures)
     ):
         failures[:] = [failure for failure in failures if not failure.startswith("nvidia-smi:")]
@@ -278,7 +287,7 @@ def _collect_gpus(failures: list[str] | None = None) -> list[GpuState]:
                 GpuState(
                     pci_id=device.pci_id,
                     name=device.name,
-                    vendor=_derive_vendor(device.driver),
+                    vendor=_read_gpu_vendor(device.pci_id, device.name),
                     driver=device.driver,
                     driver_version="",
                     memory_total_bytes=vram_totals.get(device.pci_id, 0),
@@ -308,16 +317,15 @@ def _gpu_vendor(gpus: list[GpuState]) -> str:
 
 
 def _compute_platform(gpus: list[GpuState]) -> str:
-    """Derive the compute platform from the GPU vendors.
+    """Return a driver-derived hint for later compute diagnostics.
 
-    This reports the hardware/tooling *capability*, not installed software: an
-    ``nvidia`` kernel driver implies ``cuda`` and ``amdgpu``/``radeon`` implies
-    ``rocm``. The approximation "amdgpu => ROCm-capable" must not be read as
-    "ROCm installed"; the actual CUDA version stays separate in ``cuda_version``.
+    ``nvidia`` suggests CUDA and ``amdgpu``/``radeon`` suggests ROCm. This
+    heuristic proves neither GPU support, installed runtimes nor working compute.
+    ``none`` means no matching driver evidence, not proof of no capability.
     """
-    vendors = {gpu.vendor for gpu in gpus}
-    has_nvidia = "nvidia" in vendors
-    has_amd = "amd" in vendors
+    drivers = {gpu.driver for gpu in gpus}
+    has_nvidia = "nvidia" in drivers
+    has_amd = bool(drivers & {"amdgpu", "radeon"})
     if has_nvidia and has_amd:
         return "mixed"
     if has_nvidia:
@@ -328,7 +336,7 @@ def _compute_platform(gpus: list[GpuState]) -> str:
 
 
 def _collect_cuda_version(failures: list[str] | None = None) -> str:
-    """Best-effort CUDA version parsed from the standard nvidia-smi banner."""
+    """Read driver-reported CUDA support from the banner, not a toolkit version."""
     output = run_tool(["nvidia-smi"], timeout=TIMEOUT_SECONDS, failures=failures)
     if not output:
         return ""

@@ -21,16 +21,23 @@ collector. In the diff, match list entries by identity and mark any
 
 ## Consequences
 
-- Capability (`compute_platform`) and availability (`tools.available`) are
-  distinct: an NVIDIA driver implies `cuda` even when `nvidia-smi` is missing.
-- A GPU swap reads as removed + added; a changed VRAM reading on the same
-  `pci_id` reads as a value change. `status`/`diff` flag structural changes with
+- Identity (`vendor` from PCI metadata), driver-derived hints
+  (`compute_platform`) and PATH visibility (`tools.available`) are distinct.
+  A NVIDIA driver suggests `cuda` even when `nvidia-smi` is missing; the hint
+  proves neither runtime installation nor working compute.
+- A different GPU slot reads as removed + added; a replacement or changed
+  VRAM reading on the same `pci_id` reads as a value change. `status`/`diff` flag
+  structural changes with
   `struktur_geaendert` and a leading `Struktur geändert.` line.
 - The change is additive: `schema_version` stays `1`, new collectors and fields
   are tolerated by validation, and old snapshots stay readable. The first scan
   after an upgrade appears once as a structural addition.
-- `amdgpu`/`radeon` is only an approximation of ROCm capability, not proof that
-  ROCm is installed; the CUDA version stays separate in `cuda_version`.
+- `amdgpu`/`radeon` is a ROCm hint, not proof of hardware support, installation
+  or working compute. `cuda_version` reports driver-supported CUDA from the
+  banner, not an installed toolkit version.
+- History equality and diffing share list identities: only unique string
+  package selections and unique PCI-slot GPU entries ignore ordering. Other
+  lists and ambiguous identities stay atomic, preserving duplicates and types.
 - The `tools` collector is always `ok`: a missing tool is data, not a warning.
 
 ## Alternatives

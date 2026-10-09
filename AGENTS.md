@@ -93,7 +93,8 @@ just audit       # dependency vulnerability scan
   (`~/.local/share/lion/history`): `list_entries`/`resolve`/`load_latest`,
   `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
 - `program/diff.py` provides `diff_collectors`, `has_structural_change` and
-  `render` (lists match by identity — `pci_id` for GPUs, value for scalars — and
+  `render` (known lists share identities from `state/comparison.py` — PCI
+  slots for GPUs and unique strings for package selections — and
   `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
   module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
@@ -125,19 +126,16 @@ just audit       # dependency vulnerability scan
   (the file name without `.toml`); `resolve` accepts aliases, 1-based indices,
   exact references, unique prefixes and ISO timestamps, validates every entry,
   and fails loudly on ambiguous or unknown references.
-- Two states are equal when `collectors_equal` holds: either the exact
-  `canonical_collectors` match, or the only difference is
-  `hardware.memory_total_bytes` within `MEMORY_TOTAL_TOLERANCE_BYTES` (1 MiB).
-  Timestamps are excluded; each collector's `status`/`error` is included. Only
-  this one field has a tolerance; GPU memory and all other values compare
-  exactly, and a valid reading never equals `0`.
-- `hardware` splits GPU identity (`pci_id`/`vendor`/`driver`/`driver_version`)
-  and derives `gpu_vendor`/`compute_platform` from the kernel drivers
-  (capability); the separate `tools` collector records availability, and a
-  missing tool is data, not a warning. `diff` matches list entries by identity
-  (`pci_id` for tables, value for scalars) and treats any `added`/`removed` as a
-  structural change (`struktur_geaendert`); `scan` needs no extra rule because a
-  structural change is already a difference.
+- `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
+  unique string package selections and GPU lists with unique, nonempty `pci_id`
+  ignore order. Other lists, duplicates and malformed identities remain atomic.
+  Only `hardware.memory_total_bytes` has the 1 MiB tolerance; timestamps are
+  excluded, statuses/errors included, and scalar types compare exactly.
+- GPU vendor identity comes from PCI metadata independently of the active driver.
+  `compute_platform` is a driver-derived hint, not verified compute support or
+  runtime installation. The `tools` collector records PATH visibility only.
+  PCI ids identify slots: a replacement in the same slot is a field change.
+  Any `added`/`removed` is structural (`struktur_geaendert`).
 - New history entries are published with `os.link` and never overwrite; only the
   latest entry's `zuletzt_bestaetigt` refresh uses `os.replace`. Collision
   filenames use a `~NNNN` suffix so they sort after the base name and the
