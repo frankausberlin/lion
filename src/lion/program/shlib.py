@@ -42,6 +42,7 @@ done
 {END}
 """
 EXPORT_SOURCE = 'source "$HOME/.zshrc.exports"\n'
+EXPORTS_IGNORE_CONTENT = "*\n!.gitignore\n"
 
 
 class Action(StrEnum):
@@ -195,9 +196,12 @@ def status(home: Path) -> dict[str, object]:
     }
 
 
-def _require_clean_install_target(home: Path, root: Path) -> None:
-    """Reject existing shlib paths that an install must not overwrite."""
-    original = root / "shlibs" / "00-original-zshrc.sh"
+def _require_clean_install_target(home: Path, root: Path, original: Path, ignore: Path) -> None:
+    """Reject existing shlib paths that an install must not overwrite.
+
+    The caller owns ``original`` and ``ignore`` so the paths checked here are
+    exactly the paths it later writes.
+    """
     for path in (home / ".zshrc.lock", original, home / ".zshrc.exports"):
         if path.exists() or path.is_symlink():
             raise ValueError(f"Existing file requires manual reconciliation: {path}")
@@ -206,8 +210,7 @@ def _require_clean_install_target(home: Path, root: Path) -> None:
             raise ValueError(f"Expected a real directory: {path}")
     if _files(root / "shlibs", scripts=True):
         raise ValueError("Existing shlibs require manual reconciliation before installation.")
-    ignore = root / "exports" / ".gitignore"
-    if ignore.is_symlink() or (ignore.exists() and _read(ignore) != "*\n!.gitignore\n"):
+    if ignore.is_symlink() or (ignore.exists() and _read(ignore) != EXPORTS_IGNORE_CONTENT):
         raise ValueError(f"Existing exports ignore file requires manual reconciliation: {ignore}")
 
 
@@ -219,8 +222,8 @@ def _install(home: Path) -> list[str]:
         return ["Shlib is already installed; no files changed."]
     root = home / ".shlib"
     original = root / "shlibs" / "00-original-zshrc.sh"
-    _require_clean_install_target(home, root)
     ignore = root / "exports" / ".gitignore"
+    _require_clean_install_target(home, root, original, ignore)
     _ = _exports(root / "exports")
     _validate(old)
     _validate(BLOCK)
@@ -228,7 +231,7 @@ def _install(home: Path) -> list[str]:
     backup = _backup(rc, ".before-shlib") if rc.exists() else None
     for folder in (root, root / "exports", root / "shlibs", root / "dash"):
         folder.mkdir(mode=0o700, exist_ok=True)
-    _write(ignore, "*\n!.gitignore\n", 0o600)
+    _write(ignore, EXPORTS_IGNORE_CONTENT, 0o600)
     _write(original, old, 0o600)
     try:
         _write(lock, BLOCK, 0o600)
