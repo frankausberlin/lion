@@ -173,6 +173,17 @@ just audit       # dependency vulnerability scan
 - `pyproject.toml` sets ruff `extend-exclude = [".kilo"]` so agent artifacts
   (plans, worktrees) are not linted or formatted.
 
+### Git Workflow (Agents)
+
+- Agents never commit or push directly to `main`. Create a branch
+  (`feat/...`, `fix/...`, `docs/...`), commit and push it, and open a pull
+  request; the maintainer reviews and merges.
+- Direct pushes to `main` are reserved for the maintainer. This is an agent
+  workflow rule in this file, not a server-side branch rule; `main` is only
+  protected against deletion and non-fast-forward pushes.
+- Before finishing git work, inspect `git status`, `git diff` and
+  `git log --oneline -10`, and stage only the intended files.
+
 ### Language and Project Documents
 
 - Code, docstrings, README, `docs/`, `--help` texts and commit messages stay
