@@ -55,3 +55,49 @@ run:
 # Real CLI/package lifecycle in a disposable Docker container
 test-e2e:
     bash scripts/test-e2e.sh
+
+# Write design metrics to .refactor/ (report only; never fails on findings)
+rate-design:
+    #!/usr/bin/env bash
+    set -uo pipefail
+    mkdir -p .refactor
+    uv run radon cc  src --json > .refactor/radon-cc.json  || { echo "radon cc failed"  >&2; exit 2; }
+    uv run radon mi  src --json > .refactor/radon-mi.json  || { echo "radon mi failed"  >&2; exit 2; }
+    uv run radon raw src --json > .refactor/radon-raw.json || { echo "radon raw failed" >&2; exit 2; }
+    vrc=0
+    uv run vulture src tests --min-confidence 60 > .refactor/vulture.txt || vrc=$?
+    # vulture exit code 3 == findings (expected); 1/2 == error
+    if [ "$vrc" -ne 0 ] && [ "$vrc" -ne 3 ]; then echo "vulture failed ($vrc)" >&2; exit 2; fi
+    {
+        echo "# Design report"
+        echo
+        echo "- revision: $(git rev-parse --short HEAD 2>/dev/null || echo n/a)"
+        echo "- date: $(date -u +%FT%TZ)"
+        echo "- python: $(uv run python -V 2>/dev/null)"
+        echo
+        echo "## Vulture (advisory – NOT proof of dead code)"
+        echo '```'
+        cat .refactor/vulture.txt
+        echo '```'
+        echo
+        echo "## Radon cc / mi / raw"
+        echo "Raw JSON: .refactor/radon-cc.json, radon-mi.json, radon-raw.json"
+    } > .refactor/report.md
+    echo "Report: .refactor/report.md"
+
+# Prepare a refactoring session: preflight, baseline report, new branch. Changes no code.
+refactor name="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "Error: working tree is dirty; commit or stash first." >&2
+        exit 1
+    fi
+    just check
+    just rate-design
+    slug="{{name}}"
+    slug="${slug:-$(date -u +%Y%m%d-%H%M%S)}"
+    branch="refactor/${slug}"
+    git switch -c "$branch"
+    echo "Branch '$branch' created. Baseline in .refactor/."
+    echo "Proceed with the 'refactoring' skill; this recipe does not refactor."

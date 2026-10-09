@@ -22,6 +22,9 @@ htmlcov/
 # Documentation build output (library projects)
 site/
 
+# Refactoring artifacts (generated)
+.refactor/
+
 # Agent session files (volatile)
 SESSION.md
 JOURNAL.md
@@ -31,3 +34,5 @@ ignore/
 
 # End-to-end diagnostics
 e2e-artifacts.*/
+
+.kilo

@@ -198,6 +198,16 @@ just audit       # dependency vulnerability scan
 - `pyproject.toml` sets ruff `extend-exclude = [".kilo"]` so agent artifacts
   (plans, worktrees) are not linted or formatted.
 
+### Refactoring
+
+- `just rate-design` writes advisory radon/vulture reports to `.refactor/`
+  (gitignored) and never fails on findings. `just refactor [name]` prepares a
+  session (refuses a dirty tree, runs `just check`, writes a baseline, creates
+  a `refactor/<slug>` branch) and changes no code.
+- Follow the `refactoring` skill: measure first, one recipe per step, `just
+  check` green before and after every change, no test weakening, no destructive
+  git. `radon`/`vulture` are locked dev dependencies.
+
 ### Git Workflow (Agents)
 
 - Agents never commit or push directly to `main`. Create a branch
