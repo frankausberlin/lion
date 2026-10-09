@@ -39,7 +39,7 @@ never followed. LION never executes a script; a human reads and runs it. See
 ## Clock rollback
 
 If the system clock precedes the latest confirmation, `scan` fails before
-modifying history. Correct the clock before retrying. Lion does not synthesize
+modifying history. Correct the clock before retrying. LION does not synthesize
 observation times or change existing references; equal timestamps still use
 the collision suffixes described above.
 

@@ -10,7 +10,7 @@ uv sync           # install all dependencies
 
 ## Workflow
 
-1. Create a feature branch: `git checkout -b feature/my-feature`
+1. Create a feature branch: `git checkout -b feat/my-feature`
 2. Make your changes
 3. Run the quality gate: `just check`
 4. Commit: `git add -A && git commit -m "feat: ..."`

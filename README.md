@@ -1,11 +1,11 @@
 ![](https://lh3.googleusercontent.com/d/16oJMjpAhsFov-BWYSM1P7JZASx2hIPc5)
 
-# Lion - The Linux Assisten
+# LION — The Linux Assistant
 
 *(🚧 WIP)* The project is in an early stage of development.
 
 
-**LION (Linux Operator Nerd)** is your Linux assistant. It tracks the machine status with collectors, enables structured system individualization with the shell library (shlib), optimizes agentic work on the system with an mcp server, enables the storage and management of shell recordings, offers a monitoring mechanism for commands with regex-based qualification and creates an OKF v0.2 compliant wiki about the system.
+**LION (Linux Operator Nerd)** is your Linux assistant. It tracks the machine status with collectors, enables structured system individualization with the shell library (shlib), optimizes agentic work on the system with an MCP server, enables the storage and management of shell recordings, offers a monitoring mechanism for commands with regex-based qualification and creates an OKF v0.2 compliant wiki about the system.
 
 ***Lion requires no root and modifies no system files. Its writes are confined to Lion's own directories and the shell startup files it manages.***
 
@@ -20,13 +20,13 @@
 * The **Serve** command starts an **MCP server** with tools, resources and prompts, it is used **exclusively by harnesses**.
 
 
-## Commands overwiev
+## Commands overview
 
 ### realized
 
 |command|sub|params|description|
 |-|-|-|-|
-|||--help\|--version|<li>Shows the the help / version|
+|||--help\|--version|<li>Shows the help / version|
 |**shlib**<br><br><br>|[*status*]<br>*install*<br>*uninstall*||<li>Shows the status of the Shlib system<br><li>Installs the Shlib system<br><li>Removes the Shlib system|
 |**scan**||--json|<li>collect the current state and save it|
 |[**status**]||--json|<li>compare the current state with the latest saved one|
@@ -40,12 +40,12 @@
 |-|-|-|-|
 |**shell**<br><br><br>|[*status*]<br>*insert*<br>*remove*||<li>Shows whether the watch hook is inserted in zsh<br><li>Inserts the watch hook into zsh<br><li>Removes the watch hook from zsh|
 |**watch**<br><br><br><br>|[*status*]<br>*start*<br>*stop*<br>*dog*||<li>Shows the status of lion watch<br><li>start watching<br><li>stop watching and offer the option to enter a description of the recording<br><li>Start in watch-dog-mode (requires confirmation of critical orders)|
-|**wiki**<br><br>|[*status*]<br>*sync*||<li>Shows the status of the wiki<br>Rebuild the wiki with the current status and recording list|
-|**serve**<br><br><br>|*tools*<br>*resources*<br>*prompts*||<li>Tools for agents to access Lion functions<br><li>The lion states and the recordings<br><li>Short recipes for agents to work optimally|
+|**wiki**<br><br>|[*status*]<br>*sync*||<li>Shows the status of the wiki<br><li>Rebuild the wiki with the current status and recording list|
+|**serve**<br><br><br>|*tools*<br>*resources*<br>*prompts*||<li>Tools for agents to access LION functions<br><li>The LION states and the recordings<br><li>Short recipes for agents to work optimally|
 
 > * No initialization step is needed. `scan` creates its data directory automatically.
-> * Lion serve is only used in the agent harness
-> * tools, resources, prompts are not subcommands, just the description of the mcp functions used
+> * LION serve is only used in the agent harness
+> * tools, resources, prompts are not subcommands, just the description of the MCP functions used
 > * `shlib`, `scan`, `status`, `history`, `diff` and `doctor` exist today; `shell`, `watch`, `wiki` and `serve` are planned.
 
 

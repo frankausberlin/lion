@@ -43,7 +43,7 @@ after changing code or tests so the image contains the current files.
 
 Package installation and removal happen only in the container's package
 database. The package scenario requires root **inside the disposable
-container**; Lion itself does not require root. The permissions scenarios
+container**; LION itself does not require root. The permissions scenarios
 switch to the dedicated unprivileged `lion-e2e` user
 using `runuser --preserve-environment`; only their temporary directories are
 owned by that user. Package mutation remains root-only. Shlib and the

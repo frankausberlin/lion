@@ -49,7 +49,7 @@ Three facts are kept apart:
   current `PATH`. A missing tool is data, not a warning; visibility does not
   prove successful execution.
 
-The future doctor consumes these facts and checks operational requirements
+The `doctor` command consumes these facts and checks operational requirements
 separately. Vendor identity keeps "NVIDIA card present, but `nvidia-smi` missing"
 visible even when no supported compute driver is active.
 

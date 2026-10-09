@@ -52,8 +52,8 @@ total from the DRM sysfs when the driver exposes it. `gpu_vendor` is
 independent of the active driver. `compute_platform` uses driver evidence:
 `nvidia` suggests `cuda`, `amdgpu`/`radeon` suggests `rocm`, and both suggest
 `mixed`. This is a hint, not proof of supported GPUs, installed runtimes or
-working compute. `none` means no matching driver evidence. The future doctor
-must check those conditions separately.
+working compute. `none` means no matching driver evidence. `doctor` checks those
+conditions separately.
 Missing `/proc` files use `Unknown`/`0`; when the helper tools are unavailable
 the GPU list is empty.
 
