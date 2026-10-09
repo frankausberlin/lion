@@ -18,12 +18,21 @@ from lion.cli import app
 from lion.command import doctor as command_doctor
 from lion.program import doctor, storage
 from lion.program.checks import CheckStatus, DoctorContext, Finding
+from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
 from lion.state import diagnosis
 
 runner = CliRunner()
 
 T0 = datetime(2026, 10, 9, 12, 0, 0, tzinfo=UTC)
+
+_NVIDIA_HARDWARE: dict[str, object] = {
+    "status": "ok",
+    "error": "",
+    "gpu_vendor": "nvidia",
+    "compute_platform": "cuda",
+    "gpu": [{"vendor": "nvidia", "driver": "nvidia"}],
+}
 
 
 @pytest.fixture(autouse=True)
@@ -48,7 +57,7 @@ def _state(**overrides: object) -> dict[str, dict[str, object]]:
             "distribution": "Ubuntu",
             "distribution_version": "24.04",
         },
-        "hardware": {"status": "ok", "error": "", "gpu_vendor": "none", "compute_platform": "none"},
+        "hardware": {"status": "ok", "error": "", "gpu_vendor": "none", "compute_platform": "none", "gpu": []},
         "packages": {"status": "ok", "error": ""},
         "tools": {
             "status": "ok",
@@ -110,7 +119,7 @@ def test_warn_writes_single_reco(monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing required tool is a warn that publishes exactly one script."""
     _use_state(
         monkeypatch,
-        _state(hardware={"status": "ok", "error": "", "gpu_vendor": "nvidia", "compute_platform": "cuda"}),
+        _state(hardware=_NVIDIA_HARDWARE),
     )
 
     result = _invoke()
@@ -132,7 +141,7 @@ def test_show_prints_reco_content(monkeypatch: pytest.MonkeyPatch) -> None:
     """``--show`` prints the generated script only in text mode."""
     _use_state(
         monkeypatch,
-        _state(hardware={"status": "ok", "error": "", "gpu_vendor": "nvidia", "compute_platform": "cuda"}),
+        _state(hardware=_NVIDIA_HARDWARE),
     )
 
     result = _invoke("--show")
@@ -146,7 +155,7 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
     """``--json`` emits one JSON object and never leaks the reco content."""
     _use_state(
         monkeypatch,
-        _state(hardware={"status": "ok", "error": "", "gpu_vendor": "nvidia", "compute_platform": "cuda"}),
+        _state(hardware=_NVIDIA_HARDWARE),
     )
 
     result = _invoke("--json")
@@ -198,7 +207,7 @@ def test_reco_publish_failure_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
     """A failed reco publication is reported as an error instead of crashing."""
     _use_state(
         monkeypatch,
-        _state(hardware={"status": "ok", "error": "", "gpu_vendor": "nvidia", "compute_platform": "cuda"}),
+        _state(hardware=_NVIDIA_HARDWARE),
     )
 
     def fail(content: str) -> Path:
@@ -213,15 +222,32 @@ def test_reco_publish_failure_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "konnte nicht geschrieben werden" in result.stdout
 
 
-def test_foreign_zdotdir_is_error(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
-    """A foreign ZDOTDIR becomes a shlib error instead of aborting the run."""
+def test_foreign_zdotdir_without_install_is_skip(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
+    """A foreign ZDOTDIR without a managed install is a neutral skip, not an error."""
     _use_state(monkeypatch, _state())
     monkeypatch.setenv("ZDOTDIR", str(doctor_env.home / "other"))
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    findings = {item["name"]: item for item in json.loads(result.stdout)["befunde"]}
+    assert findings["shlib.home"]["status"] == "skip"
+
+
+def test_foreign_zdotdir_with_install_is_error(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
+    """A foreign ZDOTDIR with a managed install stays an error."""
+    _use_state(monkeypatch, _state())
+    home = doctor_env.home
+    (home / ".zshrc").write_text(BLOCK)
+    (home / ".zshrc.lock").write_text(BLOCK)
+    (home / ".shlib" / "exports").mkdir(parents=True)
+    (home / ".shlib" / "shlibs").mkdir(parents=True)
+    monkeypatch.setenv("ZDOTDIR", str(home / "other"))
 
     result = _invoke()
 
     assert result.exit_code == 1
-    assert "shlib.home" in result.stdout
+    assert "[Fehler] shlib.home" in result.stdout
 
 
 def test_skip_for_optional_and_foreign_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -265,7 +291,7 @@ def test_read_only_preserves_history_and_recos(monkeypatch: pytest.MonkeyPatch) 
     """A warn run creates recos/ but never touches history/."""
     _use_state(
         monkeypatch,
-        _state(hardware={"status": "ok", "error": "", "gpu_vendor": "nvidia", "compute_platform": "cuda"}),
+        _state(hardware=_NVIDIA_HARDWARE),
     )
 
     _ = _invoke()
@@ -410,11 +436,113 @@ def test_tool_policy_helpers() -> None:
     """The private policy helpers cover the unknown and zsh cases."""
     requirement = diagnosis._requirement  # pyright: ignore[reportPrivateUsage]
     remediation = diagnosis._remediation  # pyright: ignore[reportPrivateUsage]
+    has_nvidia = diagnosis._has_nvidia_gpu  # pyright: ignore[reportPrivateUsage]
 
-    assert requirement("unbekannt", "", "", "") == (False, "unbekanntes Werkzeug")
+    assert requirement("unbekannt", False, "") == (False, "unbekanntes Werkzeug")
+    assert requirement("nvidia_smi", True, "Ubuntu")[0] is True
+    assert requirement("nvidia_smi", False, "Ubuntu")[0] is False
     assert remediation("nvidia_smi", "Ubuntu")[0] == ()
     assert remediation("apt_mark", "Ubuntu")[0] == ()
     assert remediation("unbekannt", "Ubuntu") == ((), "")
+
+    assert has_nvidia({"gpu": [{"vendor": "amd"}, {"vendor": "nvidia"}]}) is True
+    assert has_nvidia({"gpu": [{"vendor": "amd", "driver": "amdgpu"}]}) is False
+    assert has_nvidia({"gpu": [{"driver": "nvidia"}]}) is True
+    assert has_nvidia({"gpu": []}) is False
+    assert has_nvidia({"compute_platform": "cuda"}) is True
+    assert has_nvidia({"gpu_vendor": "none"}) is False
+
+
+def test_nvidia_smi_required_for_mixed_gpu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A mixed AMD+NVIDIA machine still requires nvidia-smi, per-GPU evidence."""
+    _use_state(
+        monkeypatch,
+        _state(
+            hardware={
+                "status": "ok",
+                "error": "",
+                "gpu_vendor": "mixed",
+                "compute_platform": "mixed",
+                "gpu": [
+                    {"vendor": "amd", "driver": "amdgpu"},
+                    {"vendor": "nvidia", "driver": "nvidia"},
+                ],
+            },
+            tools={
+                "status": "ok",
+                "error": "",
+                "available": {"lspci": True, "nvidia_smi": False, "apt_mark": True},
+            },
+        ),
+    )
+
+    result = _invoke("--json")
+
+    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["befunde"]}
+    assert findings["tools.nvidia_smi"] == "warn"
+
+
+def test_nvidia_smi_not_required_for_amd_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An AMD-only machine never requires nvidia-smi, even with rocm drivers."""
+    _use_state(
+        monkeypatch,
+        _state(
+            hardware={
+                "status": "ok",
+                "error": "",
+                "gpu_vendor": "amd",
+                "compute_platform": "rocm",
+                "gpu": [{"vendor": "amd", "driver": "amdgpu"}],
+            },
+            tools={
+                "status": "ok",
+                "error": "",
+                "available": {"lspci": True, "nvidia_smi": True, "apt_mark": True},
+            },
+        ),
+    )
+
+    result = _invoke("--json")
+
+    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["befunde"]}
+    assert findings["tools.nvidia_smi"] == "skip"
+
+
+def test_shlib_install_without_reference_warns(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
+    """A managed installation without ~/.zshrc.lock is a warning, not ok."""
+    _use_state(monkeypatch, _state())
+    home = doctor_env.home
+    (home / ".zshrc").write_text(BLOCK)
+    (home / ".shlib" / "exports").mkdir(parents=True)
+    (home / ".shlib" / "shlibs").mkdir(parents=True)
+
+    result = _invoke("--json")
+
+    findings = {item["name"]: item for item in json.loads(result.stdout)["befunde"]}
+    assert findings["shlib.installed"]["status"] == "ok"
+    assert findings["shlib.lock"]["status"] == "warn"
+    assert "fehlt" in findings["shlib.lock"]["message"]
+
+
+def test_dash_defects_checked_without_install(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
+    """Dash entries are inspected even when the managed block is absent."""
+    _use_state(monkeypatch, _state())
+    home = doctor_env.home
+    dash = home / ".shlib" / "dash"
+    dash.mkdir(parents=True)
+    real = home / "real.conf"
+    real.write_text("x")
+    (dash / "ok.conf").symlink_to(real)
+    (dash / "broken.conf").symlink_to(home / "missing")
+    (dash / "plain.conf").write_text("plain")
+
+    result = _invoke("--json")
+
+    findings = {item["name"]: item for item in json.loads(result.stdout)["befunde"]}
+    assert findings["shlib.installed"]["status"] == "skip"
+    assert findings["shlib.dash.broken.conf"]["status"] == "warn"
+    assert findings["shlib.dash.plain.conf"]["status"] == "warn"
+    assert "shlib.dash.ok.conf" not in findings
 
 
 def test_reco_sanitizes_finding_name_newlines(monkeypatch: pytest.MonkeyPatch) -> None:

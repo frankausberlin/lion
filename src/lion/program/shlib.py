@@ -335,9 +335,12 @@ def _dash_checks(directory: Path) -> list[Finding]:
 def shlib_checks(ctx: DoctorContext) -> list[Finding]:
     """Check the shell-library installation state without writing.
 
-    This builds on :func:`status`; a ``ValueError`` (ambiguous markers, a
-    foreign ``ZDOTDIR``) becomes an ``error`` finding instead of aborting the
-    whole doctor run.
+    Installation, the ``~/.zshrc.lock`` reference copy and any existing ``dash``
+    entries are inspected independently: a missing reference copy warns, and
+    ``dash`` defects are reported even when the managed block is absent. Valid
+    files retained by a regular uninstall stay allowed. This builds on
+    :func:`status`; an ``OSError`` or ``ValueError`` becomes an ``error`` finding
+    instead of aborting the whole doctor run.
     """
     try:
         result = status(ctx.home)
@@ -352,7 +355,50 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
             )
         ]
     findings: list[Finding] = []
-    if not result.get("installed"):
+    installed = bool(result.get("installed"))
+    if installed:
+        findings.append(
+            Finding(
+                topic="shlib",
+                name="shlib.installed",
+                status=CheckStatus.OK,
+                message="Shlib ist installiert.",
+            )
+        )
+        warnings = result.get("warnings")
+        if isinstance(warnings, list):
+            for warning in cast("list[object]", warnings):
+                findings.append(
+                    Finding(
+                        topic="shlib",
+                        name="shlib.warnings",
+                        status=CheckStatus.WARN,
+                        message=str(warning),
+                        hint="Installation prüfen oder 'lion shlib install' erneut ausführen.",
+                    )
+                )
+        lock = result.get("lock")
+        if lock == "changed":
+            findings.append(
+                Finding(
+                    topic="shlib",
+                    name="shlib.lock",
+                    status=CheckStatus.WARN,
+                    message="~/.zshrc weicht von der Referenzkopie ~/.zshrc.lock ab.",
+                    hint="Beabsichtigte Änderungen übernehmen oder die Referenz verwerfen.",
+                )
+            )
+        elif lock == "missing":
+            findings.append(
+                Finding(
+                    topic="shlib",
+                    name="shlib.lock",
+                    status=CheckStatus.WARN,
+                    message="Installation erkannt, aber die Referenzkopie ~/.zshrc.lock fehlt.",
+                    hint="Referenz neu anlegen: cp ~/.zshrc ~/.zshrc.lock",
+                )
+            )
+    else:
         findings.append(
             Finding(
                 topic="shlib",
@@ -360,37 +406,6 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                 status=CheckStatus.SKIP,
                 message="Shlib ist nicht installiert.",
                 hint="Optional: 'lion shlib install' aktiviert die Shell-Library.",
-            )
-        )
-        return findings
-    findings.append(
-        Finding(
-            topic="shlib",
-            name="shlib.installed",
-            status=CheckStatus.OK,
-            message="Shlib ist installiert.",
-        )
-    )
-    warnings = result.get("warnings")
-    if isinstance(warnings, list):
-        for warning in cast("list[object]", warnings):
-            findings.append(
-                Finding(
-                    topic="shlib",
-                    name="shlib.warnings",
-                    status=CheckStatus.WARN,
-                    message=str(warning),
-                    hint="Installation prüfen oder 'lion shlib install' erneut ausführen.",
-                )
-            )
-    if result.get("lock") == "changed":
-        findings.append(
-            Finding(
-                topic="shlib",
-                name="shlib.lock",
-                status=CheckStatus.WARN,
-                message="~/.zshrc weicht von der Referenzkopie ~/.zshrc.lock ab.",
-                hint="Beabsichtigte Änderungen übernehmen oder die Referenz verwerfen.",
             )
         )
     findings.extend(_dash_checks(ctx.home / ".shlib" / "dash"))

@@ -79,14 +79,33 @@ def collector_checks(ctx: DoctorContext) -> list[Finding]:
     return findings
 
 
-def _requirement(name: str, gpu_vendor: str, compute_platform: str, distribution: str) -> tuple[bool, str]:
+def _has_nvidia_gpu(hardware: dict[str, object]) -> bool:
+    """Return whether any detected GPU is NVIDIA.
+
+    The per-GPU list is authoritative, so a mixed AMD+NVIDIA machine still
+    requires ``nvidia-smi``. A state without the list falls back to the
+    aggregate vendor/compute hint.
+    """
+    raw = hardware.get("gpu")
+    if isinstance(raw, list):
+        for item in cast("list[object]", raw):
+            if not isinstance(item, dict):
+                continue
+            entry = cast("dict[str, object]", item)
+            if entry.get("vendor") == "nvidia" or entry.get("driver") == "nvidia":
+                return True
+        return False
+    return _text(hardware, "gpu_vendor") == "nvidia" or _text(hardware, "compute_platform") == "cuda"
+
+
+def _requirement(name: str, has_nvidia: bool, distribution: str) -> tuple[bool, str]:
     """Return whether a tool is required and a short human reason."""
     if name == "lspci":
         return True, "Quelle der GPU-Erkennung"
     if name == "nvidia_smi":
-        if gpu_vendor == "nvidia" or compute_platform == "cuda":
-            return True, f"GPU-Profil {gpu_vendor or compute_platform}"
-        return False, "kein NVIDIA-/CUDA-Profil erkannt"
+        if has_nvidia:
+            return True, "NVIDIA-GPU erkannt"
+        return False, "keine NVIDIA-GPU erkannt"
     if name == "apt_mark":
         if _is_debian(distribution):
             return True, f"Debian-Familie ({distribution})"
@@ -128,14 +147,13 @@ def tool_checks(ctx: DoctorContext) -> list[Finding]:
     tools = _section(ctx.state, "tools")
     raw_available = tools.get("available")
     available = cast("dict[str, object]", raw_available) if isinstance(raw_available, dict) else {}
-    gpu_vendor = _text(hardware, "gpu_vendor")
-    compute_platform = _text(hardware, "compute_platform")
+    has_nvidia = _has_nvidia_gpu(hardware)
     distribution = _text(host, "distribution")
 
     findings: list[Finding] = []
     for name, command in tooling.TOOLS:
         present = bool(available.get(name))
-        required, reason = _requirement(name, gpu_vendor, compute_platform, distribution)
+        required, reason = _requirement(name, has_nvidia, distribution)
         if not required:
             presence = "vorhanden" if present else "nicht vorhanden"
             findings.append(

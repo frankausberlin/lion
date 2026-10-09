@@ -32,8 +32,15 @@ Each finding is one of four states:
   is optional for this profile. Neutral; it never affects the exit code.
 
 The tool policy is profile-dependent: `lspci` is always required, `nvidia-smi`
-only for an NVIDIA/CUDA profile, `apt-mark` only on the Debian family, and
-`rocm-smi`/`zsh` are never required by a plain doctor run.
+whenever at least one detected GPU is NVIDIA (including a mixed AMD+NVIDIA
+machine), `apt-mark` only on the Debian family, and `rocm-smi`/`zsh` are never
+required by a plain doctor run.
+
+The `shlib` check inspects the managed block, the `~/.zshrc.lock` reference copy
+and any `dash/` entries independently. A missing reference copy and a broken
+`dash` symlink are warnings even when the block is absent; files retained by a
+regular uninstall stay allowed. A custom `ZDOTDIR` is reported only when a
+managed installation exists; without one it is a neutral `skip`.
 
 ## Review and run the fix script
 

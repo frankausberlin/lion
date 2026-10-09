@@ -39,6 +39,14 @@ def _resolve_home() -> tuple[Path, str]:
         return Path.home(), str(exc)
 
 
+def _shlib_installed(home: Path) -> bool:
+    """Return whether a managed shlib block is present under ``home``."""
+    try:
+        return bool(shlib.status(home).get("installed"))
+    except (OSError, ValueError):
+        return False
+
+
 def _with_extra(findings: list[Finding], finding: Finding) -> list[Finding]:
     """Return the findings with one added, keeping the canonical order."""
     return doctor.sort_findings([*findings, finding])
@@ -55,16 +63,28 @@ def run(json_output: bool = False, show: bool = False) -> None:
     state = collect_state(COLLECTORS)
     findings = doctor.run_checks(DoctorContext(state=state, home=home))
     if home_error:
-        findings = _with_extra(
-            findings,
-            Finding(
-                topic="shlib",
-                name="shlib.home",
-                status=CheckStatus.ERROR,
-                message=home_error,
-                hint=_NO_HOME_HINT,
-            ),
-        )
+        if _shlib_installed(home):
+            findings = _with_extra(
+                findings,
+                Finding(
+                    topic="shlib",
+                    name="shlib.home",
+                    status=CheckStatus.ERROR,
+                    message=home_error,
+                    hint=_NO_HOME_HINT,
+                ),
+            )
+        else:
+            findings = _with_extra(
+                findings,
+                Finding(
+                    topic="shlib",
+                    name="shlib.home",
+                    status=CheckStatus.SKIP,
+                    message=f"Kein verwaltetes Shlib; {home_error}",
+                    hint=_NO_HOME_HINT,
+                ),
+            )
 
     status = doctor.overall(findings)
     reco_path: Path | None = None
