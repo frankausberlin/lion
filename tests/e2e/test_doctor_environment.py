@@ -2,8 +2,10 @@
 
 These tests exercise the installed ``lion`` executable and a real filesystem in
 the disposable container, complementing the mocked ``tests/test_doctor.py``.
-The bare image deliberately lacks ``lspci``/``nvidia-smi``, so the hardware and
-``lspci`` findings are deterministic.
+The bare image deliberately lacks ``lspci``/``nvidia-smi`` and any container
+engine, so the hardware and ``lspci`` findings are deterministic and the
+``containers`` collector reports ``runtime=none``. Whether ``systemctl`` exists
+in the base image is asserted rather than assumed.
 """
 
 import json
@@ -52,14 +54,18 @@ def test_bare_profile_publishes_one_reco(runner: Callable[..., str], env: dict[s
     """The bare container yields a deterministic profile and exactly one reco."""
     assert shutil.which("lspci") is None
     assert shutil.which("nvidia-smi") is None
+    assert shutil.which("docker") is None
+    assert shutil.which("podman") is None
 
     payload = _mapping(json.loads(runner("lion", "doctor", "--json", env=env)))
     assert payload["status"] == "warn"
 
     for name in (
         "collectors.host",
+        "collectors.network",
         "collectors.packages",
         "collectors.tools",
+        "collectors.containers",
         "tools.apt_mark",
         "storage.data_dir",
         "storage.history",
@@ -69,7 +75,25 @@ def test_bare_profile_publishes_one_reco(runner: Callable[..., str], env: dict[s
     assert _status(payload, "collectors.hardware") == "warn"
     assert _status(payload, "tools.lspci") == "warn"
     assert _findings(payload)["tools.lspci"]["commands"] == ["sudo apt install pciutils"]
-    for name in ("tools.nvidia_smi", "tools.rocm_smi", "tools.zsh", "history.entries", "shlib.installed"):
+    # A container has no usable container engine; absence is data, not a warning.
+    assert _findings(payload)["collectors.containers"]["message"] == "Collector 'containers': ok."
+    # Whether systemctl exists decides the services finding, so assert reality.
+    if shutil.which("systemctl") is None:
+        assert _status(payload, "collectors.services") == "warn"
+        assert _status(payload, "tools.systemctl") == "warn"
+        assert _findings(payload)["tools.systemctl"]["commands"] == []
+    else:
+        assert _status(payload, "tools.systemctl") == "ok"
+        assert _status(payload, "collectors.services") in {"ok", "warn"}
+    for name in (
+        "tools.nvidia_smi",
+        "tools.rocm_smi",
+        "tools.docker",
+        "tools.podman",
+        "tools.zsh",
+        "history.entries",
+        "shlib.installed",
+    ):
         assert _status(payload, name) == "skip", name
 
     scripts = _reco_scripts(tmp_path / "data")
