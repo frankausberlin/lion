@@ -112,3 +112,32 @@ refactor name="":
     git switch -c "$branch"
     echo "Branch '$branch' created. Baseline in .refactor/."
     echo "Proceed with the 'refactoring' skill; this recipe does not refactor."
+
+# Fast-forward <target> (default: main) to <branch>, then clean up its worktree and branch
+merge branch target="main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ "$(git branch --show-current)" != "{{target}}" ]; then
+        echo "merge: run this from '{{target}}'" >&2
+        exit 1
+    fi
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "merge: working tree is dirty" >&2
+        exit 1
+    fi
+    if git remote get-url origin >/dev/null 2>&1; then
+        git fetch origin
+    fi
+    if ! git merge --ff-only "{{branch}}"; then
+        echo "merge: '{{branch}}' cannot be fast-forwarded; '{{target}}' has diverged" >&2
+        exit 1
+    fi
+    worktree_path="$(
+        git worktree list --porcelain | awk -v ref="refs/heads/{{branch}}" \
+            '/^worktree / { wt = substr($0, 10) } /^branch / && $2 == ref { print wt; exit }'
+    )"
+    if [ -n "$worktree_path" ]; then
+        git worktree remove "$worktree_path"
+    fi
+    git branch -d "{{branch}}"
+    echo "merge: '{{branch}}' merged into '{{target}}' and cleaned up; publish with 'git push origin {{target}}'"

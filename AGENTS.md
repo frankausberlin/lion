@@ -216,9 +216,16 @@ just audit       # dependency vulnerability scan
 
 ### Git Workflow (Agents)
 
+- Agent work happens in a separate `git worktree` (for example
+  `git worktree add ../<name> -b <branch>`); the maintainer's main checkout
+  stays on `main`.
 - Agents never commit or push directly to `main`. Create a branch
   (`feat/...`, `fix/...`, `docs/...`), commit and push it, and open a pull
   request; the maintainer reviews and merges.
+- The maintainer merges a reviewed branch with `just merge <branch>`:
+  fast-forward only (it refuses when `main` has diverged), then it removes the
+  branch's worktree and deletes the branch. Publishing stays a separate
+  `git push origin main`.
 - Direct pushes to `main` are reserved for the maintainer. This is an agent
   workflow rule in this file, not a server-side branch rule; `main` is only
   protected against deletion and non-fast-forward pushes.

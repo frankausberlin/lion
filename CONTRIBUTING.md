@@ -15,6 +15,8 @@ uv sync           # install all dependencies
 3. Run the quality gate: `just check`
 4. Commit: `git add -A && git commit -m "feat: ..."`
 5. Push and open a pull request
+6. The maintainer reviews and merges with `just merge <branch>` (fast-forward
+   only; it removes the branch's worktree and deletes the branch)
 
 ## Quality Gate
 
