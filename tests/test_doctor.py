@@ -58,7 +58,21 @@ def _state(**overrides: object) -> dict[str, dict[str, object]]:
             "distribution_version": "24.04",
         },
         "hardware": {"status": "ok", "error": "", "gpu_vendor": "none", "compute_platform": "none", "gpu": []},
+        "network": {"status": "ok", "error": "", "interfaces": []},
         "packages": {"status": "ok", "error": ""},
+        "services": {"status": "ok", "error": "", "units": []},
+        "containers": {
+            "status": "ok",
+            "error": "",
+            "runtime": "none",
+            "server_version": "",
+            "storage_driver": "",
+            "rootless": False,
+            "images": [],
+            "volumes": [],
+            "networks": [],
+            "containers": [],
+        },
         "tools": {
             "status": "ok",
             "error": "",
@@ -67,6 +81,9 @@ def _state(**overrides: object) -> dict[str, dict[str, object]]:
                 "nvidia_smi": False,
                 "rocm_smi": False,
                 "apt_mark": True,
+                "systemctl": True,
+                "docker": False,
+                "podman": False,
                 "zsh": True,
             },
         },
@@ -109,7 +126,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 9 ok, 0 warn, 0 error, 5 skip" in result.stdout
+    assert "Result: 13 ok, 0 warn, 0 error, 7 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -270,6 +287,7 @@ def test_skip_for_optional_and_foreign_distribution(monkeypatch: pytest.MonkeyPa
                     "nvidia_smi": False,
                     "rocm_smi": True,
                     "apt_mark": True,
+                    "systemctl": True,
                     "zsh": False,
                 },
             },
