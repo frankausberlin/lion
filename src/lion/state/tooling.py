@@ -17,6 +17,9 @@ TOOLS: tuple[tuple[str, str], ...] = (
     ("nvidia_smi", "nvidia-smi"),
     ("rocm_smi", "rocm-smi"),
     ("apt_mark", "apt-mark"),
+    ("systemctl", "systemctl"),
+    ("docker", "docker"),
+    ("podman", "podman"),
     ("zsh", "zsh"),
 )
 
