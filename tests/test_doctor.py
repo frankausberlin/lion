@@ -109,8 +109,8 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Ergebnis: 9 ok, 0 warn, 0 error, 5 skip" in result.stdout
-    assert "Behebungsskript" not in result.stdout
+    assert "Result: 9 ok, 0 warn, 0 error, 5 skip" in result.stdout
+    assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
 
@@ -125,7 +125,7 @@ def test_warn_writes_single_reco(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _invoke()
 
     assert result.exit_code == 0
-    assert "[Warnung] tools.nvidia_smi" in result.stdout
+    assert "[warning] tools.nvidia_smi" in result.stdout
     scripts = _reco_files()
     assert len(scripts) == 1
     assert str(scripts[0]) in result.stdout
@@ -133,8 +133,8 @@ def test_warn_writes_single_reco(monkeypatch: pytest.MonkeyPatch) -> None:
     assert stat.S_IMODE(get_recos_dir().stat().st_mode) == 0o700
     content = scripts[0].read_text()
     assert "nvidia-smi" in content
-    assert "NVIDIA-Treiber" in content
-    assert "führt dieses Skript niemals aus" in content
+    assert "NVIDIA driver" in content
+    assert "never executes this script" in content
 
 
 def test_show_prints_reco_content(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -148,7 +148,7 @@ def test_show_prints_reco_content(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 0
     assert "#!/usr/bin/env bash" in result.stdout
-    assert "VOR DEM AUSFÜHREN KOMPLETT LESEN" in result.stdout
+    assert "READ COMPLETELY BEFORE RUNNING" in result.stdout
 
 
 def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -164,11 +164,11 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
     assert result.stderr == ""
     payload = json.loads(result.stdout)
     assert payload["status"] == "warn"
-    assert payload["geprueft"] == ["collectors", "tools", "history", "storage", "shlib"]
-    assert payload["zusammenfassung"]["warn"] == 1
-    assert payload["reco_pfad"] is not None
-    assert payload["reco_pfad"].endswith(".sh")
-    nvidia = next(item for item in payload["befunde"] if item["name"] == "tools.nvidia_smi")
+    assert payload["checked"] == ["collectors", "tools", "history", "storage", "shlib"]
+    assert payload["summary"]["warn"] == 1
+    assert payload["reco_path"] is not None
+    assert payload["reco_path"].endswith(".sh")
+    nvidia = next(item for item in payload["findings"] if item["name"] == "tools.nvidia_smi")
     assert nvidia["status"] == "warn"
     assert nvidia["commands"] == []
 
@@ -183,7 +183,7 @@ def test_damaged_history_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
     result = _invoke()
 
     assert result.exit_code == 1
-    assert "[Fehler] history.broken.toml" in result.stdout
+    assert "[error] history.broken.toml" in result.stdout
     assert "broken.toml" in result.stdout
 
 
@@ -200,7 +200,7 @@ def test_unwritable_data_dir_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 1
     assert "storage.data_dir" in result.stdout
-    assert "nicht schreibbar" in result.stdout
+    assert "is not writable" in result.stdout
 
 
 def test_reco_publish_failure_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -219,7 +219,7 @@ def test_reco_publish_failure_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert result.exit_code == 1
     assert "storage.reco_publish" in result.stdout
-    assert "konnte nicht geschrieben werden" in result.stdout
+    assert "could not be written" in result.stdout
 
 
 def test_foreign_zdotdir_without_install_is_skip(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
@@ -230,7 +230,7 @@ def test_foreign_zdotdir_without_install_is_skip(monkeypatch: pytest.MonkeyPatch
     result = _invoke("--json")
 
     assert result.exit_code == 0
-    findings = {item["name"]: item for item in json.loads(result.stdout)["befunde"]}
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
     assert findings["shlib.home"]["status"] == "skip"
 
 
@@ -247,7 +247,7 @@ def test_foreign_zdotdir_with_install_is_error(monkeypatch: pytest.MonkeyPatch, 
     result = _invoke()
 
     assert result.exit_code == 1
-    assert "[Fehler] shlib.home" in result.stdout
+    assert "[error] shlib.home" in result.stdout
 
 
 def test_skip_for_optional_and_foreign_distribution(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -279,7 +279,7 @@ def test_skip_for_optional_and_foreign_distribution(monkeypatch: pytest.MonkeyPa
     result = _invoke("--json")
 
     assert result.exit_code == 0
-    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["befunde"]}
+    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["findings"]}
     assert findings["tools.apt_mark"] == "skip"
     assert findings["tools.nvidia_smi"] == "skip"
     assert findings["tools.rocm_smi"] == "skip"
@@ -369,7 +369,7 @@ def test_collector_checks_flag_missing_and_incomplete(doctor_env: SimpleNamespac
     state = _state(
         hardware={
             "status": "unavailable",
-            "error": "MemTotal fehlt",
+            "error": "MemTotal missing",
             "gpu_vendor": "none",
             "compute_platform": "none",
         }
@@ -380,9 +380,9 @@ def test_collector_checks_flag_missing_and_incomplete(doctor_env: SimpleNamespac
     by_name = {finding.name: finding for finding in findings}
 
     assert by_name["collectors.packages"].status == CheckStatus.WARN
-    assert "fehlt" in by_name["collectors.packages"].message
+    assert "missing" in by_name["collectors.packages"].message
     assert by_name["collectors.hardware"].status == CheckStatus.WARN
-    assert "MemTotal fehlt" in by_name["collectors.hardware"].message
+    assert "MemTotal missing" in by_name["collectors.hardware"].message
 
 
 def test_missing_lspci_on_debian_offers_command(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -395,7 +395,7 @@ def test_missing_lspci_on_debian_offers_command(monkeypatch: pytest.MonkeyPatch)
     result = _invoke("--show")
 
     assert result.exit_code == 0
-    assert "[Warnung] tools.lspci" in result.stdout
+    assert "[warning] tools.lspci" in result.stdout
     assert "sudo apt install pciutils" in result.stdout
 
 
@@ -438,12 +438,12 @@ def test_tool_policy_helpers() -> None:
     remediation = diagnosis._remediation  # pyright: ignore[reportPrivateUsage]
     has_nvidia = diagnosis._has_nvidia_gpu  # pyright: ignore[reportPrivateUsage]
 
-    assert requirement("unbekannt", False, "") == (False, "unbekanntes Werkzeug")
+    assert requirement("unknown", False, "") == (False, "unknown tool")
     assert requirement("nvidia_smi", True, "Ubuntu")[0] is True
     assert requirement("nvidia_smi", False, "Ubuntu")[0] is False
     assert remediation("nvidia_smi", "Ubuntu")[0] == ()
     assert remediation("apt_mark", "Ubuntu")[0] == ()
-    assert remediation("unbekannt", "Ubuntu") == ((), "")
+    assert remediation("unknown", "Ubuntu") == ((), "")
 
     assert has_nvidia({"gpu": [{"vendor": "amd"}, {"vendor": "nvidia"}]}) is True
     assert has_nvidia({"gpu": [{"vendor": "amd", "driver": "amdgpu"}]}) is False
@@ -478,7 +478,7 @@ def test_nvidia_smi_required_for_mixed_gpu(monkeypatch: pytest.MonkeyPatch) -> N
 
     result = _invoke("--json")
 
-    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["befunde"]}
+    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["findings"]}
     assert findings["tools.nvidia_smi"] == "warn"
 
 
@@ -504,7 +504,7 @@ def test_nvidia_smi_not_required_for_amd_only(monkeypatch: pytest.MonkeyPatch) -
 
     result = _invoke("--json")
 
-    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["befunde"]}
+    findings = {item["name"]: item["status"] for item in json.loads(result.stdout)["findings"]}
     assert findings["tools.nvidia_smi"] == "skip"
 
 
@@ -518,10 +518,10 @@ def test_shlib_install_without_reference_warns(monkeypatch: pytest.MonkeyPatch, 
 
     result = _invoke("--json")
 
-    findings = {item["name"]: item for item in json.loads(result.stdout)["befunde"]}
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
     assert findings["shlib.installed"]["status"] == "ok"
     assert findings["shlib.lock"]["status"] == "warn"
-    assert "fehlt" in findings["shlib.lock"]["message"]
+    assert "missing" in findings["shlib.lock"]["message"]
 
 
 def test_dash_defects_checked_without_install(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
@@ -538,7 +538,7 @@ def test_dash_defects_checked_without_install(monkeypatch: pytest.MonkeyPatch, d
 
     result = _invoke("--json")
 
-    findings = {item["name"]: item for item in json.loads(result.stdout)["befunde"]}
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
     assert findings["shlib.installed"]["status"] == "skip"
     assert findings["shlib.dash.broken.conf"]["status"] == "warn"
     assert findings["shlib.dash.plain.conf"]["status"] == "warn"

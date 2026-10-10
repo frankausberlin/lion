@@ -51,7 +51,7 @@ def test_no_command_runs_status() -> None:
     """Running ``lion`` without a command is the same as ``lion status``."""
     result = _invoke()
     assert result.exit_code == 0
-    assert "Kein Zustand gespeichert" in result.stdout
+    assert "No state stored" in result.stdout
 
 
 def test_version_option(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,8 +74,8 @@ def test_scan_created_then_confirmed(state: dict[str, dict[str, object]]) -> Non
     first = _invoke("scan")
     second = _invoke("scan")
     assert first.exit_code == second.exit_code == 0
-    assert "Zustand angelegt" in first.stdout
-    assert "Zeitstempel aktualisiert" in second.stdout
+    assert "State created" in first.stdout
+    assert "Timestamp refreshed" in second.stdout
     assert len(list(get_history_dir().glob("*.toml"))) == 1
 
 
@@ -85,16 +85,16 @@ def test_scan_json(state: dict[str, dict[str, object]]) -> None:
     assert result.exit_code == 0
     assert result.stderr == ""
     payload = json.loads(result.stdout)
-    assert payload["ereignis"] == "created"
-    assert payload["pfad"].endswith(".toml")
-    assert payload["zustand"]["collectors"]["host"]["hostname"] == "lion-test"
+    assert payload["event"] == "created"
+    assert payload["path"].endswith(".toml")
+    assert payload["state"]["collectors"]["host"]["hostname"] == "lion-test"
 
 
 def test_status_without_history() -> None:
     """Without history, status explains what to do; JSON returns null."""
     text = _invoke("status")
     assert text.exit_code == 0
-    assert "Kein Zustand gespeichert" in text.stdout
+    assert "No state stored" in text.stdout
     machine = _invoke("status", "--json")
     assert machine.exit_code == 0
     assert machine.stdout.strip() == "null"
@@ -105,7 +105,7 @@ def test_status_warns_about_legacy_scans() -> None:
     (get_data_dir() / "scans").mkdir(parents=True)
     result = _invoke("status")
     assert result.exit_code == 0
-    assert "Kein Zustand gespeichert" in result.stdout
+    assert "No state stored" in result.stdout
     assert "scans/" in result.stderr
 
 
@@ -114,7 +114,7 @@ def test_status_unchanged(state: dict[str, dict[str, object]]) -> None:
     _invoke("scan")
     result = _invoke("status")
     assert result.exit_code == 0
-    assert "hat sich nichts geändert" in result.stdout
+    assert "Nothing has changed" in result.stdout
 
 
 def test_status_changed(state: dict[str, dict[str, object]]) -> None:
@@ -134,12 +134,12 @@ def test_status_structural_change(state: dict[str, dict[str, object]]) -> None:
 
     result = _invoke("status")
     assert result.exit_code == 0
-    assert "Struktur geändert." in result.stdout
+    assert "Structure changed." in result.stdout
     assert "+ architecture = x86_64" in result.stdout
 
     payload = json.loads(_invoke("status", "--json").stdout)
-    assert payload["geaendert"] is True
-    assert payload["struktur_geaendert"] is True
+    assert payload["changed"] is True
+    assert payload["structure_changed"] is True
 
 
 def test_status_json_changed(state: dict[str, dict[str, object]]) -> None:
@@ -149,10 +149,10 @@ def test_status_json_changed(state: dict[str, dict[str, object]]) -> None:
     result = _invoke("status", "--json")
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["geaendert"] is True
-    assert payload["struktur_geaendert"] is False
-    assert payload["seit"]
-    assert payload["unterschiede"]["host"]["changed"]["hostname"] == {"old": "lion-test", "new": "server"}
+    assert payload["changed"] is True
+    assert payload["structure_changed"] is False
+    assert payload["since"]
+    assert payload["differences"]["host"]["changed"]["hostname"] == {"old": "lion-test", "new": "server"}
 
 
 @pytest.mark.parametrize("args", [["status"], ["status", "--json"]])
@@ -192,7 +192,7 @@ def test_incomplete_capture_warns_even_when_unchanged(state: dict[str, dict[str,
         assert "lspci: timed out" in result.stderr
         if json_output:
             assert isinstance(json.loads(result.stdout), dict)
-        assert "Warnung" not in result.stdout
+        assert "Warning" not in result.stdout
     before = {p.name: p.read_bytes() for p in get_history_dir().glob("*.toml")}
     assert len(before) == 1
     assert _invoke("status").exit_code == 0
@@ -231,7 +231,7 @@ def test_old_snapshot_without_new_fields_is_additive(monkeypatch: pytest.MonkeyP
     result = _invoke("scan")
 
     assert result.exit_code == 0
-    assert "Neuer Zustand gespeichert" in result.stdout
+    assert "New state saved" in result.stdout
     assert len(list(get_history_dir().glob("*.toml"))) == 2
     latest = load_latest()
     assert latest is not None

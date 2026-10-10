@@ -28,7 +28,7 @@ def _mapping(value: object) -> dict[str, object]:
 
 
 def _findings(payload: dict[str, object]) -> dict[str, dict[str, object]]:
-    raw = payload["befunde"]
+    raw = payload["findings"]
     assert isinstance(raw, list), raw
     result: dict[str, dict[str, object]] = {}
     for item in cast("list[object]", raw):
@@ -79,7 +79,7 @@ def test_bare_profile_publishes_one_reco(runner: Callable[..., str], env: dict[s
     content = scripts[0].read_text(encoding="utf-8")
     assert "#!/usr/bin/env bash" in content
     assert "sudo apt install pciutils" in content
-    assert "führt dieses Skript niemals aus" in content
+    assert "never executes this script" in content
     assert f"# LION: {__version__}" in content
     assert "# Host: " in content
 
@@ -92,7 +92,7 @@ def test_json_is_pure_and_show_prints_text(runner: Callable[..., str], env: dict
 
     text_output = runner("lion", "doctor", "--show", env=env)
     assert "#!/usr/bin/env bash" in text_output
-    assert "VOR DEM AUSFÜHREN KOMPLETT LESEN" in text_output
+    assert "READ COMPLETELY BEFORE RUNNING" in text_output
 
 
 def test_read_only_run_never_creates_history(runner: Callable[..., str], env: dict[str, str], tmp_path: Path) -> None:

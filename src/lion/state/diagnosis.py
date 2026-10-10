@@ -52,8 +52,8 @@ def collector_checks(ctx: DoctorContext) -> list[Finding]:
                     topic="collectors",
                     name=f"collectors.{collector.name}",
                     status=CheckStatus.WARN,
-                    message=f"Collector '{collector.name}' fehlt in der Erfassung.",
-                    hint="COLLECTORS und die Erfassung prüfen.",
+                    message=f"Collector '{collector.name}' is missing from the capture.",
+                    hint="Check COLLECTORS and the capture.",
                 )
             )
         elif status == "ok":
@@ -66,14 +66,14 @@ def collector_checks(ctx: DoctorContext) -> list[Finding]:
                 )
             )
         else:
-            detail = error or "keine Angabe"
+            detail = error or "no detail"
             findings.append(
                 Finding(
                     topic="collectors",
                     name=f"collectors.{collector.name}",
                     status=CheckStatus.WARN,
-                    message=f"Collector '{collector.name}': {status or 'unbekannt'} ({detail}).",
-                    hint="Fehlende Quelle oder Rechte prüfen; die Erfassung bleibt unvollständig.",
+                    message=f"Collector '{collector.name}': {status or 'unknown'} ({detail}).",
+                    hint="Check for a missing source or permissions; the capture stays incomplete.",
                 )
             )
     return findings
@@ -101,20 +101,20 @@ def _has_nvidia_gpu(hardware: dict[str, object]) -> bool:
 def _requirement(name: str, has_nvidia: bool, distribution: str) -> tuple[bool, str]:
     """Return whether a tool is required and a short human reason."""
     if name == "lspci":
-        return True, "Quelle der GPU-Erkennung"
+        return True, "source of GPU detection"
     if name == "nvidia_smi":
         if has_nvidia:
-            return True, "NVIDIA-GPU erkannt"
-        return False, "keine NVIDIA-GPU erkannt"
+            return True, "NVIDIA GPU detected"
+        return False, "no NVIDIA GPU detected"
     if name == "apt_mark":
         if _is_debian(distribution):
-            return True, f"Debian-Familie ({distribution})"
-        return False, f"keine Debian-Familie ({distribution or 'unbekannt'})"
+            return True, f"Debian family ({distribution})"
+        return False, f"not a Debian family ({distribution or 'unknown'})"
     if name == "zsh":
-        return False, "nur für 'lion shlib install/uninstall' nötig"
+        return False, "only needed for 'lion shlib install/uninstall'"
     if name == "rocm_smi":
-        return False, "von keinem Collector genutzt"
-    return False, "unbekanntes Werkzeug"
+        return False, "used by no collector"
+    return False, "unknown tool"
 
 
 def _remediation(name: str, distribution: str) -> tuple[tuple[str, ...], str]:
@@ -127,12 +127,12 @@ def _remediation(name: str, distribution: str) -> tuple[tuple[str, ...], str]:
     """
     if name == "lspci":
         if _is_debian(distribution):
-            return ("sudo apt install pciutils",), "Installiere pciutils, das 'lspci' bereitstellt."
-        return (), "Installiere das Paket, das 'lspci' bereitstellt (z. B. pciutils)."
+            return ("sudo apt install pciutils",), "Install pciutils, which provides 'lspci'."
+        return (), "Install the package that provides 'lspci' (e.g. pciutils)."
     if name == "nvidia_smi":
-        return (), "Installiere den passenden NVIDIA-Treiber; das Paket ist distributionsabhängig."
+        return (), "Install the matching NVIDIA driver; the package is distribution-specific."
     if name == "apt_mark":
-        return (), "Installiere APT/Dpkg, das 'apt-mark' bereitstellt."
+        return (), "Install APT/Dpkg, which provides 'apt-mark'."
     return (), ""
 
 
@@ -155,13 +155,13 @@ def tool_checks(ctx: DoctorContext) -> list[Finding]:
         present = bool(available.get(name))
         required, reason = _requirement(name, has_nvidia, distribution)
         if not required:
-            presence = "vorhanden" if present else "nicht vorhanden"
+            presence = "present" if present else "not present"
             findings.append(
                 Finding(
                     topic="tools",
                     name=f"tools.{name}",
                     status=CheckStatus.SKIP,
-                    message=f"Nicht erforderlich ({reason}); {presence}.",
+                    message=f"Not required ({reason}); {presence}.",
                 )
             )
             continue
@@ -171,7 +171,7 @@ def tool_checks(ctx: DoctorContext) -> list[Finding]:
                     topic="tools",
                     name=f"tools.{name}",
                     status=CheckStatus.OK,
-                    message=f"Verfügbar: {command}.",
+                    message=f"Available: {command}.",
                 )
             )
             continue
@@ -181,7 +181,7 @@ def tool_checks(ctx: DoctorContext) -> list[Finding]:
                 topic="tools",
                 name=f"tools.{name}",
                 status=CheckStatus.WARN,
-                message=f"Erforderlich ({reason}), aber '{command}' wurde nicht gefunden.",
+                message=f"Required ({reason}) but '{command}' was not found.",
                 hint=hint,
                 commands=commands,
             )

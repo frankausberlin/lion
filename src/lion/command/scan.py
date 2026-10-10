@@ -16,9 +16,9 @@ from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
 
 _EVENTS = {
-    "created": "Zustand angelegt",
-    "confirmed": "Zeitstempel aktualisiert",
-    "appended": "Neuer Zustand gespeichert",
+    "created": "State created",
+    "confirmed": "Timestamp refreshed",
+    "appended": "New state saved",
 }
 
 
@@ -37,9 +37,9 @@ def run(json_output: bool = False) -> None:
     warn_incomplete(state)
     if json_output:
         payload: dict[str, object] = {
-            "ereignis": outcome.event,
-            "pfad": str(outcome.path),
-            "zustand": outcome.snapshot.to_toml_dict(),
+            "event": outcome.event,
+            "path": str(outcome.path),
+            "state": outcome.snapshot.to_toml_dict(),
         }
         typer.echo(json.dumps(payload))
     else:

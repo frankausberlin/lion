@@ -332,8 +332,8 @@ def _dash_checks(directory: Path) -> list[Finding]:
                     topic="shlib",
                     name=f"shlib.dash.{path.name}",
                     status=CheckStatus.WARN,
-                    message=f"'dash' sollte nur Symlinks enthalten: {path.name} ist kein Symlink.",
-                    hint="Datei verschieben und als Symlink neu anlegen.",
+                    message=f"'dash' should contain only symlinks: {path.name} is not a symlink.",
+                    hint="Move the file away and recreate it as a symlink.",
                 )
             )
         elif not path.exists():
@@ -342,8 +342,8 @@ def _dash_checks(directory: Path) -> list[Finding]:
                     topic="shlib",
                     name=f"shlib.dash.{path.name}",
                     status=CheckStatus.WARN,
-                    message=f"Kaputter Symlink in 'dash': {path.name}",
-                    hint="Ziel reparieren oder den Symlink entfernen.",
+                    message=f"Broken symlink in 'dash': {path.name}",
+                    hint="Repair the target or remove the symlink.",
                 )
             )
     return findings
@@ -367,8 +367,8 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                 topic="shlib",
                 name="shlib.status",
                 status=CheckStatus.ERROR,
-                message=f"Shlib-Status nicht lesbar: {exc}",
-                hint="~/.zshrc und ~/.shlib manuell prüfen.",
+                message=f"Shlib status unreadable: {exc}",
+                hint="Check ~/.zshrc and ~/.shlib manually.",
             )
         ]
     findings: list[Finding] = []
@@ -379,7 +379,7 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                 topic="shlib",
                 name="shlib.installed",
                 status=CheckStatus.OK,
-                message="Shlib ist installiert.",
+                message="Shlib is installed.",
             )
         )
         warnings = result.get("warnings")
@@ -391,7 +391,7 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                         name="shlib.warnings",
                         status=CheckStatus.WARN,
                         message=str(warning),
-                        hint="Installation prüfen oder 'lion shlib install' erneut ausführen.",
+                        hint="Check the installation or run 'lion shlib install' again.",
                     )
                 )
         lock = result.get("lock")
@@ -401,8 +401,8 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                     topic="shlib",
                     name="shlib.lock",
                     status=CheckStatus.WARN,
-                    message="~/.zshrc weicht von der Referenzkopie ~/.zshrc.lock ab.",
-                    hint="Beabsichtigte Änderungen übernehmen oder die Referenz verwerfen.",
+                    message="~/.zshrc differs from the reference copy ~/.zshrc.lock.",
+                    hint="Apply the intended changes or discard the reference.",
                 )
             )
         elif lock == "missing":
@@ -411,8 +411,8 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                     topic="shlib",
                     name="shlib.lock",
                     status=CheckStatus.WARN,
-                    message="Installation erkannt, aber die Referenzkopie ~/.zshrc.lock fehlt.",
-                    hint="Referenz neu anlegen: cp ~/.zshrc ~/.zshrc.lock",
+                    message="Installation detected, but the reference copy ~/.zshrc.lock is missing.",
+                    hint="Recreate the reference: cp ~/.zshrc ~/.zshrc.lock",
                 )
             )
     else:
@@ -421,8 +421,8 @@ def shlib_checks(ctx: DoctorContext) -> list[Finding]:
                 topic="shlib",
                 name="shlib.installed",
                 status=CheckStatus.SKIP,
-                message="Shlib ist nicht installiert.",
-                hint="Optional: 'lion shlib install' aktiviert die Shell-Library.",
+                message="Shlib is not installed.",
+                hint="Optional: 'lion shlib install' enables the shell library.",
             )
         )
     findings.extend(_dash_checks(ctx.home / ".shlib" / "dash"))

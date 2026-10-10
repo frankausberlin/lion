@@ -28,7 +28,7 @@ collector. In the diff, match list entries by identity and mark any
 - A different GPU slot reads as removed + added; a replacement or changed
   VRAM reading on the same `pci_id` reads as a value change. `status`/`diff` flag
   structural changes with
-  `struktur_geaendert` and a leading `Struktur geändert.` line.
+  `structure_changed` and a leading `Structure changed.` line.
 - The change is additive: `schema_version` stays `1`, new collectors and fields
   are tolerated by validation, and old snapshots stay readable. The first scan
   after an upgrade appears once as a structural addition.

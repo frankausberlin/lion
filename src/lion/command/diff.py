@@ -24,7 +24,7 @@ def run(reference: str, second: str | None = None, json_output: bool = False) ->
     """
     try:
         if len(list_entries()) < 2:
-            raise HistoryError("Weniger als zwei Zustände gespeichert; führe 'lion scan' aus.")
+            raise HistoryError("Fewer than two states stored; run 'lion scan'.")
         old = resolve(reference)
         new = resolve(second) if second is not None else resolve("latest")
     except (OSError, ValueError) as exc:
@@ -34,16 +34,16 @@ def run(reference: str, second: str | None = None, json_output: bool = False) ->
     structural = has_structural_change(diff)
     if json_output:
         payload: dict[str, object] = {
-            "von": reference_json(old),
-            "bis": reference_json(new),
-            "geaendert": bool(diff),
-            "struktur_geaendert": structural,
-            "unterschiede": diff,
+            "from": reference_json(old),
+            "to": reference_json(new),
+            "changed": bool(diff),
+            "structure_changed": structural,
+            "differences": diff,
         }
         typer.echo(json.dumps(payload))
         return
-    typer.echo(f"Vergleich {old.ref} → {new.ref}")
+    typer.echo(f"Comparing {old.ref} → {new.ref}")
     if structural:
-        typer.echo("Struktur geändert.")
+        typer.echo("Structure changed.")
     rendered = render(diff)
-    typer.echo(rendered if rendered else "Keine Unterschiede.")
+    typer.echo(rendered if rendered else "No differences.")

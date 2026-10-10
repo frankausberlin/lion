@@ -31,7 +31,7 @@ environment activation or direnv configuration is required.
 uv run lion scan
 ```
 
-On an empty history this creates the first entry and prints `Zustand angelegt`
+On an empty history this creates the first entry and prints `State created`
 with the path of the new file. No initialization step is needed: `scan` creates
 its data directory automatically.
 
@@ -45,7 +45,7 @@ uv run lion status
 ```
 
 Run `scan` a second time and then `status`: an unchanged machine is confirmed in
-place (only `zuletzt_bestaetigt` is refreshed), so `status` reports that nothing
+place (only `confirmed_at` is refreshed), so `status` reports that nothing
 changed since the last scan.
 
 ## List and compare

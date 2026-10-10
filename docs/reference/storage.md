@@ -4,7 +4,7 @@
 
 The state history is TOML files under `$XDG_DATA_HOME/lion/history`, defaulting
 to `~/.local/share/lion/history`. New records use UTC timestamps and are named
-after their `erstscan` in compact form (`2026-10-05T20-00-00.123456Z`), plus a
+after their `created_at` in compact form (`2026-10-05T20-00-00.123456Z`), plus a
 `~NNNN` suffix for same-instant collisions.
 
 The writer's lock file lives at `$XDG_DATA_HOME/lion/.history.lock` (under the
@@ -29,7 +29,7 @@ never followed. LION never executes a script; a human reads and runs it. See
 
 - New entries are published with a hard link (`os.link`) so an existing entry is
   never overwritten. This requires a filesystem that supports hard links.
-- Only refreshing `zuletzt_bestaetigt` rewrites the latest file, and it does so
+- Only refreshing `confirmed_at` rewrites the latest file, and it does so
   atomically via `os.replace`.
 - Concurrent scans serialize the complete read/compare/write operation using an
   exclusive process lock on `.history.lock`. The lock file remains in place; its
@@ -45,7 +45,7 @@ the collision suffixes described above.
 
 ## Validation
 
-Every `.toml` entry is strictly validated: `schema_version = 1`, UTC offsets on
+Every `.toml` entry is strictly validated: `schema_version = 2`, UTC offsets on
 both timestamps, and a valid `status` per collector. Any unreadable or invalid
 entry stops `status` with its path in the error message instead of being skipped
 silently. `scan` parses every entry but fully validates only the newest head, so

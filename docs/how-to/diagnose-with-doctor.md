@@ -71,8 +71,8 @@ uv run lion doctor --json
 ```
 
 `--json` emits one JSON object on stdout and ignores `--show`. Its keys
-(`status`, `geprueft`, `befunde`, `zusammenfassung`, `reco_pfad`) are German,
-consistent with `status --json` and `scan --json`; `reco_pfad` is `null` when no
+(`status`, `checked`, `findings`, `summary`, `reco_path`) are German,
+consistent with `status --json` and `scan --json`; `reco_path` is `null` when no
 script was written.
 
 ## Related

@@ -56,7 +56,7 @@ def test_status_and_scan_share_list_semantics(
 
     result = CliRunner().invoke(app, ["status", "--json"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout)["geaendert"] is not equal
+    assert json.loads(result.stdout)["changed"] is not equal
     assert {path.name: path.read_bytes() for path in get_history_dir().glob("*.toml")} == before
     assert collectors_equal(old_state, new_state) is equal
     assert bool(diff_collectors(old_state, new_state)) is not equal

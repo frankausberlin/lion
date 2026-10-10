@@ -68,8 +68,8 @@ def run_checks(ctx: DoctorContext) -> list[Finding]:
                     topic=topic,
                     name=f"{topic}.check",
                     status=CheckStatus.ERROR,
-                    message=f"Check '{topic}' ist fehlgeschlagen: {exc}",
-                    hint="Das ist ein LION-Fehler; bitte melden.",
+                    message=f"Check '{topic}' failed: {exc}",
+                    hint="This is a LION bug; please report it.",
                 )
             )
     return sort_findings(findings)
@@ -86,7 +86,7 @@ def overall(findings: list[Finding]) -> CheckStatus:
 
 
 def summary(findings: list[Finding]) -> dict[str, int]:
-    """Return the count per status as German-keyed JSON-ready values."""
+    """Return the count per status as JSON-ready values."""
     counts = {"ok": 0, "warn": 0, "error": 0, "skip": 0}
     for finding in findings:
         counts[finding.status.value] += 1
@@ -103,14 +103,14 @@ def _ordered_topics(findings: list[Finding]) -> list[str]:
 
 _STATUS_LABEL = {
     CheckStatus.OK: "ok",
-    CheckStatus.WARN: "Warnung",
-    CheckStatus.ERROR: "Fehler",
-    CheckStatus.SKIP: "\u2013 (nicht zutreffend)",
+    CheckStatus.WARN: "warning",
+    CheckStatus.ERROR: "error",
+    CheckStatus.SKIP: "\u2013 (not applicable)",
 }
 
 
 def render_text(findings: list[Finding], reco_path: Path | None = None) -> str:
-    """Render the findings as grouped German text for the terminal.
+    """Render the findings as grouped text for the terminal.
 
     Args:
         findings: Sorted findings.
@@ -120,7 +120,7 @@ def render_text(findings: list[Finding], reco_path: Path | None = None) -> str:
         The complete text output.
     """
     topics = _ordered_topics(findings)
-    lines = ["lion doctor", "Geprüft: " + ", ".join(topics), ""]
+    lines = ["lion doctor", "Checked: " + ", ".join(topics), ""]
     for topic in topics:
         lines.append(f"{topic}:")
         for finding in findings:
@@ -128,22 +128,22 @@ def render_text(findings: list[Finding], reco_path: Path | None = None) -> str:
                 continue
             lines.append(f"  [{_STATUS_LABEL[finding.status]}] {finding.name}: {finding.message}")
             if finding.hint:
-                lines.append(f"      Abhilfe: {finding.hint}")
+                lines.append(f"      Remediation: {finding.hint}")
         lines.append("")
     counts = summary(findings)
-    lines.append(f"Ergebnis: {counts['ok']} ok, {counts['warn']} warn, {counts['error']} error, {counts['skip']} skip")
+    lines.append(f"Result: {counts['ok']} ok, {counts['warn']} warn, {counts['error']} error, {counts['skip']} skip")
     if reco_path is not None:
-        lines.append(f"Behebungsskript: {reco_path}")
-        lines.append("Erst vollständig lesen, dann ausführen. LION führt es niemals aus.")
+        lines.append(f"Reco script: {reco_path}")
+        lines.append("Read it completely before running. LION never executes it.")
     return "\n".join(lines)
 
 
 def render_json(findings: list[Finding], reco_path: Path | None = None) -> str:
-    """Render the findings as a single JSON object with German keys."""
+    """Render the findings as a single JSON object."""
     payload = {
         "status": overall(findings).value,
-        "geprueft": _ordered_topics(findings),
-        "befunde": [
+        "checked": _ordered_topics(findings),
+        "findings": [
             {
                 "topic": finding.topic,
                 "name": finding.name,
@@ -154,8 +154,8 @@ def render_json(findings: list[Finding], reco_path: Path | None = None) -> str:
             }
             for finding in findings
         ],
-        "zusammenfassung": summary(findings),
-        "reco_pfad": None if reco_path is None else str(reco_path),
+        "summary": summary(findings),
+        "reco_path": None if reco_path is None else str(reco_path),
     }
     return json.dumps(payload)
 
@@ -183,13 +183,13 @@ def render_reco(findings: list[Finding], version: str, host: str) -> str:
     lines = [
         "#!/usr/bin/env bash",
         "#",
-        "# lion doctor — Behebungsvorschläge (reco)",
-        f"# Erzeugt: {datetime.now(UTC).isoformat()}",
+        "# lion doctor — recommendations (reco)",
+        f"# Generated: {datetime.now(UTC).isoformat()}",
         f"# LION: {version}",
         f"# Host: {_one_line(host)}",
         "#",
-        "# VOR DEM AUSFÜHREN KOMPLETT LESEN.",
-        "# LION führt dieses Skript niemals aus und ändert selbst nichts.",
+        "# READ COMPLETELY BEFORE RUNNING.",
+        "# LION never executes this script and changes nothing itself.",
         "#",
         "set -euo pipefail",
         "",
@@ -203,11 +203,11 @@ def render_reco(findings: list[Finding], version: str, host: str) -> str:
             lines.append(f"#   {line}")
         if finding.hint:
             for line in finding.hint.splitlines():
-                lines.append(f"# Abhilfe (manuell): {line}")
+                lines.append(f"# Remediation (manual): {line}")
         lines.append("# " + "=" * 60)
         if finding.commands:
             lines.extend(finding.commands)
         else:
-            lines.append("# Kein sicherer automatischer Befehl; siehe Hinweis oben.")
+            lines.append("# No safe automatic command; see the note above.")
         lines.append("")
     return "\n".join(lines) + "\n"

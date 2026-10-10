@@ -18,9 +18,9 @@ def _memory(value: int) -> dict[str, dict[str, object]]:
 
 def _data() -> dict[str, object]:
     return {
-        "schema_version": 1,
-        "erstscan": "2026-10-05T20:00:00+00:00",
-        "zuletzt_bestaetigt": "2026-10-05T20:30:00.123456+00:00",
+        "schema_version": model.SCHEMA_VERSION,
+        "created_at": "2026-10-05T20:00:00+00:00",
+        "confirmed_at": "2026-10-05T20:30:00.123456+00:00",
         "collectors": {
             "host": {"status": "ok", "error": "", "hostname": "lion"},
             "hardware": {
@@ -53,9 +53,9 @@ def test_round_trip() -> None:
 def test_old_format_snapshot_remains_valid() -> None:
     """A snapshot predating the profile fields and ``tools`` collector loads."""
     data: dict[str, object] = {
-        "schema_version": 1,
-        "erstscan": "2026-10-05T20:00:00+00:00",
-        "zuletzt_bestaetigt": "2026-10-05T20:30:00+00:00",
+        "schema_version": model.SCHEMA_VERSION,
+        "created_at": "2026-10-05T20:00:00+00:00",
+        "confirmed_at": "2026-10-05T20:30:00+00:00",
         "collectors": {
             "host": {"status": "ok", "error": "", "hostname": "lion"},
             "hardware": {
@@ -120,7 +120,7 @@ def test_collectors_equal_detects_added_or_removed_sections() -> None:
     assert not collectors_equal({}, _memory(RAM_OLD))
 
 
-@pytest.mark.parametrize("version", [2, 0, "1", True, None])
+@pytest.mark.parametrize("version", [3, 0, "1", True, None])
 def test_invalid_schema_version(version: object) -> None:
     """Reject missing, unknown, or non-integer schema versions."""
     data = _data()
@@ -129,7 +129,17 @@ def test_invalid_schema_version(version: object) -> None:
         Snapshot.from_toml_dict(data)
 
 
-@pytest.mark.parametrize("key", ["erstscan", "zuletzt_bestaetigt"])
+def test_legacy_german_keys_are_rejected() -> None:
+    """Schema-1 German field names fail loudly with a migration hint."""
+    data = _data()
+    data["schema_version"] = 1
+    data["erstscan"] = data.pop("created_at")
+    data["zuletzt_bestaetigt"] = data.pop("confirmed_at")
+    with pytest.raises(ValueError, match="legacy German snapshot keys"):
+        Snapshot.from_toml_dict(data)
+
+
+@pytest.mark.parametrize("key", ["created_at", "confirmed_at"])
 def test_non_string_timestamp(key: str) -> None:
     """Timestamps must be strings before they can be parsed."""
     data = _data()
@@ -138,7 +148,7 @@ def test_non_string_timestamp(key: str) -> None:
         Snapshot.from_toml_dict(data)
 
 
-@pytest.mark.parametrize("key", ["erstscan", "zuletzt_bestaetigt"])
+@pytest.mark.parametrize("key", ["created_at", "confirmed_at"])
 def test_naive_timestamp(key: str) -> None:
     """Every timestamp must carry a UTC offset."""
     data = _data()
@@ -147,7 +157,7 @@ def test_naive_timestamp(key: str) -> None:
         Snapshot.from_toml_dict(data)
 
 
-@pytest.mark.parametrize("key", ["erstscan", "zuletzt_bestaetigt"])
+@pytest.mark.parametrize("key", ["created_at", "confirmed_at"])
 def test_malformed_timestamp(key: str) -> None:
     """A timestamp that cannot be parsed is rejected."""
     data = _data()

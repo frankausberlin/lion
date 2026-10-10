@@ -44,22 +44,22 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
     def scan(event: str, count: int) -> dict[str, object]:
         before = _history(data)
         output = lion("scan")
-        assert output["ereignis"] == event
+        assert output["event"] == event
         after = _history(data)
         assert len(after) == count
         if event == "appended":
             assert all(after[name] == content for name, content in before.items())
-        path = Path(str(output["pfad"]))
+        path = Path(str(output["path"]))
         assert path.parent == data / "lion" / "history"
-        snapshot = _mapping(output["zustand"])
+        snapshot = _mapping(output["state"])
         assert tomllib.loads(path.read_text(encoding="utf-8")) == snapshot
         return output
 
     def status(expected: dict[str, object], structural: bool = False) -> None:
         output = lion("status")
-        assert output["geaendert"] is bool(expected)
-        assert output["unterschiede"] == expected
-        assert output["struktur_geaendert"] is structural
+        assert output["changed"] is bool(expected)
+        assert output["differences"] == expected
+        assert output["structure_changed"] is structural
 
     # Build a package locally: no repository downloads, dependencies or maintainer scripts.
     root = tmp_path / "package"
@@ -83,7 +83,7 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
     upgrade = build("2.0.0")
 
     initial = scan("created", 1)
-    initial_state = _mapping(initial["zustand"])
+    initial_state = _mapping(initial["state"])
     initial_collectors = _mapping(initial_state["collectors"])
     packages = _mapping(initial_collectors["packages"])
     assert packages["status"] == "ok"
@@ -95,11 +95,11 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
     status({})
 
     confirmed = scan("confirmed", 1)
-    confirmed_state = _mapping(confirmed["zustand"])
-    assert confirmed["pfad"] == initial["pfad"]
-    assert confirmed_state["erstscan"] == initial_state["erstscan"]
+    confirmed_state = _mapping(confirmed["state"])
+    assert confirmed["path"] == initial["path"]
+    assert confirmed_state["created_at"] == initial_state["created_at"]
     # Timestamps are fixed-width UTC ISO-8601, so string order is chronological order.
-    assert str(confirmed_state["zuletzt_bestaetigt"]) > str(initial_state["zuletzt_bestaetigt"])
+    assert str(confirmed_state["confirmed_at"]) > str(initial_state["confirmed_at"])
     assert confirmed_state["collectors"] == initial_collectors
 
     run(["dpkg", "--install", str(deb)])
@@ -115,7 +115,7 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
         structural=True,
     )
     installed = scan("appended", 2)
-    installed_collectors = _mapping(_mapping(installed["zustand"])["collectors"])
+    installed_collectors = _mapping(_mapping(installed["state"])["collectors"])
     assert installed_collectors == {
         **initial_collectors,
         "packages": {
@@ -132,7 +132,7 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
     }
     status(upgrade_changes)
     upgraded = scan("appended", 3)
-    assert _mapping(_mapping(upgraded["zustand"])["collectors"]) == {
+    assert _mapping(_mapping(upgraded["state"])["collectors"]) == {
         **installed_collectors,
         "packages": {
             **_mapping(installed_collectors["packages"]),
@@ -154,8 +154,8 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
         structural=True,
     )
     removed = scan("appended", 4)
-    assert removed["pfad"] not in (initial["pfad"], installed["pfad"], upgraded["pfad"])
-    assert _mapping(removed["zustand"])["collectors"] == initial_collectors
+    assert removed["path"] not in (initial["path"], installed["path"], upgraded["path"])
+    assert _mapping(removed["state"])["collectors"] == initial_collectors
     status({})
 
     # --- lion history and lion diff over the four real persisted states ---
@@ -163,40 +163,40 @@ def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict
     def diff(*references: str) -> dict[str, object]:
         return _mapping(json.loads(run(["lion", "diff", *references, "--json"])))
 
-    refs = [Path(str(state["pfad"])).stem for state in (initial, installed, upgraded, removed)]
+    refs = [Path(str(state["path"])).stem for state in (initial, installed, upgraded, removed)]
     before_read = _history(data)
 
     listing = _mapping(json.loads(run(["lion", "history", "--json"])))
-    entries = cast("list[dict[str, object]]", listing["eintraege"])
+    entries = cast("list[dict[str, object]]", listing["entries"])
     assert [entry["index"] for entry in entries] == [1, 2, 3, 4]
     assert [entry["ref"] for entry in entries] == refs
-    assert entries[-1]["aktuell"] is True
+    assert entries[-1]["latest"] is True
     human = run(["lion", "history"])
     assert all(ref in human for ref in refs)
 
     install_delta = diff("1", "2")
-    assert install_delta["geaendert"] is True
-    assert install_delta["struktur_geaendert"] is True
-    assert _mapping(install_delta["von"])["ref"] == refs[0]
-    assert _mapping(install_delta["bis"])["ref"] == refs[1]
-    assert _mapping(_mapping(install_delta["unterschiede"])["packages"])["added"] == {
+    assert install_delta["changed"] is True
+    assert install_delta["structure_changed"] is True
+    assert _mapping(install_delta["from"])["ref"] == refs[0]
+    assert _mapping(install_delta["to"])["ref"] == refs[1]
+    assert _mapping(_mapping(install_delta["differences"])["packages"])["added"] == {
         f"installed.{IDENTITY}": VERSION,
         f"manual[{PACKAGE}]": PACKAGE,
     }
 
     upgrade_delta = diff("2", "3")
-    assert upgrade_delta["unterschiede"] == upgrade_changes
-    assert upgrade_delta["struktur_geaendert"] is False
+    assert upgrade_delta["differences"] == upgrade_changes
+    assert upgrade_delta["structure_changed"] is False
 
     purge_delta = diff("previous", "latest")
-    assert purge_delta["struktur_geaendert"] is True
-    assert _mapping(_mapping(purge_delta["unterschiede"])["packages"])["removed"] == {
+    assert purge_delta["structure_changed"] is True
+    assert _mapping(_mapping(purge_delta["differences"])["packages"])["removed"] == {
         f"installed.{IDENTITY}": "2.0.0",
         f"manual[{PACKAGE}]": PACKAGE,
     }
 
     # The purge restored the initial collectors: the first and last states are equal,
     # whether referenced by index or by their compact reference.
-    assert diff("1", "4")["geaendert"] is False
-    assert diff(refs[0], refs[3])["geaendert"] is False
+    assert diff("1", "4")["changed"] is False
+    assert diff(refs[0], refs[3])["changed"] is False
     assert _history(data) == before_read, "history or diff changed the history"

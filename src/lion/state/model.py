@@ -9,7 +9,11 @@ from typing import TypeGuard, cast
 from lion.state.collector import CollectorStatus
 from lion.state.comparison import list_items
 
-SCHEMA_VERSION = 1
+#: Schema 2 renamed the German schema-1 keys; see :data:`LEGACY_KEYS`.
+SCHEMA_VERSION = 2
+
+#: Legacy German field names from schema 1 mapped to their English names.
+LEGACY_KEYS = {"erstscan": "created_at", "zuletzt_bestaetigt": "confirmed_at"}
 VALID_STATUSES = frozenset(status.value for status in CollectorStatus)
 
 # ``/proc/meminfo`` MemTotal can wobble by a few KiB between scans for purely
@@ -24,8 +28,8 @@ def canonical_collectors(collectors: Mapping[str, Mapping[str, object]]) -> str:
     """Return the canonical comparison form of a collector section.
 
     Keys are sorted and the encoding is compact so that two states are equal
-    exactly when their canonical strings match. ``erstscan`` and
-    ``zuletzt_bestaetigt`` are not part of this value; per-collector
+    exactly when their canonical strings match. ``created_at`` and
+    ``confirmed_at`` are not part of this value; per-collector
     ``status``/``error`` are.
     """
     return json.dumps(collectors, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
@@ -178,8 +182,8 @@ def _validate_section(name: str, value: object) -> dict[str, object]:
 class Snapshot:
     """A complete, distinct machine state stored in the LION history."""
 
-    erstscan: str
-    zuletzt_bestaetigt: str
+    created_at: str
+    confirmed_at: str
     collectors: dict[str, dict[str, object]]
     schema_version: int = SCHEMA_VERSION
 
@@ -187,15 +191,15 @@ class Snapshot:
         """Return the TOML/JSON representation with scalars before tables."""
         return {
             "schema_version": self.schema_version,
-            "erstscan": self.erstscan,
-            "zuletzt_bestaetigt": self.zuletzt_bestaetigt,
+            "created_at": self.created_at,
+            "confirmed_at": self.confirmed_at,
             "collectors": self.collectors,
         }
 
     def matches(self, collectors: Mapping[str, Mapping[str, object]]) -> bool:
         """Return whether these stored collectors match a fresh collection.
 
-        Only the collector data counts; ``erstscan`` and ``zuletzt_bestaetigt``
+        Only the collector data counts; ``created_at`` and ``confirmed_at``
         are excluded, while per-collector ``status``/``error`` participate. The
         comparison follows :func:`collectors_equal`, including the RAM tolerance.
         """
@@ -215,18 +219,25 @@ class Snapshot:
             ValueError: If the schema version, timestamps, or collector
                 sections are invalid.
         """
+        legacy = sorted(key for key in LEGACY_KEYS if key in data)
+        if legacy:
+            names = ", ".join(f"{key!r} (now {LEGACY_KEYS[key]!r})" for key in legacy)
+            raise ValueError(
+                f"legacy German snapshot keys: {names}; "
+                "archive or delete this entry, then run 'lion scan' to start a fresh history"
+            )
         version = data.get("schema_version")
         if not isinstance(version, int) or isinstance(version, bool) or version != SCHEMA_VERSION:
             raise ValueError(f"unsupported schema_version: {version!r}")
-        erstscan = _require_str(data, "erstscan")
-        zuletzt_bestaetigt = _require_str(data, "zuletzt_bestaetigt")
-        _validate_timestamp(erstscan, "erstscan")
-        _validate_timestamp(zuletzt_bestaetigt, "zuletzt_bestaetigt")
+        created_at = _require_str(data, "created_at")
+        confirmed_at = _require_str(data, "confirmed_at")
+        _validate_timestamp(created_at, "created_at")
+        _validate_timestamp(confirmed_at, "confirmed_at")
         raw_collectors = _require_mapping(data.get("collectors"), "collectors")
         collectors = {name: _validate_section(name, section) for name, section in raw_collectors.items()}
         return cls(
-            erstscan=erstscan,
-            zuletzt_bestaetigt=zuletzt_bestaetigt,
+            created_at=created_at,
+            confirmed_at=confirmed_at,
             collectors=collectors,
             schema_version=version,
         )

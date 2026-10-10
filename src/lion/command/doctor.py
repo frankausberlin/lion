@@ -17,7 +17,7 @@ from lion.program.storage import publish_reco
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
 
-_NO_HOME_HINT = "ZDOTDIR entfernen oder auf das Benutzer-Home richten; shlib verwaltet nur ~/.zshrc."
+_NO_HOME_HINT = "Remove ZDOTDIR or point it at the user home; shlib only manages ~/.zshrc."
 
 
 def _host_label(state: dict[str, dict[str, object]]) -> str:
@@ -81,7 +81,7 @@ def run(json_output: bool = False, show: bool = False) -> None:
                     topic="shlib",
                     name="shlib.home",
                     status=CheckStatus.SKIP,
-                    message=f"Kein verwaltetes Shlib; {home_error}",
+                    message=f"No managed shlib; {home_error}",
                     hint=_NO_HOME_HINT,
                 ),
             )
@@ -100,8 +100,8 @@ def run(json_output: bool = False, show: bool = False) -> None:
                     topic="storage",
                     name="storage.reco_publish",
                     status=CheckStatus.ERROR,
-                    message=f"reco.sh konnte nicht geschrieben werden: {exc}",
-                    hint="Schreibrechte auf $XDG_DATA_HOME/lion/recos prüfen.",
+                    message=f"reco.sh could not be written: {exc}",
+                    hint="Check write permissions on $XDG_DATA_HOME/lion/recos.",
                 ),
             )
             status = CheckStatus.ERROR
