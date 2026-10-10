@@ -25,6 +25,9 @@ def test_reports_availability_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
             "nvidia_smi": False,
             "rocm_smi": False,
             "apt_mark": False,
+            "systemctl": False,
+            "docker": False,
+            "podman": False,
             "zsh": True,
         }
     }
@@ -42,6 +45,9 @@ def test_missing_tools_are_data_not_warnings(monkeypatch: pytest.MonkeyPatch) ->
             "nvidia_smi": False,
             "rocm_smi": False,
             "apt_mark": False,
+            "systemctl": False,
+            "docker": False,
+            "podman": False,
             "zsh": False,
         }
     }
@@ -49,12 +55,15 @@ def test_missing_tools_are_data_not_warnings(monkeypatch: pytest.MonkeyPatch) ->
 
 def test_all_tools_present(monkeypatch: pytest.MonkeyPatch) -> None:
     """When every tool exists the collector reports them all available."""
-    _fake_which(monkeypatch, {"lspci", "nvidia-smi", "rocm-smi", "apt-mark", "zsh"})
+    _fake_which(monkeypatch, {"lspci", "nvidia-smi", "rocm-smi", "apt-mark", "systemctl", "docker", "podman", "zsh"})
     available = tooling.COLLECTOR.collect().data["available"]
     assert available == {
         "lspci": True,
         "nvidia_smi": True,
         "rocm_smi": True,
         "apt_mark": True,
+        "systemctl": True,
+        "docker": True,
+        "podman": True,
         "zsh": True,
     }

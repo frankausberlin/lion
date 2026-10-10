@@ -110,6 +110,10 @@ def _requirement(name: str, has_nvidia: bool, distribution: str) -> tuple[bool, 
         if _is_debian(distribution):
             return True, f"Debian family ({distribution})"
         return False, f"not a Debian family ({distribution or 'unknown'})"
+    if name == "systemctl":
+        return True, "source of service unit states"
+    if name in ("docker", "podman"):
+        return False, "used by the containers collector, absence is reported there"
     if name == "zsh":
         return False, "only needed for 'lion shlib install/uninstall'"
     if name == "rocm_smi":
