@@ -24,8 +24,9 @@ validation and the comparison rules.
 - **No volatile fields.** Clocks, temperatures and uptime are never persisted;
   they would make every scan look like a change.
 - **Missing tools are not errors of the machine.** External tools (`nvidia-smi`,
-  `lspci`, `apt-mark`, Dpkg) are environment-dependent. When they are absent,
-  the collector degrades (empty GPU list, `unavailable` packages) rather than
+  `lspci`, `apt-mark`, `systemctl`, `docker`, `podman`, Dpkg) are
+  environment-dependent. When they are absent, the collector degrades (empty GPU
+  list, `unavailable` packages/services, no container engine) rather than
   failing the whole scan.
 - **Deterministic output.** Collector data is serialized from frozen dataclasses
   in a stable order so equal machines produce equal sections.
@@ -47,7 +48,10 @@ Three facts are kept apart:
   matching driver evidence, not proof that compute is impossible.
 - **Tool visibility:** `tools.available` reports executable visibility on the
   current `PATH`. A missing tool is data, not a warning; visibility does not
-  prove successful execution.
+  prove successful execution. The `containers` collector keeps engine
+  *usability* separate: it selects a working engine once, records `runtime`
+  `docker`/`podman`/`none`, and reports a present-but-unusable engine as
+  `unavailable`.
 
 The `doctor` command consumes these facts and checks operational requirements
 separately. Vendor identity keeps "NVIDIA card present, but `nvidia-smi` missing"

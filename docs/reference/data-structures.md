@@ -130,12 +130,15 @@ Each collector carries one or more of:
 A collector that was added or removed wholesale is reported with the single key
 `"(collector)"`.
 
-Only `hardware.gpu` with unique, nonempty `pci_id` values (keys like
-`gpu[0000:01:00.0]`) and unique string selections `packages.manual`,
-`packages.auto` and `packages.held` (keys like `manual[zsh]`) are compared
-per identity. A different GPU slot appears as `removed` + `added`; a replacement
-in the same slot appears as changed fields. Other lists, duplicate identities
-and malformed entries retain their complete ordered value under `changed`.
+Every unordered list with a stable identity is compared per entry, using
+bracket keys such as `gpu[0000:01:00.0]` or `interfaces[eth0]`:
+`hardware.gpu` (by `pci_id`), `network.interfaces`, `services.units`,
+`containers.containers`, `containers.volumes` and `containers.networks` (by
+`name`), `containers.images` (by the computed reference), and the package
+selections `packages.manual`, `packages.auto` and `packages.held` (by value). A
+new slot appears as `removed` + `added`; a replacement in the same slot appears
+as changed fields. Other lists, duplicate identities and malformed entries
+retain their complete ordered value under `changed`.
 
 Any `added` or `removed` entry makes the change *structural*; a diff with only
 `changed` entries is a pure value change, echoed as `structure_changed` and the
