@@ -48,8 +48,8 @@ reinstall when any of these exist:
 Retained artifacts that are **not** blockers and stay in place: the
 `~/.zshrc.before-shlib*` backups (they are private copies and are never
 overwritten), a correctly generated `~/.shlib/exports/.gitignore`, and the
-process-lock file `~/.shlib.lock` (see [ADR 0002](0002-status-read-only-scan-writes.md)
-and the storage reference for the lock's retained-but-harmless contract).
+process-lock file `~/.shlib.lock` (see
+[Manage the shell configuration](../how-to/manage-shell-config.md)).
 
 ## Consequences
 
@@ -57,15 +57,9 @@ and the storage reference for the lock's retained-but-harmless contract).
   `.zshrc` is byte-for-byte unchanged. This mirrors the existing precheck
   contracts (`tests/test_shlib.py`).
 - A safe reconciliation path exists and is documented in
-  [Manage the shell configuration](../how-to/manage-shell-config.md):
-  1. Confirm the exports are preserved in `~/.shlib/exports/` (the uninstall
-     already consolidated them there), then remove `~/.zshrc.exports`.
-  2. Decide deliberately about `~/.shlib/shlibs/00-original-zshrc.sh` and
-     `~/.zshrc.lock`: keep a copy if the pre-install state is still needed, then
-     remove them so the install target is clean.
-  3. Remove or relocate any retained numbered scripts under
-     `~/.shlib/shlibs/` (the flattened `.zshrc` keeps their content).
-  4. Run `lion shlib install` again.
+  [Manage the shell configuration](../how-to/manage-shell-config.md#reinstall-after-uninstall):
+  reconcile `~/.zshrc.exports`, `00-original-zshrc.sh` / `.zshrc.lock` and the
+  retained numbered scripts, then install again.
 - There is no recovery that preserves both histories automatically; that is
   intentional. The user is the only party that can say which state is canonical.
 - The `~/.shlib.lock` file is never treated as a remnant, so a lingering lock
