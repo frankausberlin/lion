@@ -38,29 +38,31 @@ _IMAGES_TEMPLATE = _SEP.join(("{{.Repository}}", "{{.Tag}}", "{{.Digest}}", "{{.
 _VOLUMES_TEMPLATE = _SEP.join(("{{.Name}}", "{{.Driver}}"))
 _NETWORKS_TEMPLATE = _SEP.join(("{{.Name}}", "{{.Driver}}", "{{.Scope}}"))
 
-_INSPECT_TEMPLATE = _SEP.join(
-    (
-        "{{json .Name}}",
-        "{{json .Config.Image}}",
-        "{{json .HostConfig.RestartPolicy.Name}}",
-        "{{json .HostConfig.Privileged}}",
-        "{{json .HostConfig.CapAdd}}",
-        "{{json .HostConfig.CapDrop}}",
-        "{{json .HostConfig.ReadonlyRootfs}}",
-        "{{json .HostConfig.SecurityOpt}}",
-        "{{json .Config.ExposedPorts}}",
-        "{{json .HostConfig.PortBindings}}",
-        "{{json .NetworkSettings.Networks}}",
-        "{{json .Mounts}}",
-        '{{json (index .Config.Labels "com.docker.compose.project")}}',
-        '{{json (index .Config.Labels "com.docker.compose.service")}}',
-    )
+#: Whitelisted inspect fields as ``(parser name, template expression)``. The
+#: template, its field count and the parser all derive from this single ordered
+#: definition, so they cannot drift apart.
+_INSPECT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("name", "{{json .Name}}"),
+    ("image_ref", "{{json .Config.Image}}"),
+    ("restart_policy", "{{json .HostConfig.RestartPolicy.Name}}"),
+    ("privileged", "{{json .HostConfig.Privileged}}"),
+    ("cap_add", "{{json .HostConfig.CapAdd}}"),
+    ("cap_drop", "{{json .HostConfig.CapDrop}}"),
+    ("readonly_rootfs", "{{json .HostConfig.ReadonlyRootfs}}"),
+    ("security_opt", "{{json .HostConfig.SecurityOpt}}"),
+    ("exposed_ports", "{{json .Config.ExposedPorts}}"),
+    ("port_bindings", "{{json .HostConfig.PortBindings}}"),
+    ("networks", "{{json .NetworkSettings.Networks}}"),
+    ("mounts", "{{json .Mounts}}"),
+    ("compose_project", '{{json (index .Config.Labels "com.docker.compose.project")}}'),
+    ("compose_service", '{{json (index .Config.Labels "com.docker.compose.service")}}'),
 )
+
+_INSPECT_TEMPLATE = _SEP.join(expression for _, expression in _INSPECT_FIELDS)
 
 _IMAGE_FIELDS = 4
 _VOLUME_FIELDS = 2
 _NETWORK_FIELDS = 3
-_INSPECT_FIELDS = 14
 
 _SIZE_PATTERN = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kKmMgGtT]?)[bB]?\s*$")
 _SIZE_UNITS = {"": 1, "k": 1000, "m": 1000**2, "g": 1000**3, "t": 1000**4}
@@ -250,26 +252,27 @@ def _parse_inspect(output: str) -> list[ContainerState]:
         if not line.strip():
             continue
         parts = line.split(_SEP)
-        if len(parts) != _INSPECT_FIELDS:
+        if len(parts) != len(_INSPECT_FIELDS):
             continue
-        raw_name = _str(_decode(parts[0]))
+        fields = {name: _decode(part) for (name, _), part in zip(_INSPECT_FIELDS, parts, strict=True)}
+        raw_name = _str(fields["name"])
         if not raw_name:
             continue
         containers.append(
             ContainerState(
                 name=raw_name.removeprefix("/"),
-                image_ref=_str(_decode(parts[1])),
-                restart_policy=_str(_decode(parts[2])),
-                privileged=_bool(_decode(parts[3])),
-                cap_add=_str_list(_decode(parts[4])),
-                cap_drop=_str_list(_decode(parts[5])),
-                readonly_rootfs=_bool(_decode(parts[6])),
-                security_opt=_str_list(_decode(parts[7])),
-                ports=_parse_ports(_decode(parts[8]), _decode(parts[9])),
-                networks=_parse_networks(_decode(parts[10])),
-                mounts=_parse_mounts(_decode(parts[11])),
-                compose_project=_str(_decode(parts[12])),
-                compose_service=_str(_decode(parts[13])),
+                image_ref=_str(fields["image_ref"]),
+                restart_policy=_str(fields["restart_policy"]),
+                privileged=_bool(fields["privileged"]),
+                cap_add=_str_list(fields["cap_add"]),
+                cap_drop=_str_list(fields["cap_drop"]),
+                readonly_rootfs=_bool(fields["readonly_rootfs"]),
+                security_opt=_str_list(fields["security_opt"]),
+                ports=_parse_ports(fields["exposed_ports"], fields["port_bindings"]),
+                networks=_parse_networks(fields["networks"]),
+                mounts=_parse_mounts(fields["mounts"]),
+                compose_project=_str(fields["compose_project"]),
+                compose_service=_str(fields["compose_service"]),
             )
         )
     return sorted(containers, key=lambda container: container.name)
@@ -377,7 +380,7 @@ def _collect_containers(runtime: str, failures: list[str]) -> list[ContainerStat
     if not names:
         return []
     inspect = run_tool(
-        [runtime, "inspect", "--format", _INSPECT_TEMPLATE, *names],
+        [runtime, "inspect", "--format", _INSPECT_TEMPLATE, "--", *names],
         timeout=TIMEOUT_SECONDS,
         failures=failures,
     )

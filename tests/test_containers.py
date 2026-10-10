@@ -11,6 +11,10 @@ from lion.state.collector import CollectorStatus
 
 SEP = "\x1f"
 
+#: Production field order; the fixture is rendered from it so it cannot drift
+#: from the real template.
+_INSPECT_NAMES = tuple(field_name for field_name, _ in containers._INSPECT_FIELDS)  # pyright: ignore[reportPrivateUsage]
+
 
 def _inspect_line(
     name: str,
@@ -29,24 +33,29 @@ def _inspect_line(
     compose_project: str | None = None,
     compose_service: str | None = None,
 ) -> str:
-    """Render one whitelisted ``--format`` inspect record, like the CLI does."""
-    fields: list[object] = [
-        name,
-        image,
-        restart,
-        privileged,
-        cap_add or [],
-        cap_drop or [],
-        readonly,
-        security_opt or [],
-        exposed or {},
-        bindings,
-        networks or {},
-        mounts or [],
-        compose_project,
-        compose_service,
-    ]
-    return SEP.join(json.dumps(field) for field in fields)
+    """Render one whitelisted ``--format`` inspect record in production order.
+
+    Values are keyed by the production field names and emitted in the order of
+    ``containers._INSPECT_FIELDS``, so a new or renamed field makes the fixture
+    fail loudly instead of silently diverging from the template.
+    """
+    values: dict[str, object] = {
+        "name": name,
+        "image_ref": image,
+        "restart_policy": restart,
+        "privileged": privileged,
+        "cap_add": cap_add or [],
+        "cap_drop": cap_drop or [],
+        "readonly_rootfs": readonly,
+        "security_opt": security_opt or [],
+        "exposed_ports": exposed or {},
+        "port_bindings": bindings,
+        "networks": networks or {},
+        "mounts": mounts or [],
+        "compose_project": compose_project,
+        "compose_service": compose_service,
+    }
+    return SEP.join(json.dumps(values[field_name]) for field_name in _INSPECT_NAMES)
 
 
 def _patch(
@@ -188,6 +197,7 @@ def test_full_docker_capture(monkeypatch: pytest.MonkeyPatch) -> None:
     ]
     inspect_calls = [command for command in calls if command[1] == "inspect"]
     assert len(inspect_calls) == 1
+    assert inspect_calls[0][-3] == "--"
     assert inspect_calls[0][-2:] == ["worker", "web"]
 
 
@@ -201,6 +211,7 @@ def test_inspect_never_dumps_secrets(monkeypatch: pytest.MonkeyPatch) -> None:
     for command in calls:
         assert "--format" in command
         assert all("Env" not in part for part in command)
+    assert "Env" not in containers._INSPECT_TEMPLATE  # pyright: ignore[reportPrivateUsage]
 
 
 def test_podman_fallback_after_broken_docker(monkeypatch: pytest.MonkeyPatch) -> None:
