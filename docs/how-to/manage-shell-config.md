@@ -117,3 +117,47 @@ backup yourself; later configuration changes will then no longer be active.
   Do not edit shell configuration during an operation.
 
 Installation and removal never load or execute the user's scripts.
+
+## Reinstall after uninstall
+
+An `install` after an `uninstall` is **refused with a clear error** (exit code
+`1`) as long as artifacts of the previous installation remain. Installing
+anyway would run the consolidated exports and the flattened scripts a second
+time, and it is ambiguous whether the "original" configuration to preserve is
+the pre-install backup or the current flattened `.zshrc`
+([ADR 0008](../decisions/0008-shlib-reinstall-fail-loud.md)). Reconcile the
+retained files first, then install again.
+
+1. Confirm the exports are preserved in `~/.shlib/exports/` — the uninstall
+   already consolidated them there. Then remove the flattened copy:
+
+   ```bash
+   ls ~/.shlib/exports/          # every variable should be listed here
+   rm ~/.zshrc.exports
+   ```
+
+2. Decide deliberately about the preserved pre-install rc and the reference
+   copy. Keep a copy first if you still need the pre-install state; then remove
+   them so the install target is clean:
+
+   ```bash
+   cp -a ~/.shlib/shlibs/00-original-zshrc.sh ~/zshrc.pre-shlib.bak   # optional
+   rm -f ~/.shlib/shlibs/00-original-zshrc.sh ~/.zshrc.lock
+   ```
+
+3. Remove or relocate the retained numbered scripts under `~/.shlib/shlibs/`
+   (their content already lives in the flattened `.zshrc`):
+
+   ```bash
+   ls ~/.shlib/shlibs/           # e.g. 10-aliases.sh, 20-last.sh
+   ```
+
+4. Install again:
+
+   ```bash
+   uv run lion shlib install
+   ```
+
+The `~/.zshrc.before-shlib*` backups and the process-lock file `~/.shlib.lock`
+are retained but do not block a reinstall. `lion doctor` reports the current
+shlib state if you are unsure what is still present.

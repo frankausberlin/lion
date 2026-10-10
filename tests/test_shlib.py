@@ -88,6 +88,24 @@ def test_roundtrip(home: Path) -> None:
     assert "not installed" in invoke("uninstall")
 
 
+def test_reinstall_after_uninstall_is_refused(home: Path) -> None:
+    """A reinstall after uninstall fails loudly and changes nothing (ADR-0008)."""
+    rc = home / ".zshrc"
+    rc.write_text("alias hello='echo hello'\n")
+    invoke("install")
+    token = home / ".shlib" / "exports" / "TOKEN"
+    token.write_text("secret\n")
+    token.chmod(0o600)
+    (home / ".shlib" / "shlibs" / "10-first.sh").write_text("FIRST=yes\n")
+    invoke("uninstall")
+    before = rc.read_bytes()
+    result = runner.invoke(app, ["shlib", "install"])
+    assert result.exit_code == 1
+    assert rc.read_bytes() == before
+    assert not (home / ".zshrc.before-shlib.1").exists()
+    assert str(home / ".zshrc.lock") in _plain(result.stderr)
+
+
 def test_empty_home_and_status_readonly(home: Path) -> None:
     """Status does not create files; installation works without a previous rc."""
     assert not json.loads(invoke("status", "--json"))["installed"]
