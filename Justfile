@@ -113,8 +113,8 @@ refactor name="":
     echo "Branch '$branch' created. Baseline in .refactor/."
     echo "Proceed with the 'refactoring' skill; this recipe does not refactor."
 
-# Fast-forward <target> (default: main) to <branch>, then clean up its worktree and branch
-merge branch target="main":
+# Fast-forward the feature branch into main (no argument needed) and clean it up
+merge branch="" target="main":
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "$(git branch --show-current)" != "{{target}}" ]; then
@@ -125,19 +125,51 @@ merge branch target="main":
         echo "merge: working tree is dirty" >&2
         exit 1
     fi
+
+    branch="{{branch}}"
+    if [ -z "$branch" ]; then
+        # The feature branch is the one checked out in another worktree.
+        mapfile -t candidates < <(
+            git worktree list --porcelain \
+                | awk '/^branch / { print substr($2, 12) }' \
+                | grep -vx '{{target}}' || true
+        )
+        # No worktree: fall back to the only local branch not yet merged.
+        if [ "${#candidates[@]}" -eq 0 ]; then
+            mapfile -t candidates < <(
+                git branch --no-merged '{{target}}' --format='%(refname:short)' || true
+            )
+        fi
+        if [ "${#candidates[@]}" -eq 0 ]; then
+            echo "merge: nothing to merge" >&2
+            exit 1
+        fi
+        if [ "${#candidates[@]}" -gt 1 ]; then
+            echo "merge: several branches to choose from:" >&2
+            printf '  %s\n' "${candidates[@]}" >&2
+            echo "merge: run 'just merge <branch>'" >&2
+            exit 1
+        fi
+        branch="${candidates[0]}"
+    fi
+    if [ "$branch" = "{{target}}" ]; then
+        echo "merge: refusing to merge '{{target}}' into itself" >&2
+        exit 1
+    fi
+
     if git remote get-url origin >/dev/null 2>&1; then
         git fetch origin
     fi
-    if ! git merge --ff-only "{{branch}}"; then
-        echo "merge: '{{branch}}' cannot be fast-forwarded; '{{target}}' has diverged" >&2
+    if ! git merge --ff-only "$branch"; then
+        echo "merge: '$branch' cannot be fast-forwarded; '{{target}}' has diverged" >&2
         exit 1
     fi
     worktree_path="$(
-        git worktree list --porcelain | awk -v ref="refs/heads/{{branch}}" \
+        git worktree list --porcelain | awk -v ref="refs/heads/$branch" \
             '/^worktree / { wt = substr($0, 10) } /^branch / && $2 == ref { print wt; exit }'
     )"
     if [ -n "$worktree_path" ]; then
         git worktree remove "$worktree_path"
     fi
-    git branch -d "{{branch}}"
-    echo "merge: '{{branch}}' merged into '{{target}}' and cleaned up; publish with 'git push origin {{target}}'"
+    git branch -d "$branch"
+    echo "merge: '$branch' merged into '{{target}}' and cleaned up; publish with 'git push origin {{target}}'"
