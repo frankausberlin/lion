@@ -16,7 +16,7 @@ def _entry_payload(index: int, entry: Entry, latest: bool) -> dict[str, object]:
     """Return the JSON representation of one history entry."""
     payload = reference_json(entry)
     payload["index"] = index
-    payload["aktuell"] = latest
+    payload["latest"] = latest
     return payload
 
 
@@ -37,9 +37,9 @@ def run(json_output: bool = False, limit: int | None = None) -> None:
 
     if not entries:
         if json_output:
-            typer.echo(json.dumps({"eintraege": []}))
+            typer.echo(json.dumps({"entries": []}))
         else:
-            typer.echo("Kein Zustand gespeichert. Führe 'lion scan' aus.")
+            typer.echo("No state stored. Run 'lion scan'.")
         return
 
     total = len(entries)
@@ -51,11 +51,11 @@ def run(json_output: bool = False, limit: int | None = None) -> None:
             _entry_payload(offset + position, entry, offset + position == total)
             for position, entry in enumerate(shown, 1)
         ]
-        typer.echo(json.dumps({"eintraege": payload}))
+        typer.echo(json.dumps({"entries": payload}))
         return
 
-    typer.echo(f"{'#':>3}  {'REF':<28}  ZULETZT BESTÄTIGT")
+    typer.echo(f"{'#':>3}  {'REF':<28}  CONFIRMED")
     for position, entry in enumerate(shown, start=1):
         index = offset + position
-        hint = "  aktuell" if index == total else ""
-        typer.echo(f"{index:>3}  {entry.ref:<28}  {entry.snapshot.zuletzt_bestaetigt}{hint}")
+        hint = "  latest" if index == total else ""
+        typer.echo(f"{index:>3}  {entry.ref:<28}  {entry.snapshot.confirmed_at}{hint}")

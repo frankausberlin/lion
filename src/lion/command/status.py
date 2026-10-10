@@ -34,11 +34,10 @@ def run(json_output: bool = False) -> None:
         if json_output:
             typer.echo("null")
         else:
-            typer.echo("Kein Zustand gespeichert. Führe 'lion scan' aus.")
+            typer.echo("No state stored. Run 'lion scan'.")
         if (get_data_dir() / "scans").is_dir():
             typer.echo(
-                "Hinweis: Alte Zustände unter 'scans/' werden nicht mehr gelesen; "
-                "führe 'lion scan' für einen neuen Verlauf aus.",
+                "Note: old states under 'scans/' are no longer read; run 'lion scan' to start a new history.",
                 err=True,
             )
         return
@@ -46,15 +45,15 @@ def run(json_output: bool = False) -> None:
     diff = diff_collectors(latest.collectors, state)
     if json_output:
         payload: dict[str, object] = {
-            "geaendert": bool(diff),
-            "struktur_geaendert": has_structural_change(diff),
-            "seit": latest.zuletzt_bestaetigt,
-            "unterschiede": diff,
+            "changed": bool(diff),
+            "structure_changed": has_structural_change(diff),
+            "since": latest.confirmed_at,
+            "differences": diff,
         }
         typer.echo(json.dumps(payload))
     elif not diff:
-        typer.echo(f"Seit dem letzten Scan am {latest.zuletzt_bestaetigt} hat sich nichts geändert.")
+        typer.echo(f"Nothing has changed since the last scan at {latest.confirmed_at}.")
     else:
         if has_structural_change(diff):
-            typer.echo("Struktur geändert.")
+            typer.echo("Structure changed.")
         typer.echo(render(diff))

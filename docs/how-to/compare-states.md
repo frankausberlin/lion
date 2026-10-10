@@ -11,14 +11,14 @@ uv run lion history --limit 5
 ```
 
 `history` lists every stored state from oldest to newest and shows its stable
-reference. The reference is the file name without `.toml`, i.e. the `erstscan`
+reference. The reference is the file name without `.toml`, i.e. the `created_at`
 in compact form (`2026-10-05T20-00-00.123456Z`), plus a `~NNNN` suffix for
 same-instant collisions. It never changes once published.
 
 ```text
-  #  REF                           ZULETZT BESTÄTIGT
+  #  REF                           CONFIRMED
   1  2026-10-05T18-00-00.123456Z   2026-10-05T20:00:00.123456+00:00
-  2  2026-10-05T20-00-00.123456Z   2026-10-05T20:00:00.123456+00:00  aktuell
+  2  2026-10-05T20-00-00.123456Z   2026-10-05T20:00:00.123456+00:00  latest
 ```
 
 `--limit N` shows only the newest `N` entries (oldest first within that
@@ -43,12 +43,12 @@ References are resolved in this order:
 
 | Input | Meaning |
 | --- | --- |
-| `latest` / `head` / `aktuell` | newest entry by `zuletzt_bestaetigt` |
-| `previous` / `prev` / `vorherig` | the entry before that |
+| `latest` / `head` | newest entry by `confirmed_at` |
+| `previous` / `prev` | the entry before that |
 | a bare number, e.g. `2` | 1-based index from `lion history` (1 = oldest) |
 | the compact reference | exact file name without `.toml` |
 | a unique prefix, e.g. `2026-10-05T18` | shortest unique match |
-| an ISO `erstscan`, e.g. `2026-10-05T18:00:00Z` | normalized for timezone and seconds |
+| an ISO `created_at`, e.g. `2026-10-05T18:00:00Z` | normalized for timezone and seconds |
 
 ## Errors
 

@@ -14,7 +14,7 @@ state, in contrast, must update the single latest entry in place.
 
 New history entries are published with a hard link (`os.link`) from a fully
 written and `fsync`ed temporary file, and an existing entry is never
-overwritten. Only refreshing `zuletzt_bestaetigt` on the latest entry rewrites a
+overwritten. Only refreshing `confirmed_at` on the latest entry rewrites a
 file, and that happens atomically via `os.replace`.
 
 ## Consequences

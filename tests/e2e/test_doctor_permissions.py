@@ -49,7 +49,7 @@ def test_doctor_preserves_existing_state_as_user(
     assert before_data <= after_data
     assert all(path.startswith("lion/recos") for path in after_data - before_data)
     assert len(list((tmp_path / "data" / "lion" / "recos").glob("*.sh"))) == 1
-    findings = {item["name"]: item["status"] for item in payload["befunde"]}
+    findings = {item["name"]: item["status"] for item in payload["findings"]}
     assert findings["shlib.installed"] == "ok"
     assert findings["storage.recos"] == "ok"
 
@@ -66,8 +66,8 @@ def test_unwritable_recos_reports_error_without_partial_files(
         stdout = user_runner("lion", "doctor", "--json", env=env, expected=1)
         payload = json.loads(stdout)
         assert payload["status"] == "error"
-        assert payload["reco_pfad"] is None
-        findings = {item["name"]: item["status"] for item in payload["befunde"]}
+        assert payload["reco_path"] is None
+        findings = {item["name"]: item["status"] for item in payload["findings"]}
         assert findings["storage.recos"] == "error"
         assert findings["storage.reco_publish"] == "error"
         assert _files(recos) == before

@@ -12,12 +12,12 @@
 ## Base mechanics
 
 * It's a **command**: `lion [command [subcommand]] [parameter]`
-* The **scan creates** a current **system status** and adds it to the **history**.
-* **Status** shows a summary of the current status and the difference from the previous one.
+* The **scan creates** a current **system status** with its **collectors** and adds it to the **history**.
+* **Status** shows a **summary of the current** status and the **difference from the previous** one.
 * The **Shlib system** monitors changes to the **.zshrc** and **organizes** its contents into individual files.
-* The **Shell** command integrates an **optional recording** and description mechanism with a **warning function**.
+* The **Shell** command integrates an **optional recording** and **description mechanism** with a **warning function**.
 * With **Wiki**, an **OKF v0.2** (Open Knowledge Format) compliant wiki is created from the **current state**.
-* The **Serve** command starts an **MCP server** with tools, resources and prompts, it is used **exclusively by harnesses**.
+* The **Serve** command starts an **MCP server** with **tools, resources and prompts**, it is used **exclusively by harnesses**.
 
 
 ## Commands overview

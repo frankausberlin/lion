@@ -71,13 +71,13 @@ def test_created_on_empty_history(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert outcome.event == "created"
     assert outcome.path.exists()
-    assert outcome.snapshot.erstscan == outcome.snapshot.zuletzt_bestaetigt == T0.isoformat()
+    assert outcome.snapshot.created_at == outcome.snapshot.confirmed_at == T0.isoformat()
     assert load_latest() == outcome.snapshot
     assert len(_entry_files()) == 1
 
 
 def test_confirmed_updates_head_in_place(monkeypatch: pytest.MonkeyPatch) -> None:
-    """An unchanged state updates ``zuletzt_bestaetigt`` without a new file."""
+    """An unchanged state updates ``confirmed_at`` without a new file."""
     _freeze(monkeypatch, T0, T1)
 
     first = save_state(_host())
@@ -85,8 +85,8 @@ def test_confirmed_updates_head_in_place(monkeypatch: pytest.MonkeyPatch) -> Non
 
     assert second.event == "confirmed"
     assert second.path == first.path
-    assert second.snapshot.erstscan == T0.isoformat()
-    assert second.snapshot.zuletzt_bestaetigt == T1.isoformat()
+    assert second.snapshot.created_at == T0.isoformat()
+    assert second.snapshot.confirmed_at == T1.isoformat()
     assert load_latest() == second.snapshot
     assert len(_entry_files()) == 1
     assert not list(get_history_dir().glob("*.tmp"))
@@ -124,21 +124,21 @@ def test_empty_or_missing_directory() -> None:
     assert load_latest() is None
 
 
-def _write_entry(name: str, erstscan: str, zuletzt: str) -> Path:
+def _write_entry(name: str, created_at: str, zuletzt: str) -> Path:
     path = get_history_dir() / name
-    snapshot = Snapshot(erstscan=erstscan, zuletzt_bestaetigt=zuletzt, collectors=_host())
+    snapshot = Snapshot(created_at=created_at, confirmed_at=zuletzt, collectors=_host())
     path.write_text(tomli_w.dumps(snapshot.to_toml_dict()))
     return path
 
 
-def test_latest_by_zuletzt_bestaetigt() -> None:
+def test_latest_by_confirmed_at() -> None:
     """Select the entry with the newest confirmation timestamp."""
     get_history_dir().mkdir(parents=True)
     _write_entry("a.toml", T0.isoformat(), T0.isoformat())
     _write_entry("b.toml", T0.isoformat(), T2.isoformat())
     latest = load_latest()
     assert latest is not None
-    assert latest.zuletzt_bestaetigt == T2.isoformat()
+    assert latest.confirmed_at == T2.isoformat()
 
 
 def test_latest_tie_break_by_filename() -> None:
@@ -148,7 +148,7 @@ def test_latest_tie_break_by_filename() -> None:
     _write_entry("b.toml", T2.isoformat(), T1.isoformat())
     latest = load_latest()
     assert latest is not None
-    assert latest.erstscan == T2.isoformat()
+    assert latest.created_at == T2.isoformat()
 
 
 @pytest.mark.parametrize(
@@ -156,8 +156,12 @@ def test_latest_tie_break_by_filename() -> None:
     [
         "broken = [",
         "[collectors]\nhost = 1",
-        "schema_version = 2\n[collectors]",
-        'schema_version = 1\n"erstscan" = "2026-10-05T20:00:00"\n"zuletzt_bestaetigt" = "x"\n[collectors]',
+        "schema_version = 3\n[collectors]",
+        'schema_version = 2\n"created_at" = "2026-10-05T20:00:00"\n"confirmed_at" = "x"\n[collectors]',
+        (
+            'schema_version = 1\n"erstscan" = "2026-10-05T20:00:00+00:00"\n'
+            '"zuletzt_bestaetigt" = "2026-10-05T20:00:00+00:00"\n[collectors]'
+        ),
     ],
 )
 def test_invalid_entry_reports_path(content: str) -> None:
@@ -237,12 +241,12 @@ def test_scan_and_status_choose_same_head(monkeypatch: pytest.MonkeyPatch, older
     before = old_path.read_bytes()
     expected = load_latest()
     assert expected is not None
-    assert expected.erstscan == newer
+    assert expected.created_at == newer
     _freeze(monkeypatch, T2 + timedelta(hours=1))
     outcome = save_state(_host())
     assert outcome.event == "confirmed"
     assert outcome.path == new_path
-    assert outcome.snapshot.erstscan == expected.erstscan
+    assert outcome.snapshot.created_at == expected.created_at
     assert old_path.read_bytes() == before
 
 
@@ -252,7 +256,7 @@ def test_scan_rejects_invalid_selection_timestamp(monkeypatch: pytest.MonkeyPatc
     _freeze(monkeypatch, T0, T1)
     save_state(_host())
     path = get_history_dir() / "invalid-time.toml"
-    path.write_text(tomli_w.dumps({"zuletzt_bestaetigt": stamp}))
+    path.write_text(tomli_w.dumps({"confirmed_at": stamp}))
     with pytest.raises(HistoryError, match=r"invalid-time\.toml"):
         save_state(_host())
 
@@ -265,7 +269,7 @@ def test_overlapping_confirmations_preserve_newest_timestamp(monkeypatch: pytest
     update = storage._update_head  # pyright: ignore[reportPrivateUsage]
 
     def delayed_update(path: Path, snapshot: Snapshot) -> None:
-        if snapshot.zuletzt_bestaetigt == T1.isoformat():
+        if snapshot.confirmed_at == T1.isoformat():
             blocked.set()
             assert release.wait(5)
         update(path, snapshot)
@@ -289,7 +293,7 @@ def test_overlapping_confirmations_preserve_newest_timestamp(monkeypatch: pytest
         assert second.result(timeout=5).event == "confirmed"
     latest = load_latest()
     assert latest is not None
-    assert latest.zuletzt_bestaetigt == T2.isoformat()
+    assert latest.confirmed_at == T2.isoformat()
     assert len(_entry_files()) == 1
 
 
@@ -302,8 +306,8 @@ def test_memory_wobble_confirms_instead_of_appending(monkeypatch: pytest.MonkeyP
 
     assert second.event == "confirmed"
     assert second.path == first.path
-    assert second.snapshot.erstscan == T0.isoformat()
-    assert second.snapshot.zuletzt_bestaetigt == T1.isoformat()
+    assert second.snapshot.created_at == T0.isoformat()
+    assert second.snapshot.confirmed_at == T1.isoformat()
     assert len(_entry_files()) == 1
     latest = load_latest()
     assert latest is not None
@@ -405,14 +409,14 @@ def test_resolve_previous_requires_two() -> None:
     """``previous`` needs an entry before the newest one."""
     get_history_dir().mkdir(parents=True)
     _write_entry(f"{A_REF}.toml", "2026-10-05T18:00:00+00:00", "2026-10-05T18:00:00+00:00")
-    with pytest.raises(HistoryError, match="vorheriger"):
+    with pytest.raises(HistoryError, match="No previous"):
         resolve("previous")
 
 
 def test_resolve_collision_references_are_distinct() -> None:
     """Both names of a same-instant collision resolve to their own entry.
 
-    The shared ``erstscan`` makes an ISO lookup genuinely ambiguous, but each
+    The shared ``created_at`` makes an ISO lookup genuinely ambiguous, but each
     published file name must still resolve to exactly its own entry.
     """
     get_history_dir().mkdir(parents=True)
@@ -421,7 +425,7 @@ def test_resolve_collision_references_are_distinct() -> None:
     _write_entry(f"{B_REF}~0001.toml", iso, iso)
     assert resolve(B_REF).ref == B_REF
     assert resolve(f"{B_REF}~0001").ref == f"{B_REF}~0001"
-    with pytest.raises(HistoryError, match="mehrdeutig"):
+    with pytest.raises(HistoryError, match="is ambiguous"):
         resolve("2026-10-05T20:00:00Z")
 
 
@@ -436,7 +440,7 @@ def test_clock_rollback_leaves_history_unchanged(monkeypatch: pytest.MonkeyPatch
     assert first.path.read_bytes() == before
     assert len(_entry_files()) == 1
     assert load_latest() == first.snapshot
-    assert save_state(_host(hostname)).snapshot.zuletzt_bestaetigt == T2.isoformat()
+    assert save_state(_host(hostname)).snapshot.confirmed_at == T2.isoformat()
 
 
 def _ctx(tmp_path: Path) -> DoctorContext:

@@ -24,7 +24,7 @@ def _mapping(value: object) -> dict[str, object]:
 
 
 def _findings(stdout: str) -> dict[str, dict[str, object]]:
-    raw = _mapping(json.loads(stdout))["befunde"]
+    raw = _mapping(json.loads(stdout))["findings"]
     assert isinstance(raw, list), raw
     result: dict[str, dict[str, object]] = {}
     for item in cast("list[object]", raw):
@@ -58,7 +58,7 @@ def test_missing_reference_copy_warns(runner: Callable[..., str], env: dict[str,
 
     stdout = runner("lion", "doctor", "--json", env=env)
     assert _status(stdout, "shlib.lock") == "warn"
-    assert "fehlt" in str(_findings(stdout)["shlib.lock"]["message"])
+    assert "missing" in str(_findings(stdout)["shlib.lock"]["message"])
 
 
 def test_drifted_rc_warns(runner: Callable[..., str], env: dict[str, str]) -> None:
@@ -70,7 +70,7 @@ def test_drifted_rc_warns(runner: Callable[..., str], env: dict[str, str]) -> No
 
     stdout = runner("lion", "doctor", "--json", env=env)
     assert _status(stdout, "shlib.lock") == "warn"
-    assert "weicht" in str(_findings(stdout)["shlib.lock"]["message"])
+    assert "differs" in str(_findings(stdout)["shlib.lock"]["message"])
 
 
 def test_missing_directory_warns(runner: Callable[..., str], env: dict[str, str]) -> None:

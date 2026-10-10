@@ -32,7 +32,7 @@ def isolated_data_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 def _write(ref: str, iso: str, collectors: Mapping[str, Mapping[str, object]]) -> None:
     get_history_dir().mkdir(parents=True, exist_ok=True)
-    snapshot = Snapshot(erstscan=iso, zuletzt_bestaetigt=iso, collectors={k: dict(v) for k, v in collectors.items()})
+    snapshot = Snapshot(created_at=iso, confirmed_at=iso, collectors={k: dict(v) for k, v in collectors.items()})
     (get_history_dir() / f"{ref}.toml").write_text(tomli_w.dumps(snapshot.to_toml_dict()))
 
 
@@ -64,8 +64,8 @@ def test_history_lists_oldest_first() -> None:
     assert B_REF in lines[2]
     assert lines[1].startswith("  1")
     assert lines[2].startswith("  2")
-    assert "aktuell" in lines[2]
-    assert "aktuell" not in lines[1]
+    assert "latest" in lines[2]
+    assert "latest" not in lines[1]
 
 
 def test_history_json() -> None:
@@ -77,20 +77,20 @@ def test_history_json() -> None:
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    entries = json.loads(result.stdout)["eintraege"]
+    entries = json.loads(result.stdout)["entries"]
     assert [entry["index"] for entry in entries] == [1, 2]
     assert [entry["ref"] for entry in entries] == [A_REF, B_REF]
-    assert entries[1]["aktuell"] is True
-    assert entries[0]["pfad"].endswith(f"{A_REF}.toml")
+    assert entries[1]["latest"] is True
+    assert entries[0]["path"].endswith(f"{A_REF}.toml")
 
 
 def test_history_empty() -> None:
     """An empty history is reported without creating files."""
     text = _invoke("history")
     assert text.exit_code == 0
-    assert "Kein Zustand gespeichert" in text.stdout
+    assert "No state stored" in text.stdout
     machine = _invoke("history", "--json")
-    assert json.loads(machine.stdout) == {"eintraege": []}
+    assert json.loads(machine.stdout) == {"entries": []}
     assert not get_history_dir().exists()
 
 
@@ -117,7 +117,7 @@ def test_history_limit_keeps_global_indices() -> None:
     assert lines[1].startswith("  2")
     assert lines[2].startswith("  3")
     assert B_REF in lines[1] and C_REF in lines[2]
-    assert "aktuell" in lines[2] and "aktuell" not in lines[1]
+    assert "latest" in lines[2] and "latest" not in lines[1]
 
 
 def test_history_limit_json_matches_text_selection() -> None:
@@ -126,11 +126,11 @@ def test_history_limit_json_matches_text_selection() -> None:
     _write(B_REF, B_ISO, _host("two"))
     _write(C_REF, C_ISO, _host("three"))
 
-    entries = json.loads(_invoke("history", "--limit", "2", "--json").stdout)["eintraege"]
+    entries = json.loads(_invoke("history", "--limit", "2", "--json").stdout)["entries"]
 
     assert [entry["index"] for entry in entries] == [2, 3]
     assert [entry["ref"] for entry in entries] == [B_REF, C_REF]
-    assert entries[-1]["aktuell"] is True
+    assert entries[-1]["latest"] is True
 
 
 def test_history_limit_larger_than_history_shows_all() -> None:
@@ -138,7 +138,7 @@ def test_history_limit_larger_than_history_shows_all() -> None:
     _write(A_REF, A_ISO, _host("one"))
     _write(B_REF, B_ISO, _host("two"))
 
-    entries = json.loads(_invoke("history", "--limit", "5", "--json").stdout)["eintraege"]
+    entries = json.loads(_invoke("history", "--limit", "5", "--json").stdout)["entries"]
     assert [entry["index"] for entry in entries] == [1, 2]
 
 
@@ -168,7 +168,7 @@ def test_diff_by_index() -> None:
     result = _invoke("diff", "1", "2")
 
     assert result.exit_code == 0
-    assert f"Vergleich {A_REF} → {B_REF}" in result.stdout
+    assert f"Comparing {A_REF} → {B_REF}" in result.stdout
     assert "~ hostname: one -> two" in result.stdout
 
 
@@ -185,8 +185,17 @@ def test_diff_aliases() -> None:
     _write(A_REF, A_ISO, _host("one"))
     _write(B_REF, B_ISO, _host("two"))
 
-    assert f"Vergleich {A_REF} → {B_REF}" in _invoke("diff", "previous", "latest").stdout
-    assert f"Vergleich {A_REF} → {B_REF}" in _invoke("diff", "vorherig", "aktuell").stdout
+    assert f"Comparing {A_REF} → {B_REF}" in _invoke("diff", "previous", "latest").stdout
+
+
+def test_german_aliases_are_rejected() -> None:
+    """The legacy German resolve aliases are unknown references."""
+    _write(A_REF, A_ISO, _host("one"))
+    _write(B_REF, B_ISO, _host("two"))
+
+    result = _invoke("diff", "vorherig", "aktuell")
+    assert result.exit_code == 1
+    assert "Unknown reference 'vorherig'" in result.stderr
 
 
 def test_diff_accepts_prefix_and_iso() -> None:
@@ -207,11 +216,11 @@ def test_diff_json() -> None:
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["geaendert"] is True
-    assert payload["struktur_geaendert"] is False
-    assert payload["von"]["ref"] == A_REF
-    assert payload["bis"]["ref"] == B_REF
-    assert payload["unterschiede"]["host"]["changed"]["hostname"] == {"old": "one", "new": "two"}
+    assert payload["changed"] is True
+    assert payload["structure_changed"] is False
+    assert payload["from"]["ref"] == A_REF
+    assert payload["to"]["ref"] == B_REF
+    assert payload["differences"]["host"]["changed"]["hostname"] == {"old": "one", "new": "two"}
 
 
 def test_diff_marks_structural_change() -> None:
@@ -225,10 +234,10 @@ def test_diff_marks_structural_change() -> None:
 
     text = _invoke("diff", "1", "2")
     assert text.exit_code == 0
-    assert "Struktur geändert." in text.stdout
+    assert "Structure changed." in text.stdout
     payload = json.loads(_invoke("diff", "1", "2", "--json").stdout)
-    assert payload["geaendert"] is True
-    assert payload["struktur_geaendert"] is True
+    assert payload["changed"] is True
+    assert payload["structure_changed"] is True
 
 
 def test_diff_no_changes() -> None:
@@ -238,11 +247,11 @@ def test_diff_no_changes() -> None:
 
     text = _invoke("diff", "1", "2")
     assert text.exit_code == 0
-    assert "Keine Unterschiede." in text.stdout
-    assert "Struktur geändert." not in text.stdout
+    assert "No differences." in text.stdout
+    assert "Structure changed." not in text.stdout
     payload = json.loads(_invoke("diff", "1", "2", "--json").stdout)
-    assert payload["geaendert"] is False
-    assert payload["struktur_geaendert"] is False
+    assert payload["changed"] is False
+    assert payload["structure_changed"] is False
 
 
 def test_diff_reuses_ram_tolerance() -> None:
@@ -250,7 +259,7 @@ def test_diff_reuses_ram_tolerance() -> None:
     _write(A_REF, A_ISO, _hardware(RAM_OLD))
     _write(B_REF, B_ISO, _hardware(RAM_NEW))
 
-    assert "Keine Unterschiede." in _invoke("diff", "1", "2").stdout
+    assert "No differences." in _invoke("diff", "1", "2").stdout
 
 
 def test_diff_ambiguous_prefix() -> None:
@@ -260,7 +269,7 @@ def test_diff_ambiguous_prefix() -> None:
 
     result = _invoke("diff", "2026-10-05T", "latest")
     assert result.exit_code == 1
-    assert "mehrdeutig" in result.stderr
+    assert "is ambiguous" in result.stderr
 
 
 def test_diff_unknown_reference() -> None:
@@ -270,7 +279,7 @@ def test_diff_unknown_reference() -> None:
 
     result = _invoke("diff", "does-not-exist", "latest")
     assert result.exit_code == 1
-    assert "Unbekannte Referenz" in result.stderr
+    assert "Unknown reference" in result.stderr
 
 
 def test_diff_index_out_of_range() -> None:
@@ -280,7 +289,7 @@ def test_diff_index_out_of_range() -> None:
 
     result = _invoke("diff", "9", "latest")
     assert result.exit_code == 1
-    assert "außerhalb" in result.stderr
+    assert "is outside" in result.stderr
 
 
 def test_diff_requires_two_entries() -> None:
@@ -289,4 +298,4 @@ def test_diff_requires_two_entries() -> None:
 
     result = _invoke("diff", A_REF)
     assert result.exit_code == 1
-    assert "Weniger als zwei" in result.stderr
+    assert "Fewer than two" in result.stderr

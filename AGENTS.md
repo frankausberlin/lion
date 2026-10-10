@@ -150,9 +150,9 @@ just audit       # dependency vulnerability scan
   `compute_platform` is a driver-derived hint, not verified compute support or
   runtime installation. The `tools` collector records PATH visibility only.
   PCI ids identify slots: a replacement in the same slot is a field change.
-  Any `added`/`removed` is structural (`struktur_geaendert`).
+  Any `added`/`removed` is structural (`structure_changed`).
 - New history entries are published with `os.link` and never overwrite; only the
-  latest entry's `zuletzt_bestaetigt` refresh uses `os.replace`. Collision
+  latest entry's `confirmed_at` refresh uses `os.replace`. Collision
   filenames use a `~NNNN` suffix so they sort after the base name and the
   newest-entry tie-break stays correct.
 - `load_latest`/`status` validate every entry and fail loudly with the file path;
@@ -235,9 +235,11 @@ just audit       # dependency vulnerability scan
 ### Language and Project Documents
 
 - Code, docstrings, README, `docs/`, `--help` texts and commit messages stay
-  English. The conversation with the maintainer and the two maintainer-local
-  planning documents are German; this is the only deliberate exception to the
-  English rule.
+  English. This includes JSON/TOML field names, CLI messages and any other
+  user-visible strings (ADR 0010). The conversation with the maintainer and the
+  two maintainer-local planning documents are German; this is the only
+  deliberate exception to the English rule, and German appears in the repo
+  only under `ignore/`.
 - The German planning documents (`PROJECT_DEFINITION.de.md` for vision, scope,
   terminology and principles; `ROADMAP.de.md` for phases and open decisions)
   live maintainer-local and **untracked** under `ignore/`; they are absent in a

@@ -5,11 +5,11 @@ two collected states are the same, so they never disagree.
 
 ## Events
 
-A state has two timestamps: `erstscan` (first observation) and
-`zuletzt_bestaetigt` (last unchanged confirmation).
+A state has two timestamps: `created_at` (first observation) and
+`confirmed_at` (last unchanged confirmation).
 
 - No stored state → a new entry is created (`created`).
-- Identical collector data → the latest entry's `zuletzt_bestaetigt` is
+- Identical collector data → the latest entry's `confirmed_at` is
   refreshed in place (`confirmed`); no new file is written.
 - Any difference → a new entry is appended (`appended`). The previous entry is
   kept, so the history records every distinct state.
@@ -46,8 +46,8 @@ A change is **structural** when something was added or removed: a whole
 collector, a key, or a list entry. It is a **value change** when only an existing
 value differs. Structural changes are the more consequential kind — a collector
 or field appearing means the comparison baseline shifted — so `status` and
-`diff` flag them separately: the JSON carries `struktur_geaendert` and the text
-output leads with `Struktur geändert.`.
+`diff` flag them separately: the JSON carries `structure_changed` and the text
+output leads with `Structure changed.`.
 
 GPUs are matched by PCI slot, not physical card identity. A change of slot
 appears as removed + added; replacing a card in the same slot appears as changed

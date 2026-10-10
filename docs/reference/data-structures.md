@@ -10,17 +10,17 @@ Every stored state is a `Snapshot` persisted as one TOML file. Its keys are:
 
 | Key | Type | Meaning |
 | --- | --- | --- |
-| `schema_version` | integer | Always `1` for the current format. |
-| `erstscan` | string | First observation of this state (ISO 8601 with a UTC offset). |
-| `zuletzt_bestaetigt` | string | Last unchanged confirmation (ISO 8601 with a UTC offset). |
+| `schema_version` | integer | Always `2` for the current format. |
+| `created_at` | string | First observation of this state (ISO 8601 with a UTC offset). |
+| `confirmed_at` | string | Last unchanged confirmation (ISO 8601 with a UTC offset). |
 | `collectors` | table | One table per collector, each with `status`, `error` and its data. |
 
 Minimal example:
 
 ```toml
-schema_version = 1
-erstscan = "2026-10-05T20:00:00.123456+00:00"
-zuletzt_bestaetigt = "2026-10-05T20:00:00.123456+00:00"
+schema_version = 2
+created_at = "2026-10-05T20:00:00.123456+00:00"
+confirmed_at = "2026-10-05T20:00:00.123456+00:00"
 
 [collectors.host]
 status = "ok"
@@ -28,10 +28,11 @@ error = ""
 hostname = "workstation"
 ```
 
-Validation is strict: `schema_version` must be `1`, both timestamps must carry a
+Validation is strict: `schema_version` must be `2`, both timestamps must carry a
 timezone offset, and every collector section must have a known `status`
 (`ok`, `unavailable` or `error`). A file that fails validation stops the reading
-command with its path.
+command with its path. Schema-1 files that still use the German field names
+(`erstscan`, `zuletzt_bestaetigt`) are rejected with a migration hint (ADR 0010).
 
 ## Shell library status (`STATE_SHLIB`)
 
@@ -54,33 +55,33 @@ stored file.
 
 ```json
 {
-  "ereignis": "created",
-  "pfad": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
-  "zustand": {
-    "schema_version": 1,
-    "erstscan": "2026-10-05T20:00:00.123456+00:00",
-    "zuletzt_bestaetigt": "2026-10-05T20:00:00.123456+00:00",
+  "event": "created",
+  "path": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
+  "state": {
+    "schema_version": 2,
+    "created_at": "2026-10-05T20:00:00.123456+00:00",
+    "confirmed_at": "2026-10-05T20:00:00.123456+00:00",
     "collectors": {"host": {"status": "ok", "error": "", "hostname": "workstation"}}
   }
 }
 ```
 
-`ereignis` is `created`, `confirmed` or `appended` (see the
+`event` is `created`, `confirmed` or `appended` (see the
 [comparison model](../explanation/comparison-model.md)).
 
 ## `status --json`
 
 ```json
 {
-  "geaendert": true,
-  "struktur_geaendert": false,
-  "seit": "2026-10-05T20:00:00.123456+00:00",
-  "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
+  "changed": true,
+  "structure_changed": false,
+  "since": "2026-10-05T20:00:00.123456+00:00",
+  "differences": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
 }
 ```
 
-`struktur_geaendert` is `true` when any collector, key or list entry was added
-or removed (see [The `unterschiede` shape](#the-unterschiede-shape)).
+`structure_changed` is `true` when any collector, key or list entry was added
+or removed (see [The `differences` shape](#the-differences-shape)).
 
 With no stored state it prints `null` and exits successfully. Operational or
 invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
@@ -89,14 +90,14 @@ invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
 
 ```json
 {
-  "eintraege": [
+  "entries": [
     {
       "index": 1,
       "ref": "2026-10-05T20-00-00.123456Z",
-      "erstscan": "2026-10-05T20:00:00.123456+00:00",
-      "zuletzt_bestaetigt": "2026-10-05T20:00:00.123456+00:00",
-      "pfad": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
-      "aktuell": true
+      "created_at": "2026-10-05T20:00:00.123456+00:00",
+      "confirmed_at": "2026-10-05T20:00:00.123456+00:00",
+      "path": "/home/user/.local/share/lion/history/2026-10-05T20-00-00.123456Z.toml",
+      "latest": true
     }
   ]
 }
@@ -106,20 +107,20 @@ invalid-state errors go to stderr with exit code `1` and no JSON on stdout.
 
 ```json
 {
-  "von": {"ref": "…", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
-  "bis": {"ref": "…", "erstscan": "…", "zuletzt_bestaetigt": "…", "pfad": "…"},
-  "geaendert": true,
-  "struktur_geaendert": false,
-  "unterschiede": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
+  "from": {"ref": "…", "created_at": "…", "confirmed_at": "…", "path": "…"},
+  "to": {"ref": "…", "created_at": "…", "confirmed_at": "…", "path": "…"},
+  "changed": true,
+  "structure_changed": false,
+  "differences": {"host": {"changed": {"hostname": {"old": "a", "new": "b"}}}}
 }
 ```
 
-`von` and `bis` use the same reference shape as one `history` entry (without
-`index` and `aktuell`).
+`from` and `to` use the same reference shape as one `history` entry (without
+`index` and `latest`).
 
-### The `unterschiede` shape
+### The `differences` shape
 
-`unterschiede` is keyed by collector and only contains collectors that differ.
+`differences` is keyed by collector and only contains collectors that differ.
 Each collector carries one or more of:
 
 - `added` — dotted paths present only in the new state,
@@ -137,27 +138,27 @@ in the same slot appears as changed fields. Other lists, duplicate identities
 and malformed entries retain their complete ordered value under `changed`.
 
 Any `added` or `removed` entry makes the change *structural*; a diff with only
-`changed` entries is a pure value change, echoed as `struktur_geaendert` and the
-leading `Struktur geändert.` line in text output.
+`changed` entries is a pure value change, echoed as `structure_changed` and the
+leading `Structure changed.` line in text output.
 
 ## `doctor --json`
 
 ```json
 {
   "status": "error",
-  "geprueft": ["collectors", "tools", "history", "storage", "shlib"],
-  "befunde": [
+  "checked": ["collectors", "tools", "history", "storage", "shlib"],
+  "findings": [
     {"topic": "tools", "name": "tools.nvidia_smi", "status": "warn",
      "message": "…", "hint": "…", "commands": ["sudo …"]}
   ],
-  "zusammenfassung": {"ok": 5, "warn": 2, "error": 1, "skip": 3},
-  "reco_pfad": "/home/user/.local/share/lion/recos/2026-10-09T12-00-00.123456Z.sh"
+  "summary": {"ok": 5, "warn": 2, "error": 1, "skip": 3},
+  "reco_path": "/home/user/.local/share/lion/recos/2026-10-09T12-00-00.123456Z.sh"
 }
 ```
 
 `status` is the aggregate `ok`/`warn`/`error` (`skip` is neutral). Each finding
 has a stable `name`, its `topic`, one of the four statuses, a `message`, an
-optional `hint` and any `commands` that would be executable. `reco_pfad` is
+optional `hint` and any `commands` that would be executable. `reco_path` is
 `null` when nothing was written (a clean run). See
 [Diagnose with doctor](../how-to/diagnose-with-doctor.md).
 

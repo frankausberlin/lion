@@ -21,7 +21,7 @@ from lion.state.model import Snapshot
 
 Event = Literal["created", "confirmed", "appended"]
 
-#: The compact, file-safe form of an ``erstscan``. Used both to name new entries
+#: The compact, file-safe form of an ``created_at``. Used both to name new entries
 #: and to resolve references, so the two can never drift apart.
 COMPACT_TIMESTAMP_FORMAT = "%Y-%m-%dT%H-%M-%S.%fZ"
 
@@ -64,7 +64,7 @@ class SaveOutcome:
 class Entry:
     """One validated history entry with its stable compact reference.
 
-    ``ref`` is the file name without the ``.toml`` suffix, i.e. the ``erstscan``
+    ``ref`` is the file name without the ``.toml`` suffix, i.e. the ``created_at``
     in compact form (plus a ``~NNNN`` collision suffix when present). It never
     changes once published, so it is the reference humans type for ``lion diff``.
     """
@@ -102,10 +102,10 @@ def _load_entry(path: Path) -> Snapshot:
 def _selection_key(path: Path, stamp: object) -> tuple[datetime, str]:
     try:
         if not isinstance(stamp, str):
-            raise ValueError("zuletzt_bestaetigt must be a string")
+            raise ValueError("confirmed_at must be a string")
         instant = datetime.fromisoformat(stamp)
         if instant.utcoffset() is None:
-            raise ValueError("zuletzt_bestaetigt must include a timezone offset")
+            raise ValueError("confirmed_at must include a timezone offset")
     except ValueError as exc:
         raise HistoryError(f"Cannot load state '{path}': {exc}") from exc
     return instant, path.name
@@ -115,11 +115,11 @@ def list_entries() -> list[Entry]:
     """Load and validate every entry, oldest first by confirmation time.
 
     Invalid entries fail explicitly: silently skipping them could hide the
-    newest state. Equal ``zuletzt_bestaetigt`` values are resolved by filename,
+    newest state. Equal ``confirmed_at`` values are resolved by filename,
     matching :func:`load_latest` and the ``scan`` head selection.
     """
     entries = [Entry(ref=path.stem, path=path, snapshot=_load_entry(path)) for path in _entry_paths()]
-    entries.sort(key=lambda entry: _selection_key(entry.path, entry.snapshot.zuletzt_bestaetigt))
+    entries.sort(key=lambda entry: _selection_key(entry.path, entry.snapshot.confirmed_at))
     return entries
 
 
@@ -129,8 +129,8 @@ def load_latest() -> Snapshot | None:
     return entries[-1].snapshot if entries else None
 
 
-_LATEST_ALIASES = frozenset({"latest", "head", "aktuell"})
-_PREVIOUS_ALIASES = frozenset({"previous", "prev", "vorherig"})
+_LATEST_ALIASES = frozenset({"latest", "head"})
+_PREVIOUS_ALIASES = frozenset({"previous", "prev"})
 
 
 def _compact_timestamp(value: str) -> str | None:
@@ -147,12 +147,12 @@ def _compact_timestamp(value: str) -> str | None:
 def _reference_tokens(entry: Entry) -> set[str]:
     """Return every accepted spelling of one entry's reference, lowercased.
 
-    The compact file-name form is primary; the raw ``erstscan`` and its compact
+    The compact file-name form is primary; the raw ``created_at`` and its compact
     equivalent make copy-paste from ``lion history`` and ISO input work. ``Z``
     and ``+00:00`` are treated as the same timezone.
     """
-    tokens = {entry.ref, entry.snapshot.erstscan}
-    compact = _compact_timestamp(entry.snapshot.erstscan)
+    tokens = {entry.ref, entry.snapshot.created_at}
+    compact = _compact_timestamp(entry.snapshot.created_at)
     if compact is not None:
         tokens.add(compact)
     normalized: set[str] = set()
@@ -183,7 +183,7 @@ def _match_prefix(entries: list[Entry], variants: set[str]) -> list[Entry]:
 
 
 def _match_instant(entries: list[Entry], reference: str) -> list[Entry]:
-    """Return the entries whose ``erstscan`` is within one second of an ISO input."""
+    """Return the entries whose ``created_at`` is within one second of an ISO input."""
     try:
         parsed = datetime.fromisoformat(reference)
     except ValueError:
@@ -193,7 +193,7 @@ def _match_instant(entries: list[Entry], reference: str) -> list[Entry]:
     matches: list[Entry] = []
     for entry in entries:
         try:
-            instant = datetime.fromisoformat(entry.snapshot.erstscan)
+            instant = datetime.fromisoformat(entry.snapshot.created_at)
         except ValueError:
             continue
         if instant.utcoffset() is not None and abs((instant - parsed).total_seconds()) < 1:
@@ -203,12 +203,12 @@ def _match_instant(entries: list[Entry], reference: str) -> list[Entry]:
 
 def _ambiguous(reference: str, matches: list[Entry]) -> HistoryError:
     options = ", ".join(entry.ref for entry in matches)
-    return HistoryError(f"Referenz '{reference}' ist mehrdeutig: {options}")
+    return HistoryError(f"Reference '{reference}' is ambiguous: {options}")
 
 
 def _unknown(reference: str, entries: list[Entry]) -> HistoryError:
     options = ", ".join(entry.ref for entry in entries)
-    return HistoryError(f"Unbekannte Referenz '{reference}'. Gültig: {options}")
+    return HistoryError(f"Unknown reference '{reference}'. Valid: {options}")
 
 
 def _resolve_fuzzy(entries: list[Entry], token: str, lowered: str, reference: str) -> Entry:
@@ -216,7 +216,7 @@ def _resolve_fuzzy(entries: list[Entry], token: str, lowered: str, reference: st
 
     An exact reference is resolved before derived tokens: for a same-instant
     collision pair ``X``/``X~0001`` the compact token derived from the shared
-    ``erstscan`` equals ``X``, which would otherwise make ``X`` ambiguous.
+    ``created_at`` equals ``X``, which would otherwise make ``X`` ambiguous.
 
     Raises:
         HistoryError: If the reference is missing or ambiguous.
@@ -241,9 +241,9 @@ def _resolve_fuzzy(entries: list[Entry], token: str, lowered: str, reference: st
 def resolve(reference: str) -> Entry:
     """Resolve a compact reference, index, alias, prefix or ISO timestamp.
 
-    Accepted, in order: ``latest``/``head``/``aktuell``, ``previous``/``prev``/
-    ``vorherig``, a 1-based index from ``lion history`` (1 = oldest), an exact
-    reference, a unique prefix, then a unique ``erstscan`` within one second.
+    Accepted, in order: ``latest``/``head``, ``previous``/``prev``, a 1-based
+    index from ``lion history`` (1 = oldest), an exact reference, a unique
+    prefix, then a unique ``created_at`` within one second.
 
     Args:
         reference: The user-supplied reference.
@@ -257,24 +257,24 @@ def resolve(reference: str) -> Entry:
     """
     entries = list_entries()
     if not entries:
-        raise HistoryError("Kein Zustand gespeichert. Führe 'lion scan' aus.")
+        raise HistoryError("No state stored. Run 'lion scan'.")
     token = reference.strip()
     if token.endswith(".toml"):
         token = token[: -len(".toml")]
     token = token.strip()
     if not token:
-        raise HistoryError("Leere Referenz; nutze 'lion history' für gültige Referenzen.")
+        raise HistoryError("Empty reference; use 'lion history' for valid references.")
     lowered = token.lower()
     if lowered in _LATEST_ALIASES:
         return entries[-1]
     if lowered in _PREVIOUS_ALIASES:
         if len(entries) < 2:
-            raise HistoryError("Kein vorheriger Zustand gespeichert.")
+            raise HistoryError("No previous state stored.")
         return entries[-2]
     if lowered.isdigit():
         index = int(lowered)
         if not 1 <= index <= len(entries):
-            raise HistoryError(f"Index {index} liegt außerhalb von 1..{len(entries)}.")
+            raise HistoryError(f"Index {index} is outside 1..{len(entries)}.")
         return entries[index - 1]
     return _resolve_fuzzy(entries, token, lowered, reference)
 
@@ -290,7 +290,7 @@ def _load_head_for_write() -> tuple[Path, Snapshot] | None:
     """
     candidates: list[tuple[tuple[datetime, str], Path]] = []
     for path in _entry_paths():
-        stamp = _parse(path).get("zuletzt_bestaetigt")
+        stamp = _parse(path).get("confirmed_at")
         candidates.append((_selection_key(path, stamp), path))
     if not candidates:
         return None
@@ -336,7 +336,7 @@ def _write_new_file(history_dir: Path, snapshot: Snapshot) -> Path:
     """Publish a completed entry via a hard link, never overwriting a file."""
     temporary = _stage(history_dir, snapshot)
     try:
-        stamp = datetime.fromisoformat(snapshot.erstscan).astimezone(UTC)
+        stamp = datetime.fromisoformat(snapshot.created_at).astimezone(UTC)
         return _link_new(history_dir, temporary, stamp, ".toml")
     finally:
         temporary.unlink(missing_ok=True)
@@ -371,16 +371,16 @@ def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
         latest = _load_head_for_write()
         if latest is not None:
             path, previous = latest
-            if datetime.fromisoformat(now) < datetime.fromisoformat(previous.zuletzt_bestaetigt):
+            if datetime.fromisoformat(now) < datetime.fromisoformat(previous.confirmed_at):
                 raise HistoryError(
                     "System clock is earlier than the latest confirmation; history unchanged. "
                     "Correct the clock before scanning again."
                 )
             if previous.matches(collectors):
-                snapshot = replace(previous, zuletzt_bestaetigt=now)
+                snapshot = replace(previous, confirmed_at=now)
                 _update_head(path, snapshot)
                 return SaveOutcome(event="confirmed", path=path, snapshot=snapshot)
-        snapshot = Snapshot(erstscan=now, zuletzt_bestaetigt=now, collectors=collectors)
+        snapshot = Snapshot(created_at=now, confirmed_at=now, collectors=collectors)
         path = _write_new_file(get_history_dir(), snapshot)
         event: Event = "created" if latest is None else "appended"
         return SaveOutcome(event=event, path=path, snapshot=snapshot)
@@ -415,15 +415,15 @@ def _history_order_findings(valid: list[tuple[str, Snapshot]]) -> list[Finding]:
     """Warn when confirmation times are not non-decreasing by file name."""
     previous: datetime | None = None
     for _name, snapshot in sorted(valid, key=lambda item: item[0]):
-        instant = datetime.fromisoformat(snapshot.zuletzt_bestaetigt)
+        instant = datetime.fromisoformat(snapshot.confirmed_at)
         if previous is not None and instant < previous:
             return [
                 Finding(
                     topic="history",
                     name="history.order",
                     status=CheckStatus.WARN,
-                    message="Bestätigungszeiten sind nicht monoton zur Dateireihenfolge.",
-                    hint="Die neueste Auswahl kann verfälscht sein; die Zeitstempel prüfen.",
+                    message="Confirmation times are not monotonic with file order.",
+                    hint="The newest selection can be wrong; check the timestamps.",
                 )
             ]
         previous = instant
@@ -440,8 +440,8 @@ def history_checks(_ctx: DoctorContext) -> list[Finding]:
                 topic="history",
                 name="history.entries",
                 status=CheckStatus.SKIP,
-                message="Keine History vorhanden.",
-                hint="Optional: 'lion scan' erfasst den ersten Zustand.",
+                message="No history present.",
+                hint="Optional: 'lion scan' captures the first state.",
             )
         )
     else:
@@ -454,8 +454,8 @@ def history_checks(_ctx: DoctorContext) -> list[Finding]:
                         topic="history",
                         name=f"history.{inspection.path.name}",
                         status=CheckStatus.ERROR,
-                        message=f"Beschädigter Eintrag: {inspection.error}",
-                        hint="Datei prüfen, sichern oder entfernen; LION überspringt sie nicht.",
+                        message=f"Damaged entry: {inspection.error}",
+                        hint="Inspect, back up or remove the file; LION never skips it.",
                     )
                 )
             else:
@@ -466,7 +466,7 @@ def history_checks(_ctx: DoctorContext) -> list[Finding]:
                     topic="history",
                     name="history.entries",
                     status=CheckStatus.OK,
-                    message=f"{len(valid)} gültige Einträge.",
+                    message=f"{len(valid)} valid entries.",
                 )
             )
             findings.extend(_history_order_findings(valid))
@@ -476,8 +476,8 @@ def history_checks(_ctx: DoctorContext) -> list[Finding]:
                 topic="history",
                 name="history.scans",
                 status=CheckStatus.WARN,
-                message="Legacy-Verzeichnis 'scans/' vorhanden; es wird nicht mehr gelesen.",
-                hint="Die alten Dateien nach einer Prüfung manuell entfernen.",
+                message="Legacy directory 'scans/' present; it is no longer read.",
+                hint="Remove the old files manually after reviewing them.",
             )
         )
     return findings
@@ -509,8 +509,8 @@ def storage_checks(_ctx: DoctorContext) -> list[Finding]:
                 topic="storage",
                 name="storage.data_dir",
                 status=CheckStatus.ERROR,
-                message=f"Datenverzeichnis ist nicht schreibbar: {data_dir}",
-                hint="Rechte auf $XDG_DATA_HOME (oder das Benutzer-Home) prüfen.",
+                message=f"Data directory is not writable: {data_dir}",
+                hint="Check permissions on $XDG_DATA_HOME (or the user home).",
             )
         )
         return findings
@@ -533,7 +533,7 @@ def storage_checks(_ctx: DoctorContext) -> list[Finding]:
                     topic="storage",
                     name=f"storage.{label}",
                     status=CheckStatus.OK,
-                    message=f"'{label}' ist schreibbar.",
+                    message=f"'{label}' is writable.",
                 )
             )
         else:
@@ -542,8 +542,8 @@ def storage_checks(_ctx: DoctorContext) -> list[Finding]:
                     topic="storage",
                     name=f"storage.{label}",
                     status=CheckStatus.ERROR,
-                    message=f"'{label}' ist nicht schreibbar: {directory}",
-                    hint="Rechte prüfen; LION legt keine Verzeichnisse ohne Schreibrecht an.",
+                    message=f"'{label}' is not writable: {directory}",
+                    hint="Check permissions; LION never creates directories without write permission.",
                 )
             )
     return findings

@@ -32,7 +32,7 @@ def reference_json(entry: Entry) -> dict[str, object]:
     """
     return {
         "ref": entry.ref,
-        "erstscan": entry.snapshot.erstscan,
-        "zuletzt_bestaetigt": entry.snapshot.zuletzt_bestaetigt,
-        "pfad": str(entry.path),
+        "created_at": entry.snapshot.created_at,
+        "confirmed_at": entry.snapshot.confirmed_at,
+        "path": str(entry.path),
     }
