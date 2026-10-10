@@ -10,13 +10,16 @@ uv sync           # install all dependencies
 
 ## Workflow
 
-1. Create a feature branch: `git checkout -b feat/my-feature`
+1. Create a branch, preferably in a separate worktree:
+   `git worktree add ../lion-feature -b feat/my-feature`
 2. Make your changes
 3. Run the quality gate: `just check`
 4. Commit: `git add -A && git commit -m "feat: ..."`
-5. Push and open a pull request
-6. The maintainer reviews and merges with `just merge <branch>` (fast-forward
-   only; it removes the branch's worktree and deletes the branch)
+5. From the main checkout, merge locally: `just merge feat/my-feature`
+   (fast-forward only; it removes the branch's worktree and deletes the branch)
+6. Publishing is the maintainer's step: review local `main`
+   (`git log --oneline origin/main..main`, `git diff origin/main..main`) and
+   `git push origin main`
 
 ## Quality Gate
 

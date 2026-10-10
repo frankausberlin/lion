@@ -12,7 +12,7 @@ jobs:
       - run: uv run pip-audit
 
   e2e:
-    # PRs and main only: a plain branch push is already covered by its pull request.
+    # Local branches are never pushed; e2e runs on main pushes and for PRs (if any).
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
