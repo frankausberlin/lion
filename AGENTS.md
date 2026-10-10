@@ -83,9 +83,11 @@ just audit       # dependency vulnerability scan
   (no collector imports, to avoid cycles); `tools.py` provides the shared
   external-tool runner `run_tool`; `tooling.py` is the separate `tools`
   collector of tool availability; each collector (`host.py`, `hardware.py`,
-  `packages.py`, `tooling.py`) keeps its frozen dataclass next to a private
+  `network.py`, `packages.py`, `services.py`, `containers.py`, `tooling.py`)
+  keeps its frozen dataclass next to a private
   `_collect()` and exports `COLLECTOR`; `registry.py` exposes the ordered
-  `COLLECTORS`; `model.py`
+  `COLLECTORS` (`host`, `hardware`, `network`, `packages`, `services`,
+  `containers`, `tools`); `model.py`
   defines the persisted `Snapshot` and its strict validation, the exact
   `canonical_collectors`, and the shared `collectors_equal`/`value_equal`
   comparison rules (including the RAM tolerance).
@@ -94,7 +96,8 @@ just audit       # dependency vulnerability scan
   `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
 - `program/diff.py` provides `diff_collectors`, `has_structural_change` and
   `render` (known lists share identities from `state/comparison.py` — PCI
-  slots for GPUs and unique strings for package selections — and
+  slots for GPUs, `name` for interfaces/units/containers/volumes/networks, the
+  computed image reference, and unique strings for package selections — and
   `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
   module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
@@ -142,13 +145,20 @@ just audit       # dependency vulnerability scan
   the script and never stores a snapshot. Findings use `ok`/`warn`/`error`/`skip`
   (`skip` neutral); the exit code is `1` only on `error`.
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
-  unique string package selections and GPU lists with unique, nonempty `pci_id`
-  ignore order. Other lists, duplicates and malformed identities remain atomic.
+  `STRING_LISTS` (package selections) and an `IDENTITY_KEYS` map (`hardware.gpu`
+  by `pci_id`; `network.interfaces`, `services.units`, `containers.containers`,
+  `containers.volumes`, `containers.networks` by `name`) plus the computed
+  `containers.images` reference ignore order when every identity is unique and
+  nonempty. Other lists, duplicates and malformed identities remain atomic.
   Only `hardware.memory_total_bytes` has the 1 MiB tolerance; timestamps are
   excluded, statuses/errors included, and scalar types compare exactly.
 - GPU vendor identity comes from PCI metadata independently of the active driver.
   `compute_platform` is a driver-derived hint, not verified compute support or
-  runtime installation. The `tools` collector records PATH visibility only.
+  runtime installation. The `tools` collector records PATH visibility only; the
+  `containers` collector records engine usability separately (`runtime`
+  `docker`/`podman`/`none`, a present-but-broken engine is `unavailable`).
+  `network` records physical sysfs interfaces only (no virtual interfaces, no
+  IPs/link state); `services` records unit-file state only (no runtime state).
   PCI ids identify slots: a replacement in the same slot is a field change.
   Any `added`/`removed` is structural (`structure_changed`).
 - New history entries are published with `os.link` and never overwrite; only the
@@ -173,8 +183,10 @@ just audit       # dependency vulnerability scan
   lives at `$XDG_CONFIG_HOME/lion/config.toml` (TOML, integer `schema_version`);
   a missing file means built-in defaults, an unreadable or invalid file is a
   loud error; there is no config code in Phase 1 (ADR 0009).
-- External tools (`nvidia-smi`, `lspci`, `apt-mark`, Dpkg) are environment-dependent and
-  are exercised through fixtures/mocks in ordinary tests. The opt-in
+- External tools (`nvidia-smi`, `lspci`, `apt-mark`, `systemctl`, `docker`,
+  `podman`, Dpkg) are environment-dependent and
+  are exercised through fixtures/mocks in ordinary tests; `network` uses a
+  temporary sysfs tree. The opt-in
   `tests/e2e/` suite exercises real Dpkg and apt-mark in a disposable Docker
   container; run it only through `just test-e2e`.
 
@@ -191,8 +203,8 @@ just audit       # dependency vulnerability scan
   for the full quality gate. Keep the configured coverage minimum of 90%;
   coverage does not replace assertions about behavior.
 - Ordinary pytest runs and `just check` exclude the `e2e` marker. When changing
-  package detection, persisted CLI lifecycles, shlib, the `doctor` checks or the
-  reco paths, or the E2E runner, also run
+  package detection, the collector set, persisted CLI lifecycles, shlib, the
+  `doctor` checks or the reco paths, or the E2E runner, also run
   `just test-e2e`. Never run the real package lifecycle on a workstation.
 - Read [tests/e2e/README.md](tests/e2e/README.md) before running or extending
   the E2E suite. It owns setup, isolation, diagnostics and scenario guidance.

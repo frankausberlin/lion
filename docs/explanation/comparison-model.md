@@ -24,8 +24,12 @@ The shared rule in `src/lion/state/model.py` uses the list identities in
 
 - `packages.manual`, `packages.auto` and `packages.held` ignore order only when
   they contain unique, nonempty strings.
-- `hardware.gpu` ignores order only when every entry has a unique, nonempty
-  `pci_id`. Entries at the same PCI slot are compared field by field.
+- Lists of entries with a stable identity ignore order when every entry carries
+  a unique, nonempty identity: `hardware.gpu` by `pci_id`;
+  `network.interfaces`, `services.units`, `containers.containers`,
+  `containers.volumes` and `containers.networks` by `name`; `containers.images`
+  by the computed `repository:tag`/`repository@digest` reference. Entries at the
+  same identity are compared field by field.
 - All other lists, duplicate entries and missing/invalid identities compare as
   complete ordered values. No entries are silently deduplicated or overwritten.
 
@@ -51,9 +55,10 @@ output leads with `Structure changed.`.
 
 GPUs are matched by PCI slot, not physical card identity. A change of slot
 appears as removed + added; replacing a card in the same slot appears as changed
-fields. Known package selections are compared per value. Lists without unique
-identities stay a single atomic value. Both history decisions and displayed
-differences apply these same rules.
+fields. Other known lists are matched by their identity the same way: interface,
+unit, container/volume/network names, a container image reference, or a package
+selection value. Lists without unique identities stay a single atomic value.
+Both history decisions and displayed differences apply these same rules.
 
 `scan` needs no extra rule: a structural change is already a difference, so it
 appends a new entry on its own. Old snapshots stay valid because new collectors
