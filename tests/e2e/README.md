@@ -79,12 +79,15 @@ restores the initial collector data. The shlib scenario compares shell behavior
 before and after flattening.
 
 Physical GPU discovery is outside this suite's coverage. The image deliberately
-installs no `lspci` and no `nvidia-smi`, which keeps the `doctor` hardware and
-`tools.lspci` findings deterministic; the environment scenario asserts that
-both tools are absent, so a base-image change fails loudly. One consequence is
-that a clean `ok`/`skip`-only `doctor` run is not reachable in this image, since
-a missing `lspci` is always at least a `warn`; the "clean run writes nothing"
-invariant therefore stays a unit test in `tests/test_doctor.py`.
+installs no `lspci`, no `nvidia-smi` and no container engine, which keeps the
+`doctor` hardware, `tools.lspci` and `containers` (`runtime=none`) findings
+deterministic; the environment scenario asserts that those tools are absent, so
+a base-image change fails loudly. Whether `systemctl` exists drives the
+`services` finding, so the scenario asserts the container reality instead of
+forcing `ok`. One consequence is that a clean `ok`/`skip`-only `doctor` run is
+not reachable in this image, since a missing `lspci` is always at least a
+`warn`; the "clean run writes nothing" invariant therefore stays a unit test in
+`tests/test_doctor.py`.
 
 ## Results and troubleshooting
 
