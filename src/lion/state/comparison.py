@@ -14,6 +14,7 @@ IDENTITY_KEYS = {
     "containers.containers": "name",
     "containers.volumes": "name",
     "containers.networks": "name",
+    "dash.files": "name",
 }
 
 #: Unordered lists whose identity is computed from their fields instead of a

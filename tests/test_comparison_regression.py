@@ -88,6 +88,10 @@ from lion.state.model import collectors_equal
             False,
         ),
         ("containers", "images", [{"tag": "1"}], [{"repository": "a", "tag": "1"}], False),
+        ("dash", "files", [{"name": "a"}, {"name": "b"}], [{"name": "b"}, {"name": "a"}], True),
+        ("dash", "files", [{"name": "a"}], [{"name": "a"}, {"name": "a"}], False),
+        ("dash", "files", [{"hash": "x"}], [{"name": "a", "hash": "x"}], False),
+        ("dash", "files", [{"name": "a", "hash": "x"}], [{"name": "a", "hash": "y"}], False),
     ],
 )
 def test_status_and_scan_share_list_semantics(

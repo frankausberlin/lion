@@ -87,6 +87,7 @@ def _state(**overrides: object) -> dict[str, dict[str, object]]:
                 "zsh": True,
             },
         },
+        "dash": {"status": "ok", "error": "", "files": []},
     }
     for name, section in overrides.items():
         state[name] = section  # type: ignore[assignment]
@@ -126,7 +127,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 13 ok, 0 warn, 0 error, 7 skip" in result.stdout
+    assert "Result: 14 ok, 0 warn, 0 error, 7 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
