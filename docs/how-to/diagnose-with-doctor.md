@@ -31,10 +31,12 @@ Each finding is one of four states:
 - **`skip`** — not applicable, e.g. the shell library is not installed or a tool
   is optional for this profile. Neutral; it never affects the exit code.
 
-The tool policy is profile-dependent: `lspci` is always required, `nvidia-smi`
-whenever at least one detected GPU is NVIDIA (including a mixed AMD+NVIDIA
-machine), `apt-mark` only on the Debian family, and `rocm-smi`/`zsh` are never
-required by a plain doctor run.
+The tool policy is profile-dependent: `lspci` (GPU detection) and `systemctl`
+(service unit states) are always required, `nvidia-smi` whenever at least one
+detected GPU is NVIDIA (including a mixed AMD+NVIDIA machine), and `apt-mark`
+only on the Debian family. `docker` and `podman` are optional — the `containers`
+collector reports their absence — and `rocm-smi`/`zsh` are never required by a
+plain doctor run.
 
 The `shlib` check inspects the managed block, the `~/.zshrc.lock` reference copy
 and any `dash/` entries independently. A missing reference copy and a broken
@@ -50,7 +52,7 @@ If any finding is `warn` or `error`, `doctor` writes exactly one script under
 ```bash
 uv run lion doctor
 # ...
-# Behebungsskript: /home/you/.local/share/lion/recos/2026-10-09T12-00-00.123456Z.sh
+# Reco script: /home/you/.local/share/lion/recos/2026-10-09T12-00-00.123456Z.sh
 
 uv run lion doctor --show   # also print the script to stdout
 ```
@@ -71,7 +73,7 @@ uv run lion doctor --json
 ```
 
 `--json` emits one JSON object on stdout and ignores `--show`. Its keys
-(`status`, `checked`, `findings`, `summary`, `reco_path`) are German,
+(`status`, `checked`, `findings`, `summary`, `reco_path`) are stable and
 consistent with `status --json` and `scan --json`; `reco_path` is `null` when no
 script was written.
 

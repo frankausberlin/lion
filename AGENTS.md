@@ -100,9 +100,11 @@ just audit       # dependency vulnerability scan
   computed image reference, and unique strings for package selections — and
   `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
-  module per command (`scan.py` writes; `status.py`, `history.py` and `diff.py`
-  read only) with a `run` function and `--json` support. The English CLI help
-  texts (epilogs and sub-app help) live in `main.py` and are imported by
+  module per command with a `run` function (`scan.py` writes the history;
+  `status.py`, `history.py` and `diff.py` read only; `doctor.py` only publishes
+  the reco; `shlib.py` manages `~/.shlib` and takes `--json` for `status`
+  only), plus the shared `diagnostics.py` stderr-warning helper. The English CLI
+  help texts (epilogs and sub-app help) live in `main.py` and are imported by
   `cli.py`. `shlib` is a Typer
   sub-app with `status`/`install`/`uninstall`. A command group with a `status`
   subcommand (`lion`, `lion shlib`) runs it when invoked without arguments;

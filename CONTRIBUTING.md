@@ -37,26 +37,32 @@ just fix          # auto-fix formatting and lint issues
   `Collector`, and `collect_state`; keep it free of collector imports.
 - `src/lion/state/tools.py` — shared `run_tool` helper for external tools.
 - `src/lion/state/tooling.py` — the `tools` collector of tool availability.
-- `src/lion/state/<collector>.py` — one collector per file (`host`,
-  `hardware`, `packages`, `tooling`), each with its frozen dataclass, a private
-  `_collect()`, and a `COLLECTOR` export.
+- `src/lion/state/<collector>.py` — one collector per file (`host`, `hardware`,
+  `network`, `packages`, `services`, `containers`, `tooling`), each with its
+  frozen dataclass, a private `_collect()`, and a `COLLECTOR` export.
 - `src/lion/state/registry.py` — ordered `COLLECTORS` tuple.
 - `src/lion/state/model.py` — `Snapshot`, strict validation, and the shared
-  `collectors_equal`/`value_equal` comparison rules (including the RAM tolerance).
+  `collectors_equal`/`value_equal` comparison rules (including the RAM tolerance);
+  `src/lion/state/comparison.py` holds the list identities used by equality and
+  diffing.
 - `src/lion/program/storage.py` — history persistence (`list_entries`,
   `resolve`, `load_latest`, `save_state`).
 - `src/lion/program/diff.py` — `diff_collectors`, `has_structural_change` and
   terminal `render` (lists match by identity; `added`/`removed` are structural).
-- `src/lion/command/<command>.py` — one module per command (`scan` writes;
-  `status`, `history` and `diff` read only); `cli.py` keeps the Typer decorators.
+- `src/lion/program/doctor.py` — the read-only check framework (`checks.py` holds
+  the shared types; the checks are owned by the data modules).
+- `src/lion/command/<command>.py` — one module per command (`scan` writes the
+  history; `status`, `history` and `diff` read only; `doctor` only publishes a
+  reco; `shlib` manages the shell library); `cli.py` keeps the Typer decorators.
 
 New collectors must not abort a capture: report `unavailable` or `error` with a
 message and return their data keys regardless. Never persist volatile fields.
 
 ## Testing
 
-External tools (`nvidia-smi`, `apt-mark`, Dpkg) are exercised through fixtures and
-mocks so the suite passes without them. Keep `just check` green, which includes
+External tools (`lspci`, `nvidia-smi`, `apt-mark`, `systemctl`, `docker`,
+`podman`, Dpkg) are exercised through fixtures and mocks so the suite passes
+without them. Keep `just check` green, which includes
 coverage of at least 90%.
 
 ## Documentation
