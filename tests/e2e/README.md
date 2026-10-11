@@ -68,6 +68,7 @@ skip the suite to prevent accidental system mutations.
 | Test | Behavior checked |
 | --- | --- |
 | [Package lifecycle](test_package_lifecycle.py) | Builds two local dependency-free package versions without maintainer scripts; scans the baseline, installs, upgrades, purges and scans each state. Checks structural changes for install/removal and a nonstructural version change for upgrade. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. |
+| [Collector v2](test_collectors_v2.py) | Scans and asserts the seven collector sections with deterministic bare-profile data (`network` empty, `containers` `runtime=none`), confirmation without volatile fields, a clean read-only `status`, the additive schema-2 contract (an old snapshot without the v2 sections stays readable and is appended on rescan), the v2 `doctor` findings, preserved history bytes after all read-only commands, and a loud failure on a legacy German entry. |
 | [Shlib lifecycle](test_shlib_lifecycle.py) | Installs and uninstalls with real Zsh in a temporary home. Checks literal export values, linked scripts, load order, installer additions, syntax-failure handling, file permissions and repeated uninstall. |
 | [Doctor environment](test_doctor_environment.py) | Runs `doctor` over a real filesystem: the deterministic bare profile, pure JSON, read-only preservation, reco permissions/content, hostile-filename safety, no-overwrite on a second run, damaged history and legacy `scans/`, and an unusable data path. |
 | [Doctor permissions](test_doctor_permissions.py) | Runs scan, shlib installation and doctor as the unprivileged `lion-e2e` user. Checks preservation of existing history, shell files, exports and permissions; denied reco publication returns JSON/exit 1 without partial files. |
@@ -88,6 +89,15 @@ forcing `ok`. One consequence is that a clean `ok`/`skip`-only `doctor` run is
 not reachable in this image, since a missing `lspci` is always at least a
 `warn`; the "clean run writes nothing" invariant therefore stays a unit test in
 `tests/test_doctor.py`.
+
+The collector v2 scenario shares those image limits deliberately. Networking is
+disabled for the container, and `lo`/`eth0` are virtual interfaces without a
+`device` sysfs symlink, so the `network` collector reports `status ok` with an
+empty `interfaces` list; a physical NIC cannot appear. `containers` runs with
+`runtime` `none` and empty lists because no engine exists. `services` is
+environment-dependent: the test branches on whether `systemctl` is present and
+never forces `ok`. A real engine or NIC scenario belongs on hardware, not in
+this image.
 
 ## Results and troubleshooting
 
