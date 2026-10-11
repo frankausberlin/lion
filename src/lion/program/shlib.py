@@ -214,6 +214,18 @@ def status(home: Path) -> dict[str, object]:
     }
 
 
+def _require_absent(path: Path) -> None:
+    """Reject an existing file or symlink that an install must not adopt."""
+    if path.exists() or path.is_symlink():
+        raise ValueError(f"Existing file requires manual reconciliation: {path}")
+
+
+def _require_real_directory(path: Path) -> None:
+    """Reject a symlink or non-directory where a real directory is required."""
+    if path.is_symlink() or (path.exists() and not path.is_dir()):
+        raise ValueError(f"Expected a real directory: {path}")
+
+
 def _require_clean_install_target(home: Path, root: Path, original: Path, ignore: Path) -> None:
     """Reject existing shlib paths that an install must not overwrite.
 
@@ -221,11 +233,9 @@ def _require_clean_install_target(home: Path, root: Path, original: Path, ignore
     exactly the paths it later writes.
     """
     for path in (home / ".zshrc.lock", original, home / ".zshrc.exports"):
-        if path.exists() or path.is_symlink():
-            raise ValueError(f"Existing file requires manual reconciliation: {path}")
+        _require_absent(path)
     for path in (root, root / "exports", root / "shlibs", root / "dash"):
-        if path.is_symlink() or (path.exists() and not path.is_dir()):
-            raise ValueError(f"Expected a real directory: {path}")
+        _require_real_directory(path)
     if _files(root / "shlibs", scripts=True):
         raise ValueError("Existing shlibs require manual reconciliation before installation.")
     if ignore.is_symlink() or (ignore.exists() and _read(ignore) != EXPORTS_IGNORE_CONTENT):
