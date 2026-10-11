@@ -150,11 +150,11 @@ just audit       # dependency vulnerability scan
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
   `STRING_LISTS` (package selections) and an `IDENTITY_KEYS` map (`hardware.gpu`
   by `pci_id`; `network.interfaces`, `services.units`, `containers.containers`,
-  `containers.volumes`, `containers.networks` by `name`) plus the computed
-  `containers.images` reference ignore order when every identity is unique and
-  nonempty. Other lists, duplicates and malformed identities remain atomic.
-  Only `hardware.memory_total_bytes` has the 1 MiB tolerance; timestamps are
-  excluded, statuses/errors included, and scalar types compare exactly.
+  `containers.volumes`, `containers.networks`, `dash.files` by `name`) plus the
+  computed `containers.images` reference ignore order when every identity is
+  unique and nonempty. Other lists, duplicates and malformed identities remain
+  atomic. Only `hardware.memory_total_bytes` has the 1 MiB tolerance; timestamps
+  are excluded, statuses/errors included, and scalar types compare exactly.
 - `dash` monitors only `LIONSTATE_`-prefixed symlinks in `~/.shlib/dash` that
   resolve to a regular file, storing the SHA-256 content hash only, never the
   file content, target, size or mtime; the list identity is `name`. A missing
