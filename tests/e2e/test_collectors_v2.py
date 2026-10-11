@@ -165,9 +165,7 @@ def test_doctor_reports_v2_collectors_and_tools(runner: Callable[..., str], env:
     assert findings["tools.podman"]["status"] == "skip"
 
 
-def test_read_only_commands_leave_v2_history_untouched(
-    runner: Callable[..., str], env: dict[str, str], tmp_path: Path
-) -> None:
+def test_read_only_commands_leave_v2_history_untouched(runner: Callable[..., str], env: dict[str, str]) -> None:
     """status, history, diff and doctor never change the v2 history bytes."""
     data = Path(env["XDG_DATA_HOME"])
     created = _scan(runner, env)

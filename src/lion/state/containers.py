@@ -11,9 +11,9 @@ deterministic output.
 import json
 import re
 import shutil
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from typing import cast
+from typing import Any, cast
 
 from lion.state.collector import Collector, CollectorResult, CollectorStatus
 from lion.state.tools import run_tool
@@ -38,31 +38,11 @@ _IMAGES_TEMPLATE = _SEP.join(("{{.Repository}}", "{{.Tag}}", "{{.Digest}}", "{{.
 _VOLUMES_TEMPLATE = _SEP.join(("{{.Name}}", "{{.Driver}}"))
 _NETWORKS_TEMPLATE = _SEP.join(("{{.Name}}", "{{.Driver}}", "{{.Scope}}"))
 
-#: Whitelisted inspect fields as ``(parser name, template expression)``. The
-#: template, its field count and the parser all derive from this single ordered
-#: definition, so they cannot drift apart.
-_INSPECT_FIELDS: tuple[tuple[str, str], ...] = (
-    ("name", "{{json .Name}}"),
-    ("image_ref", "{{json .Config.Image}}"),
-    ("restart_policy", "{{json .HostConfig.RestartPolicy.Name}}"),
-    ("privileged", "{{json .HostConfig.Privileged}}"),
-    ("cap_add", "{{json .HostConfig.CapAdd}}"),
-    ("cap_drop", "{{json .HostConfig.CapDrop}}"),
-    ("readonly_rootfs", "{{json .HostConfig.ReadonlyRootfs}}"),
-    ("security_opt", "{{json .HostConfig.SecurityOpt}}"),
-    ("exposed_ports", "{{json .Config.ExposedPorts}}"),
-    ("port_bindings", "{{json .HostConfig.PortBindings}}"),
-    ("networks", "{{json .NetworkSettings.Networks}}"),
-    ("mounts", "{{json .Mounts}}"),
-    ("compose_project", '{{json (index .Config.Labels "com.docker.compose.project")}}'),
-    ("compose_service", '{{json (index .Config.Labels "com.docker.compose.service")}}'),
-)
-
-_INSPECT_TEMPLATE = _SEP.join(expression for _, expression in _INSPECT_FIELDS)
-
-_IMAGE_FIELDS = 4
-_VOLUME_FIELDS = 2
-_NETWORK_FIELDS = 3
+#: Field counts derived from the templates, so a template change cannot leave a
+#: stale count behind that silently discards every record.
+_IMAGE_FIELDS = len(_IMAGES_TEMPLATE.split(_SEP))
+_VOLUME_FIELDS = len(_VOLUMES_TEMPLATE.split(_SEP))
+_NETWORK_FIELDS = len(_NETWORKS_TEMPLATE.split(_SEP))
 
 _SIZE_PATTERN = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kKmMgGtT]?)[bB]?\s*$")
 _SIZE_UNITS = {"": 1, "k": 1000, "m": 1000**2, "g": 1000**3, "t": 1000**4}
@@ -170,6 +150,11 @@ def _str(value: object) -> str:
     return value if isinstance(value, str) else ""
 
 
+def _inspect_name(value: object) -> str:
+    """Return a container name without the leading slash ``docker inspect`` reports."""
+    return _str(value).removeprefix("/")
+
+
 def _str_list(value: object) -> list[str]:
     """Return a list of strings for a template field, or ``[]``."""
     if not isinstance(value, list):
@@ -245,36 +230,54 @@ def _parse_networks(value: object) -> list[str]:
     return sorted(str(name) for name in cast("Mapping[str, object]", value))
 
 
+#: Whitelisted inspect fields as ``(attribute, template expressions, parser)``.
+#: The attribute is the ``ContainerState`` field it feeds; the parser receives
+#: the decoded values of its expressions (``ports`` is the single composite with
+#: two raw port maps). The template, its field count and the parsed attributes
+#: all derive from this single ordered definition, so they cannot drift apart.
+_INSPECT_FIELDS: tuple[tuple[str, tuple[str, ...], Callable[..., object]], ...] = (
+    ("name", ("{{json .Name}}",), _inspect_name),
+    ("image_ref", ("{{json .Config.Image}}",), _str),
+    ("restart_policy", ("{{json .HostConfig.RestartPolicy.Name}}",), _str),
+    ("privileged", ("{{json .HostConfig.Privileged}}",), _bool),
+    ("cap_add", ("{{json .HostConfig.CapAdd}}",), _str_list),
+    ("cap_drop", ("{{json .HostConfig.CapDrop}}",), _str_list),
+    ("readonly_rootfs", ("{{json .HostConfig.ReadonlyRootfs}}",), _bool),
+    ("security_opt", ("{{json .HostConfig.SecurityOpt}}",), _str_list),
+    ("ports", ("{{json .Config.ExposedPorts}}", "{{json .HostConfig.PortBindings}}"), _parse_ports),
+    ("networks", ("{{json .NetworkSettings.Networks}}",), _parse_networks),
+    ("mounts", ("{{json .Mounts}}",), _parse_mounts),
+    ("compose_project", ('{{json (index .Config.Labels "com.docker.compose.project")}}',), _str),
+    ("compose_service", ('{{json (index .Config.Labels "com.docker.compose.service")}}',), _str),
+)
+
+_INSPECT_TEMPLATE = _SEP.join(expression for _, expressions, _ in _INSPECT_FIELDS for expression in expressions)
+
+_INSPECT_WIDTH = sum(len(expressions) for _, expressions, _ in _INSPECT_FIELDS)
+
+
 def _parse_inspect(output: str) -> list[ContainerState]:
-    """Parse whitelisted ``inspect`` records into sorted containers."""
+    """Parse whitelisted ``inspect`` records into sorted containers.
+
+    The loop consumes :data:`_INSPECT_FIELDS` directly: the format template and
+    the parsed ``ContainerState`` attributes come from the same ordered table,
+    so a renamed, added or removed field cannot leave a stale lookup behind.
+    """
     containers: list[ContainerState] = []
     for line in output.splitlines():
         if not line.strip():
             continue
         parts = line.split(_SEP)
-        if len(parts) != len(_INSPECT_FIELDS):
+        if len(parts) != _INSPECT_WIDTH:
             continue
-        fields = {name: _decode(part) for (name, _), part in zip(_INSPECT_FIELDS, parts, strict=True)}
-        raw_name = _str(fields["name"])
-        if not raw_name:
+        values = iter(parts)
+        kwargs: dict[str, object] = {}
+        for attribute, expressions, parser in _INSPECT_FIELDS:
+            decoded = [_decode(next(values)) for _ in expressions]
+            kwargs[attribute] = parser(*decoded)
+        if not kwargs["name"]:
             continue
-        containers.append(
-            ContainerState(
-                name=raw_name.removeprefix("/"),
-                image_ref=_str(fields["image_ref"]),
-                restart_policy=_str(fields["restart_policy"]),
-                privileged=_bool(fields["privileged"]),
-                cap_add=_str_list(fields["cap_add"]),
-                cap_drop=_str_list(fields["cap_drop"]),
-                readonly_rootfs=_bool(fields["readonly_rootfs"]),
-                security_opt=_str_list(fields["security_opt"]),
-                ports=_parse_ports(fields["exposed_ports"], fields["port_bindings"]),
-                networks=_parse_networks(fields["networks"]),
-                mounts=_parse_mounts(fields["mounts"]),
-                compose_project=_str(fields["compose_project"]),
-                compose_service=_str(fields["compose_service"]),
-            )
-        )
+        containers.append(ContainerState(**cast("Any", kwargs)))
     return sorted(containers, key=lambda container: container.name)
 
 

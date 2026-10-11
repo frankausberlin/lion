@@ -11,9 +11,9 @@ from lion.state.collector import CollectorStatus
 
 SEP = "\x1f"
 
-#: Production field order; the fixture is rendered from it so it cannot drift
-#: from the real template.
-_INSPECT_NAMES = tuple(field_name for field_name, _ in containers._INSPECT_FIELDS)  # pyright: ignore[reportPrivateUsage]
+#: Production field definition; the fixture is rendered from it so it cannot
+#: drift from the real template.
+_INSPECT_FIELDS = containers._INSPECT_FIELDS  # pyright: ignore[reportPrivateUsage]
 
 
 def _inspect_line(
@@ -35,9 +35,10 @@ def _inspect_line(
 ) -> str:
     """Render one whitelisted ``--format`` inspect record in production order.
 
-    Values are keyed by the production field names and emitted in the order of
-    ``containers._INSPECT_FIELDS``, so a new or renamed field makes the fixture
-    fail loudly instead of silently diverging from the template.
+    Values are keyed by the production attribute names and emitted in the order
+    of ``containers._INSPECT_FIELDS``; an attribute with several expressions
+    (``ports``) expands to its raw values. A new or renamed field makes the
+    fixture fail loudly instead of silently diverging from the template.
     """
     values: dict[str, object] = {
         "name": name,
@@ -48,14 +49,20 @@ def _inspect_line(
         "cap_drop": cap_drop or [],
         "readonly_rootfs": readonly,
         "security_opt": security_opt or [],
-        "exposed_ports": exposed or {},
-        "port_bindings": bindings,
+        "ports": (exposed if exposed is not None else {}, bindings),
         "networks": networks or {},
         "mounts": mounts or [],
         "compose_project": compose_project,
         "compose_service": compose_service,
     }
-    return SEP.join(json.dumps(values[field_name]) for field_name in _INSPECT_NAMES)
+    parts: list[object] = []
+    for attribute, expressions, _ in _INSPECT_FIELDS:
+        value = values[attribute]
+        if len(expressions) > 1:
+            parts.extend(cast("tuple[object, ...]", value))
+        else:
+            parts.append(value)
+    return SEP.join(json.dumps(part) for part in parts)
 
 
 def _patch(
