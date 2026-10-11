@@ -66,6 +66,7 @@ def test_bare_profile_publishes_one_reco(runner: Callable[..., str], env: dict[s
         "collectors.packages",
         "collectors.tools",
         "collectors.containers",
+        "collectors.dash",
         "tools.apt_mark",
         "storage.data_dir",
         "storage.history",

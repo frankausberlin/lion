@@ -153,6 +153,7 @@ def test_doctor_reports_v2_collectors_and_tools(runner: Callable[..., str], env:
     assert findings["collectors.network"]["status"] == "ok"
     assert findings["collectors.containers"]["status"] == "ok"
     assert findings["collectors.containers"]["message"] == "Collector 'containers': ok."
+    assert findings["collectors.dash"]["status"] == "ok"
 
     # Whether systemctl exists decides the services finding, so assert reality.
     if shutil.which("systemctl") is None:
