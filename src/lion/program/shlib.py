@@ -171,13 +171,14 @@ def _backup(path: Path, suffix: str) -> Path:
     return candidate
 
 
-def status(home: Path) -> dict[str, object]:
-    """Return the read-only installation status for ``home`` without writing."""
-    rc = home / ".zshrc"
-    root = home / ".shlib"
-    text = _read(rc) if rc.exists() else ""
-    installed = _parts(text) is not None
-    lock = home / ".zshrc.lock"
+def _status_warnings(root: Path, installed: bool) -> list[str]:
+    """Collect the read-only installation warnings for ``root``.
+
+    The order is fixed: missing-directory warnings first, then per export file
+    (sorted) an ``Invalid export name`` before an ``Export should have mode 600``.
+    A ``ValueError`` from :func:`_files` propagates unchanged (a loud error is
+    the intended behavior).
+    """
     warnings: list[str] = []
     for directory in (root / "exports", root / "shlibs"):
         if installed and not directory.is_dir():
@@ -187,12 +188,29 @@ def status(home: Path) -> dict[str, object]:
             warnings.append(f"Invalid export name: {path.name}")
         if stat.S_IMODE(path.stat().st_mode) != 0o600:
             warnings.append(f"Export should have mode 600: {path.name}")
+    return warnings
+
+
+def _lock_status(lock: Path, text: str) -> str:
+    """Return ``missing``/``unchanged``/``changed`` for the reference copy."""
+    if not lock.exists():
+        return "missing"
+    return "unchanged" if _read(lock) == text else "changed"
+
+
+def status(home: Path) -> dict[str, object]:
+    """Return the read-only installation status for ``home`` without writing."""
+    rc = home / ".zshrc"
+    root = home / ".shlib"
+    text = _read(rc) if rc.exists() else ""
+    installed = _parts(text) is not None
+    lock = home / ".zshrc.lock"
     return {
         "installed": installed,
-        "lock": "missing" if not lock.exists() else ("unchanged" if _read(lock) == text else "changed"),
+        "lock": _lock_status(lock, text),
         "shlibs": [p.name for p in _files(root / "shlibs", scripts=True)],
         "exports": [p.name for p in _files(root / "exports")],
-        "warnings": warnings,
+        "warnings": _status_warnings(root, installed),
     }
 
 
