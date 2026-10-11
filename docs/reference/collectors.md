@@ -62,8 +62,11 @@ the GPU list is empty.
 
 Physical network interfaces read from `/sys/class/net` only (no external tools,
 no root). Interfaces without a `device` symlink are virtual or ephemeral (`lo`,
-`docker0`, `veth*`, bridges) and churn between scans, so they are excluded. No
-IP addresses, link state or MTU are recorded: those are runtime facts.
+`docker0`, `veth*`, bridges) and churn between scans, so they are excluded. Only
+permanent hardware addresses are recorded: `mac` stays empty when the kernel
+reports a random or software-assigned address (`addr_assign_type`), so MAC
+randomization cannot churn the state. No IP addresses, link state or MTU are
+recorded: those are runtime facts.
 
 | Field | Meaning |
 | --- | --- |
@@ -74,7 +77,7 @@ Each `interfaces` entry carries:
 | Field | Meaning |
 | --- | --- |
 | `name` | Interface directory name; the list identity. |
-| `mac` | MAC address from the `address` file, or `""` when unreadable. |
+| `mac` | Permanent hardware MAC address from the `address` file, or `""` when the address is dynamic (non-permanent `addr_assign_type`) or unreadable. |
 | `type` | ARPHRD interface type from the `type` file (e.g. `1` = ether), or `0`. |
 | `driver` | Kernel driver module from the `device/driver` symlink, or `""` when unbound. |
 
@@ -95,18 +98,24 @@ Missing Dpkg or `apt-mark` marks the collector `unavailable`.
 
 ## `services`
 
-Persistent systemd service unit-file states, read with
+Systemd service unit-file states, read with
 `systemctl list-unit-files --type=service` (read-only). Runtime facts such as
 failed units or `is-system-running` are deliberately excluded: they churn and
-belong to a future runtime collector.
+belong to a future runtime collector. Units in the `transient` state are
+skipped: they are created through the runtime API, have no unit file and cannot
+be enabled, so they would only churn the history.
 
 | Field | Meaning |
 | --- | --- |
 | `units` | List of `*.service` units, sorted by `name`; each `{name, state}`. |
 
 `state` is normalized against the known unit-file states (`enabled`, `disabled`,
-`masked`, `static`, ...); anything else becomes `unknown`. `name` is the list
-identity. A missing or failing `systemctl` marks the collector `unavailable`.
+`masked`, `static`, ...); anything else becomes `unknown`. The runtime-scoped
+variants (`enabled-runtime`, `masked-runtime`, `linked-runtime`) are kept as
+systemd reports them: generators produce the same runtime scope (for example
+`systemd-fsck-root.service` from `/etc/fstab`), and no `systemctl` query ignores
+the runtime scope. `name` is the list identity. A missing or failing
+`systemctl` marks the collector `unavailable`.
 
 ## `containers`
 
@@ -130,7 +139,7 @@ dropped, and every list is sorted.
 | `rootless` | Whether the engine reports rootless mode. |
 | `images` | List of images, sorted; each `{repository, tag, digest, size_bytes}` (no image id). |
 | `volumes` | List of volumes, sorted; each `{name, driver}`. |
-| `networks` | List of container networks, sorted; each `{name, driver, scope}`. |
+| `networks` | List of container networks, sorted; each `{name, driver, scope}`; `scope` is the engine-reported scope, empty for Podman (which has none). |
 | `containers` | List of containers, sorted by `name`; see below. |
 
 Each `containers` entry carries `name`, `image_ref`, `restart_policy`,

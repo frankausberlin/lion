@@ -228,10 +228,10 @@ def test_podman_fallback_after_broken_docker(monkeypatch: pytest.MonkeyPatch) ->
         ("podman", "info"): info,
         ("podman", "images"): "",
         ("podman", "volume"): "",
-        ("podman", "network"): "",
+        ("podman", "network"): f"podman{SEP}bridge\n",
         ("podman", "ps"): "",
     }
-    _patch(monkeypatch, responses, {"docker", "podman"})
+    calls = _patch(monkeypatch, responses, {"docker", "podman"})
 
     result = containers.COLLECTOR.collect()
 
@@ -239,6 +239,10 @@ def test_podman_fallback_after_broken_docker(monkeypatch: pytest.MonkeyPatch) ->
     assert result.data["runtime"] == "podman"
     assert result.data["server_version"] == "4.9"
     assert result.data["rootless"] is True
+    assert result.data["networks"] == [{"name": "podman", "driver": "bridge", "scope": ""}]
+    network_calls = [command for command in calls if command[1] == "network"]
+    assert len(network_calls) == 1
+    assert all("Scope" not in part for part in network_calls[0])
 
 
 def test_no_engine_is_data_not_a_warning(monkeypatch: pytest.MonkeyPatch) -> None:

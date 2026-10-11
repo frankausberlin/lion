@@ -160,7 +160,8 @@ just audit       # dependency vulnerability scan
   `containers` collector records engine usability separately (`runtime`
   `docker`/`podman`/`none`, a present-but-broken engine is `unavailable`).
   `network` records physical sysfs interfaces only (no virtual interfaces, no
-  IPs/link state); `services` records unit-file state only (no runtime state).
+  IPs/link state, permanent MACs only); `services` records unit-file states as
+  systemd reports them and skips `transient` runtime-API units (no unit file).
   PCI ids identify slots: a replacement in the same slot is a field change.
   Any `added`/`removed` is structural (`structure_changed`).
 - New history entries are published with `os.link` and never overwrite; only the

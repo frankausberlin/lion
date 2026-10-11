@@ -36,13 +36,19 @@ _PODMAN_INFO_TEMPLATE = (
 
 _IMAGES_TEMPLATE = _SEP.join(("{{.Repository}}", "{{.Tag}}", "{{.Digest}}", "{{.Size}}"))
 _VOLUMES_TEMPLATE = _SEP.join(("{{.Name}}", "{{.Driver}}"))
-_NETWORKS_TEMPLATE = _SEP.join(("{{.Name}}", "{{.Driver}}", "{{.Scope}}"))
+
+#: Network templates per engine: Docker reports a scope, Podman has no scope
+#: field at all, and a template referencing one fails the whole command as soon
+#: as a network exists.
+_NETWORK_TEMPLATES = {
+    "docker": _SEP.join(("{{.Name}}", "{{.Driver}}", "{{.Scope}}")),
+    "podman": _SEP.join(("{{.Name}}", "{{.Driver}}")),
+}
 
 #: Field counts derived from the templates, so a template change cannot leave a
 #: stale count behind that silently discards every record.
 _IMAGE_FIELDS = len(_IMAGES_TEMPLATE.split(_SEP))
 _VOLUME_FIELDS = len(_VOLUMES_TEMPLATE.split(_SEP))
-_NETWORK_FIELDS = len(_NETWORKS_TEMPLATE.split(_SEP))
 
 _SIZE_PATTERN = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)\s*([kKmMgGtT]?)[bB]?\s*$")
 _SIZE_UNITS = {"": 1, "k": 1000, "m": 1000**2, "g": 1000**3, "t": 1000**4}
@@ -356,8 +362,11 @@ def _collect_volumes(runtime: str, failures: list[str]) -> list[VolumeState]:
 
 
 def _collect_networks(runtime: str, failures: list[str]) -> list[ContainerNetworkState]:
+    """List container networks; Podman reports no scope, so it stays empty."""
+    template = _NETWORK_TEMPLATES[runtime]
+    width = len(template.split(_SEP))
     output = run_tool(
-        [runtime, "network", "ls", "--format", _NETWORKS_TEMPLATE],
+        [runtime, "network", "ls", "--format", template],
         timeout=TIMEOUT_SECONDS,
         failures=failures,
     )
@@ -366,9 +375,10 @@ def _collect_networks(runtime: str, failures: list[str]) -> list[ContainerNetwor
     networks: list[ContainerNetworkState] = []
     for line in output.splitlines():
         parts = line.split(_SEP)
-        if len(parts) != _NETWORK_FIELDS:
+        if len(parts) != width:
             continue
-        name, driver, scope = (part.strip() for part in parts)
+        name, driver = (part.strip() for part in parts[:2])
+        scope = parts[2].strip() if width > 2 else ""
         if name:
             networks.append(ContainerNetworkState(name=name, driver=driver, scope=scope))
     return sorted(networks, key=lambda network: network.name)

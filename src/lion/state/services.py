@@ -1,10 +1,11 @@
 """Collector for systemd service unit-file states.
 
-Only the persistent configuration (the unit-file enablement state) is recorded
-via read-only ``systemctl`` queries. Runtime facts such as failed units or
-``is-system-running`` are deliberately excluded: they churn and belong to a
-future runtime collector. Missing or failing ``systemctl`` marks the collector
-``unavailable``.
+Only the unit-file enablement state is recorded via read-only ``systemctl``
+queries. Runtime facts such as failed units or ``is-system-running`` are
+deliberately excluded: they churn and belong to a future runtime collector.
+Units in the ``transient`` state are skipped as well: they are created through
+the runtime API, have no unit file and cannot be enabled. Missing or failing
+``systemctl`` marks the collector ``unavailable``.
 """
 
 from dataclasses import asdict, dataclass
@@ -15,6 +16,8 @@ from lion.state.tools import run_tool
 TIMEOUT_SECONDS = 10
 
 #: Unit-file states systemd reports; anything else normalizes to ``unknown``.
+#: ``transient`` is not listed: such units are runtime-only (no unit file) and
+#: are skipped in ``_parse_units`` instead of being recorded.
 KNOWN_STATES = frozenset(
     {
         "enabled",
@@ -25,7 +28,6 @@ KNOWN_STATES = frozenset(
         "static",
         "indirect",
         "generated",
-        "transient",
         "alias",
         "linked",
         "linked-runtime",
@@ -50,11 +52,22 @@ class ServicesState:
 
 
 def _parse_units(output: str) -> list[UnitState]:
-    """Parse ``systemctl list-unit-files`` output into sorted service units."""
+    """Parse ``systemctl list-unit-files`` output into sorted service units.
+
+    Units in the ``transient`` state are skipped: they were created through the
+    runtime API, have no unit file and cannot be enabled, so they are not part
+    of the recorded configuration and would only churn the history. The
+    runtime-scoped variants (``enabled-runtime``, ``masked-runtime``,
+    ``linked-runtime``) are kept as reported: generators produce the same
+    runtime scope (e.g. ``systemd-fsck-root.service``), and no ``systemctl``
+    query ignores the runtime scope.
+    """
     units: list[UnitState] = []
     for line in output.splitlines():
         parts = line.split()
         if len(parts) < 2 or not parts[0].endswith(".service"):
+            continue
+        if parts[1] == "transient":
             continue
         state = parts[1] if parts[1] in KNOWN_STATES else "unknown"
         units.append(UnitState(name=parts[0], state=state))

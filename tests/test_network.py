@@ -16,12 +16,15 @@ def _make_interface(
     mac: str | None = None,
     type_id: str | None = None,
     driver: str | None = None,
+    assign_type: str | None = "0",
 ) -> None:
     """Create one interface directory, optionally bound to a driver."""
     entry = root / name
     entry.mkdir()
     if mac is not None:
         (entry / "address").write_text(f"{mac}\n")
+        if assign_type is not None:
+            (entry / "addr_assign_type").write_text(f"{assign_type}\n")
     if type_id is not None:
         (entry / "type").write_text(f"{type_id}\n")
     if not physical:
@@ -52,6 +55,31 @@ def test_collects_only_physical_interfaces(tmp_path: Path, monkeypatch: pytest.M
         "interfaces": [
             {"name": "eth0", "mac": "dd:ee:ff", "type": 1, "driver": ""},
             {"name": "eth1", "mac": "aa:bb:cc", "type": 1, "driver": "e1000e"},
+        ]
+    }
+
+
+def test_dynamic_addresses_are_not_recorded(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Random, stolen, software-set or unproven addresses never enter the state."""
+    net = tmp_path / "net"
+    net.mkdir()
+    _make_interface(net, "eth0", physical=True, mac="aa:bb:cc", assign_type="0")
+    _make_interface(net, "eth1", physical=True, mac="11:22:33", assign_type="1")
+    _make_interface(net, "eth2", physical=True, mac="44:55:66", assign_type="2")
+    _make_interface(net, "eth3", physical=True, mac="77:88:99", assign_type="3")
+    _make_interface(net, "eth4", physical=True, mac="de:ad:be", assign_type=None)
+    monkeypatch.setattr(network, "SYSFS_NET", str(net))
+
+    result = network.COLLECTOR.collect()
+
+    assert result.status == CollectorStatus.OK
+    assert result.data == {
+        "interfaces": [
+            {"name": "eth0", "mac": "aa:bb:cc", "type": 0, "driver": ""},
+            {"name": "eth1", "mac": "", "type": 0, "driver": ""},
+            {"name": "eth2", "mac": "", "type": 0, "driver": ""},
+            {"name": "eth3", "mac": "", "type": 0, "driver": ""},
+            {"name": "eth4", "mac": "", "type": 0, "driver": ""},
         ]
     }
 

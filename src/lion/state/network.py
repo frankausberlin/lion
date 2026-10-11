@@ -2,8 +2,11 @@
 
 Only ``/sys/class/net`` is read (no external tools, no root). Interfaces
 without a ``device`` symlink are virtual or ephemeral (``lo``, ``docker0``,
-``veth*``, bridges) and churn between scans, so they are excluded. No IP
-addresses, link state or MTU are recorded: those are runtime facts.
+``veth*``, bridges) and churn between scans, so they are excluded. Only
+permanent hardware addresses are recorded: ``addr_assign_type`` must report the
+address as permanent, otherwise the MAC stays empty. Random or software-assigned
+addresses (MAC randomization) change between scans and would churn the state.
+No IP addresses, link state or MTU are recorded: those are runtime facts.
 """
 
 import os
@@ -12,6 +15,11 @@ from dataclasses import asdict, dataclass
 from lion.state.collector import Collector, CollectorResult, CollectorStatus
 
 SYSFS_NET = "/sys/class/net"
+
+#: ``addr_assign_type`` value for a permanent hardware address (``NET_ADDR_PERM``
+#: in ``linux/netdevice.h``). Any other value, or a missing file, means the
+#: address is dynamic or unproven, so it is not recorded.
+PERMANENT_ADDRESS = "0"
 
 
 @dataclass(frozen=True)
@@ -56,6 +64,13 @@ def _read_driver(entry_path: str) -> str:
     return os.path.basename(os.path.realpath(driver_path))
 
 
+def _read_mac(entry_path: str) -> str:
+    """Return the permanent hardware address, or ``""`` for a dynamic one."""
+    if _read_text(os.path.join(entry_path, "addr_assign_type")) != PERMANENT_ADDRESS:
+        return ""
+    return _read_text(os.path.join(entry_path, "address"))
+
+
 def _read_interfaces() -> list[InterfaceState] | None:
     """Read every physical interface, sorted by name.
 
@@ -75,7 +90,7 @@ def _read_interfaces() -> list[InterfaceState] | None:
             interfaces.append(
                 InterfaceState(
                     name=entry.name,
-                    mac=_read_text(os.path.join(entry.path, "address")),
+                    mac=_read_mac(entry.path),
                     type=_read_type(entry.path),
                     driver=_read_driver(entry.path),
                 )

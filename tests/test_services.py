@@ -50,6 +50,16 @@ def test_parses_known_and_unknown_states(monkeypatch: pytest.MonkeyPatch) -> Non
     assert calls == [LIST_UNIT_FILES]
 
 
+def test_transient_units_are_skipped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Runtime-API units have no unit file and never enter the recorded state."""
+    _fake_run(monkeypatch, "probe.service transient\nssh.service enabled\n")
+
+    result = services.COLLECTOR.collect()
+
+    assert result.status == CollectorStatus.OK
+    assert result.data == {"units": [{"name": "ssh.service", "state": "enabled"}]}
+
+
 def test_missing_systemctl_is_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     """A missing ``systemctl`` marks the collector unavailable with a reason."""
     _fake_run(monkeypatch, None)
