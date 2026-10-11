@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
-from e2eutil import Runner, manifest
+from e2eutil import Runner, dash_link, manifest
 
 pytestmark = pytest.mark.e2e
 
@@ -27,20 +27,6 @@ def _scan(runner: Callable[..., str], env: dict[str, str]) -> dict[str, object]:
     return _mapping(json.loads(runner("lion", "scan", "--json", env=env)))
 
 
-def _link(home: Path, name: str, content: str) -> Path:
-    """Create ``~/.shlib/dash/<name>`` resolving to a fresh content file."""
-    dash = home / ".shlib" / "dash"
-    dash.mkdir(parents=True, exist_ok=True)
-    target = home / "config" / f"{name}.data"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    link = dash / name
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    link.symlink_to(target)
-    return target
-
-
 def _entries(history: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in sorted(history.glob("*.toml"))}
 
@@ -49,7 +35,7 @@ def _two_states(runner: Callable[..., str], env: dict[str, str]) -> Path:
     """Create two real snapshots via a dash change and return the history dir."""
     home = Path(env["HOME"])
     assert _scan(runner, env)["event"] == "created"
-    _link(home, "LIONSTATE_probe", "probe\n")
+    dash_link(home, "LIONSTATE_probe", "probe\n")
     assert _scan(runner, env)["event"] == "appended"
     history = Path(env["XDG_DATA_HOME"]) / "lion" / "history"
     assert len(list(history.glob("*.toml"))) == 2

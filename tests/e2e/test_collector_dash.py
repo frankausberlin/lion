@@ -20,7 +20,7 @@ from typing import cast
 
 import pytest
 import tomli_w
-from e2eutil import Runner, manifest
+from e2eutil import Runner, dash_link, doctor_findings, manifest
 
 pytestmark = pytest.mark.e2e
 
@@ -56,12 +56,6 @@ def _dash_names(state: dict[str, object]) -> list[str]:
     return [str(_mapping(entry)["name"]) for entry in files]
 
 
-def _findings(stdout: str) -> dict[str, dict[str, object]]:
-    raw = _mapping(json.loads(stdout))["findings"]
-    assert isinstance(raw, list), raw
-    return {str(_mapping(item)["name"]): _mapping(item) for item in cast("list[object]", raw)}
-
-
 def _opt_in(home: Path, content: str) -> Path:
     """Create ``~/.shlib/dash`` with one monitored link and return its target."""
     dash = home / ".shlib" / "dash"
@@ -70,20 +64,6 @@ def _opt_in(home: Path, content: str) -> Path:
     target.parent.mkdir(parents=True)
     target.write_text(content, encoding="utf-8")
     (dash / "LIONSTATE_settings.yml").symlink_to(target)
-    return target
-
-
-def _link(home: Path, name: str, content: str) -> Path:
-    """Create ``~/.shlib/dash/<name>`` resolving to a fresh target; return the target."""
-    dash = home / _DASH
-    dash.mkdir(parents=True, exist_ok=True)
-    target = home / "config" / f"{name}.data"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(content, encoding="utf-8")
-    link = dash / name
-    if link.is_symlink() or link.exists():
-        link.unlink()
-    link.symlink_to(target)
     return target
 
 
@@ -175,8 +155,8 @@ def test_ignores_unprefixed_regular_directory_and_broken_links(runner: Callable[
 def test_removed_dash_link_is_structural(runner: Runner, env: dict[str, str]) -> None:
     """Removing one of two monitored links is a structural removal everywhere."""
     home = Path(env["HOME"])
-    _link(home, "LIONSTATE_alpha", "alpha\n")
-    _link(home, "LIONSTATE_beta", "beta\n")
+    dash_link(home, "LIONSTATE_alpha", "alpha\n")
+    dash_link(home, "LIONSTATE_beta", "beta\n")
     assert _scan(runner, env)["event"] == "created"
     data = Path(env["XDG_DATA_HOME"])
     before = _history(data)
@@ -207,7 +187,7 @@ def test_removed_dash_link_is_structural(runner: Runner, env: dict[str, str]) ->
 
 def test_content_change_and_revert_append_distinct_states(runner: Runner, env: dict[str, str]) -> None:
     """A change and its revert each append a state; only the hash differs."""
-    target = _link(Path(env["HOME"]), "LIONSTATE_alpha", "alpha\n")
+    target = dash_link(Path(env["HOME"]), "LIONSTATE_alpha", "alpha\n")
     first = _scan(runner, env)
     assert first["event"] == "created"
 
@@ -288,10 +268,10 @@ def test_dash_path_that_is_a_regular_file(runner: Runner, env: dict[str, str]) -
 def test_unreadable_dash_targets_report_stable_error(user_runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """Two unreadable targets yield unavailable with a stable, leak-free error."""
     home = Path(env["HOME"])
-    _link(home, "LIONSTATE_a_good", "alpha\n")
-    bad_b = _link(home, "LIONSTATE_b_bad", "bravo\n")
-    bad_c = _link(home, "LIONSTATE_c_bad", "charlie\n")
-    _link(home, "LIONSTATE_d_good", "delta\n")
+    dash_link(home, "LIONSTATE_a_good", "alpha\n")
+    bad_b = dash_link(home, "LIONSTATE_b_bad", "bravo\n")
+    bad_c = dash_link(home, "LIONSTATE_c_bad", "charlie\n")
+    dash_link(home, "LIONSTATE_d_good", "delta\n")
     _chown_tree(home)
     _traverse(home)
     bad_b.chmod(0o000)
@@ -321,10 +301,10 @@ def test_unreadable_dash_targets_report_stable_error(user_runner: Runner, env: d
 def test_recovery_from_unreadable_targets(user_runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """Restoring read access recovers the missing hashes structurally."""
     home = Path(env["HOME"])
-    _link(home, "LIONSTATE_a_good", "alpha\n")
-    bad_b = _link(home, "LIONSTATE_b_bad", "bravo\n")
-    bad_c = _link(home, "LIONSTATE_c_bad", "charlie\n")
-    _link(home, "LIONSTATE_d_good", "delta\n")
+    dash_link(home, "LIONSTATE_a_good", "alpha\n")
+    bad_b = dash_link(home, "LIONSTATE_b_bad", "bravo\n")
+    bad_c = dash_link(home, "LIONSTATE_c_bad", "charlie\n")
+    dash_link(home, "LIONSTATE_d_good", "delta\n")
     _chown_tree(home)
     _traverse(home)
     bad_b.chmod(0o000)
@@ -358,14 +338,14 @@ def test_recovery_from_unreadable_targets(user_runner: Runner, env: dict[str, st
     assert _scan(user_runner, env)["event"] == "confirmed"
 
     doctor = user_runner.invoke("lion", "doctor", "--json", env=env)
-    assert _findings(doctor.stdout)["collectors.dash"]["status"] == "ok"
+    assert doctor_findings(_mapping(json.loads(doctor.stdout)))["collectors.dash"]["status"] == "ok"
 
 
 def test_unlistable_dash_directory_is_unavailable(user_runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """A traversable but unlistable directory fails cleanly and recovers fully."""
     home = Path(env["HOME"])
-    _link(home, "LIONSTATE_one", "one\n")
-    _link(home, "LIONSTATE_two", "two\n")
+    dash_link(home, "LIONSTATE_one", "one\n")
+    dash_link(home, "LIONSTATE_two", "two\n")
     _chown_tree(home)
     _traverse(home)
     dash_dir = home / _DASH
@@ -394,13 +374,13 @@ def test_unlistable_dash_directory_is_unavailable(user_runner: Runner, env: dict
 def test_dash_outputs_never_leak_content_or_targets(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """Every output channel stores hashes only, never content or target paths."""
     home = Path(env["HOME"])
-    monitored = _link(home, "LIONSTATE_secret", f"{_CANARY}\n")
+    monitored = dash_link(home, "LIONSTATE_secret", f"{_CANARY}\n")
     unmonitored = home / "config" / "plain.secret"
     unmonitored.write_text(f"{_CANARY}\n", encoding="utf-8")
     (home / _DASH / "ordinary.secret").symlink_to(unmonitored)
 
     first = runner.invoke("lion", "scan", "--json", env=env, expected=0)
-    _link(home, "LIONSTATE_second", "second\n")
+    dash_link(home, "LIONSTATE_second", "second\n")
     second = runner.invoke("lion", "scan", "--json", env=env, expected=0)
     assert json.loads(second.stdout)["event"] == "appended"
 
@@ -437,14 +417,15 @@ def test_dash_outputs_never_leak_content_or_targets(runner: Runner, env: dict[st
 def test_read_only_commands_leave_filesystem_unchanged(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """status, history, diff and doctor never rewrite files; doctor adds only a reco."""
     home = Path(env["HOME"])
-    _link(home, "LIONSTATE_alpha", "alpha\n")
+    dash_link(home, "LIONSTATE_alpha", "alpha\n")
     assert _scan(runner, env)["event"] == "created"
-    _link(home, "LIONSTATE_beta", "beta\n")
+    dash_link(home, "LIONSTATE_beta", "beta\n")
     assert _scan(runner, env)["event"] == "appended"
 
     data = Path(env["XDG_DATA_HOME"])
     home_before = manifest(home)
     data_before = manifest(data)
+    work_before = manifest(tmp_path, exclude=("commands.log", "user-commands.log"))
 
     runner.invoke("lion", "status", "--json", env=env, expected=0)
     runner.invoke("lion", "history", "--json", env=env, expected=0)
@@ -452,6 +433,7 @@ def test_read_only_commands_leave_filesystem_unchanged(runner: Runner, env: dict
 
     assert manifest(home) == home_before
     assert manifest(data) == data_before
+    assert manifest(tmp_path, exclude=("commands.log", "user-commands.log")) == work_before
 
     runner.invoke("lion", "doctor", "--json", env=env)
     assert manifest(home) == home_before

@@ -11,6 +11,7 @@ import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 #: Default timeout in seconds for one subprocess invocation.
 DEFAULT_TIMEOUT = 60
@@ -26,6 +27,41 @@ class CommandResult:
     stdout: str
     stderr: str
     returncode: int
+
+
+def doctor_findings(payload: dict[str, object]) -> dict[str, dict[str, object]]:
+    """Index a ``doctor --json`` payload's findings by their ``name``.
+
+    This is the single place that knows the doctor findings shape, so the
+    scenario files cannot drift apart when the schema changes.
+    """
+    raw = payload["findings"]
+    assert isinstance(raw, list), raw
+    result: dict[str, dict[str, object]] = {}
+    for item in cast("list[object]", raw):
+        assert isinstance(item, dict), item
+        finding = cast("dict[str, object]", item)
+        result[str(finding["name"])] = finding
+    return result
+
+
+def dash_link(home: Path, name: str, content: str) -> Path:
+    """Create ``~/.shlib/dash/<name>`` resolving to a fresh content file.
+
+    Encodes the ``LIONSTATE_`` opt-in convention shared by the dash scenarios:
+    the target lives under ``home/config/<name>.data`` and an existing link is
+    replaced. Returns the created target.
+    """
+    dash = home / ".shlib" / "dash"
+    dash.mkdir(parents=True, exist_ok=True)
+    target = home / "config" / f"{name}.data"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(content, encoding="utf-8")
+    link = dash / name
+    if link.is_symlink() or link.exists():
+        link.unlink()
+    link.symlink_to(target)
+    return target
 
 
 def _excluded(relative: str, exclude: tuple[str, ...]) -> bool:

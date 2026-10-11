@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from e2eutil import doctor_findings
 
 from lion import __version__
 
@@ -29,18 +30,8 @@ def _mapping(value: object) -> dict[str, object]:
     return cast("dict[str, object]", value)
 
 
-def _findings(payload: dict[str, object]) -> dict[str, dict[str, object]]:
-    raw = payload["findings"]
-    assert isinstance(raw, list), raw
-    result: dict[str, dict[str, object]] = {}
-    for item in cast("list[object]", raw):
-        finding = _mapping(item)
-        result[str(finding["name"])] = finding
-    return result
-
-
 def _status(payload: dict[str, object], name: str) -> str:
-    status = _findings(payload)[name]["status"]
+    status = doctor_findings(payload)[name]["status"]
     assert isinstance(status, str)
     return status
 
@@ -75,14 +66,14 @@ def test_bare_profile_publishes_one_reco(runner: Callable[..., str], env: dict[s
         assert _status(payload, name) == "ok", name
     assert _status(payload, "collectors.hardware") == "warn"
     assert _status(payload, "tools.lspci") == "warn"
-    assert _findings(payload)["tools.lspci"]["commands"] == ["sudo apt install pciutils"]
+    assert doctor_findings(payload)["tools.lspci"]["commands"] == ["sudo apt install pciutils"]
     # A container has no usable container engine; absence is data, not a warning.
-    assert _findings(payload)["collectors.containers"]["message"] == "Collector 'containers': ok."
+    assert doctor_findings(payload)["collectors.containers"]["message"] == "Collector 'containers': ok."
     # Whether systemctl exists decides the services finding, so assert reality.
     if shutil.which("systemctl") is None:
         assert _status(payload, "collectors.services") == "warn"
         assert _status(payload, "tools.systemctl") == "warn"
-        assert _findings(payload)["tools.systemctl"]["commands"] == []
+        assert doctor_findings(payload)["tools.systemctl"]["commands"] == []
     else:
         assert _status(payload, "tools.systemctl") == "ok"
         assert _status(payload, "collectors.services") in {"ok", "warn"}
@@ -180,7 +171,7 @@ def test_broken_history_entry_is_error(runner: Callable[..., str], env: dict[str
     payload = _mapping(json.loads(runner("lion", "doctor", "--json", env=env, expected=1)))
     assert _status(payload, "history.entries") == "ok"
     assert _status(payload, "history.broken.toml") == "error"
-    assert "broken.toml" in str(_findings(payload)["history.broken.toml"]["message"])
+    assert "broken.toml" in str(doctor_findings(payload)["history.broken.toml"]["message"])
     assert _reco_scripts(tmp_path / "data")
 
 

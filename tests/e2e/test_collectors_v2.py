@@ -18,7 +18,7 @@ from typing import cast
 
 import pytest
 import tomli_w
-from e2eutil import Runner
+from e2eutil import Runner, doctor_findings
 
 pytestmark = pytest.mark.e2e
 
@@ -37,16 +37,6 @@ def _history(data: Path) -> dict[str, bytes]:
 
 def _scan(runner: Callable[..., str], env: dict[str, str]) -> dict[str, object]:
     return _mapping(json.loads(runner("lion", "scan", "--json", env=env)))
-
-
-def _findings(payload: dict[str, object]) -> dict[str, dict[str, object]]:
-    raw = payload["findings"]
-    assert isinstance(raw, list), raw
-    result: dict[str, dict[str, object]] = {}
-    for item in cast("list[object]", raw):
-        finding = _mapping(item)
-        result[str(finding["name"])] = finding
-    return result
 
 
 def _strip_v2_sections(path: Path) -> None:
@@ -147,7 +137,7 @@ def test_old_snapshot_without_v2_sections_is_additive(runner: Callable[..., str]
 def test_doctor_reports_v2_collectors_and_tools(runner: Callable[..., str], env: dict[str, str]) -> None:
     """Doctor findings for the v2 collectors and tools mirror the bare-profile reality."""
     payload = _mapping(json.loads(runner("lion", "doctor", "--json", env=env)))
-    findings = _findings(payload)
+    findings = doctor_findings(payload)
     for name in ("collectors.network", "collectors.services", "collectors.containers"):
         assert name in findings, name
     assert findings["collectors.network"]["status"] == "ok"

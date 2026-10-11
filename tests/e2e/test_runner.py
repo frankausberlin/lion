@@ -31,3 +31,11 @@ def test_nonzero_exit_returns_separate_streams(runner: Runner, env: dict[str, st
     assert result.returncode == 3
     assert result.stdout == "out\n"
     assert result.stderr == "err\n"
+
+
+def test_invoke_honours_cwd(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """Invoke runs the child in the requested working directory."""
+    workdir = tmp_path / "workdir"
+    workdir.mkdir()
+    result = runner.invoke(sys.executable, "-c", "import os; print(os.getcwd())", env=env, expected=0, cwd=str(workdir))
+    assert result.stdout.strip() == str(workdir)
