@@ -181,6 +181,28 @@ def _parse_size(raw: str) -> int:
     return round(float(match.group(1)) * _SIZE_UNITS[match.group(2).lower()])
 
 
+def _mapping_or_empty(value: object) -> Mapping[str, object]:
+    """Return ``value`` as a mapping, or an empty mapping when it is not a dict."""
+    return cast("Mapping[str, object]", value) if isinstance(value, dict) else {}
+
+
+def _host_ports(binding_map: Mapping[str, object], key: str) -> list[str]:
+    """Return the host ports bound to one exposed/published ``key``.
+
+    ``HostPort`` values are extracted in binding order; a missing or malformed
+    binding list yields an empty list. Host IPs are dropped.
+    """
+    raw_bindings = binding_map.get(key)
+    if not isinstance(raw_bindings, list):
+        return []
+    host_ports: list[str] = []
+    for binding in cast("list[object]", raw_bindings):
+        if not isinstance(binding, dict):
+            continue
+        host_ports.append(_str(cast("Mapping[str, object]", binding).get("HostPort")))
+    return host_ports
+
+
 def _parse_ports(exposed: object, bindings: object) -> list[PortState]:
     """Build the configured port list from ``ExposedPorts`` and ``PortBindings``.
 
@@ -188,22 +210,14 @@ def _parse_ports(exposed: object, bindings: object) -> list[PortState]:
     published, and ``host_port`` is empty for an exposed-only port. Host IPs are
     dropped.
     """
-    exposed_map: Mapping[str, object] = cast("Mapping[str, object]", exposed) if isinstance(exposed, dict) else {}
-    binding_map: Mapping[str, object] = cast("Mapping[str, object]", bindings) if isinstance(bindings, dict) else {}
+    exposed_map = _mapping_or_empty(exposed)
+    binding_map = _mapping_or_empty(bindings)
     keys = {str(key) for key in exposed_map} | {str(key) for key in binding_map}
     ports: list[PortState] = []
     for key in sorted(keys):
         port_text, _, protocol = key.partition("/")
         container_port = int(port_text) if port_text.isdigit() else 0
-        raw_bindings = binding_map.get(key)
-        host_ports: list[str] = []
-        if isinstance(raw_bindings, list):
-            for binding in cast("list[object]", raw_bindings):
-                if not isinstance(binding, dict):
-                    continue
-                host_port = _str(cast("Mapping[str, object]", binding).get("HostPort"))
-                host_ports.append(host_port)
-        for host_port in host_ports or [""]:
+        for host_port in _host_ports(binding_map, key) or [""]:
             ports.append(PortState(container_port=container_port, protocol=protocol, host_port=host_port))
     return sorted(ports, key=lambda port: (port.container_port, port.protocol, port.host_port))
 
