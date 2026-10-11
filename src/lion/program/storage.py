@@ -519,7 +519,7 @@ def storage_checks(_ctx: DoctorContext) -> list[Finding]:
             topic="storage",
             name="storage.data_dir",
             status=CheckStatus.OK,
-            message=f"Datenverzeichnis schreibbar: {base}",
+            message=f"Data directory is writable: {base}",
         )
     )
     for label, directory in (("history", get_history_dir()), ("recos", get_recos_dir())):
