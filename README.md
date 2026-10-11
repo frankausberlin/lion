@@ -1,4 +1,4 @@
-![](https://lh3.googleusercontent.com/d/1h8BgVQcr4J1Dx5iA2sMkKe9beFs1YRu9)
+![](https://lh3.googleusercontent.com/d/1nHlddUL6mcOjppdWIV1OGxn3Q_wtdsG3)
 
 # LION — The Linux Assistant
 
