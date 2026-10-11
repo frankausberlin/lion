@@ -48,6 +48,42 @@ def _absorb(
     changed.update(fragment.get("changed", {}))
 
 
+def _scalar_delta(
+    path: str,
+    collector: str,
+    old_value: object,
+    new_value: object,
+) -> dict[str, dict[str, object]]:
+    """Return a ``changed`` fragment for two scalars, or ``{}`` when equal."""
+    if value_equal(f"{collector}.{path}", old_value, new_value):
+        return {}
+    return {"changed": {path: {"old": old_value, "new": new_value}}}
+
+
+def _diff_value(
+    old_value: object,
+    new_value: object,
+    path: str,
+    collector: str,
+) -> dict[str, dict[str, object]]:
+    """Dispatch one matched value by its shape.
+
+    Both lists are compared element-wise through :func:`_diff_list` and both
+    mappings recursively through :func:`_diff_mapping`; anything else becomes a
+    scalar ``changed`` entry only when :func:`value_equal` rejects it. Returns an
+    ``added``/``removed``/``changed`` fragment for the caller to merge.
+    """
+    old_list = _as_list(old_value)
+    new_list = _as_list(new_value)
+    if old_list is not None and new_list is not None:
+        return _diff_list(old_list, new_list, path, collector)
+    old_map = _as_mapping(old_value)
+    new_map = _as_mapping(new_value)
+    if old_map is not None and new_map is not None:
+        return _diff_mapping(old_map, new_map, path, collector)
+    return _scalar_delta(path, collector, old_value, new_value)
+
+
 def _diff_list(
     old: list[object],
     new: list[object],
@@ -73,12 +109,9 @@ def _diff_list(
             elif key not in new_by:
                 removed[item_path] = old_by[key]
             else:
-                old_item = _as_mapping(old_by[key])
-                new_item = _as_mapping(new_by[key])
-                if old_item is not None and new_item is not None:
-                    _absorb(_diff_mapping(old_item, new_item, item_path, collector), added, removed, changed)
-    elif not value_equal(f"{collector}.{path}", old, new):
-        changed[path] = {"old": old, "new": new}
+                _absorb(_diff_value(old_by[key], new_by[key], item_path, collector), added, removed, changed)
+    else:
+        _absorb(_scalar_delta(path, collector, old, new), added, removed, changed)
     return _tidy(added, removed, changed)
 
 
@@ -98,19 +131,7 @@ def _diff_mapping(
         elif key not in new:
             removed[path] = old[key]
         else:
-            old_value = old[key]
-            new_value = new[key]
-            old_list = _as_list(old_value)
-            new_list = _as_list(new_value)
-            if old_list is not None and new_list is not None:
-                _absorb(_diff_list(old_list, new_list, path, collector), added, removed, changed)
-                continue
-            old_map = _as_mapping(old_value)
-            new_map = _as_mapping(new_value)
-            if old_map is not None and new_map is not None:
-                _absorb(_diff_mapping(old_map, new_map, path, collector), added, removed, changed)
-            elif not value_equal(f"{collector}.{path}", old_value, new_value):
-                changed[path] = {"old": old_value, "new": new_value}
+            _absorb(_diff_value(old[key], new[key], path, collector), added, removed, changed)
     return _tidy(added, removed, changed)
 
 
