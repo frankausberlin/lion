@@ -11,6 +11,11 @@ The directory layout below `~/.shlib` is:
   file content = value).
 - `shlibs/` — numbered scripts sourced in order (`00-`, `01-`, ...).
 - `dash/` — your own symlinks to configuration files; LION does not populate it.
+  A link whose name starts with `LIONSTATE_` opts that file into content
+  monitoring: `scan` records the SHA-256 hash of its content, and `status`/`diff`
+  then show content changes. Name such a link `LIONSTATE_<label>.<ext>` (for
+  example `LIONSTATE_settings_searxng.yml`); other links and directory links stay
+  unmonitored.
 
 ## Check the status
 

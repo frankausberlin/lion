@@ -83,11 +83,12 @@ just audit       # dependency vulnerability scan
   (no collector imports, to avoid cycles); `tools.py` provides the shared
   external-tool runner `run_tool`; `tooling.py` is the separate `tools`
   collector of tool availability; each collector (`host.py`, `hardware.py`,
-  `network.py`, `packages.py`, `services.py`, `containers.py`, `tooling.py`)
+  `network.py`, `packages.py`, `services.py`, `containers.py`, `tooling.py`,
+  `dash.py`)
   keeps its frozen dataclass next to a private
   `_collect()` and exports `COLLECTOR`; `registry.py` exposes the ordered
   `COLLECTORS` (`host`, `hardware`, `network`, `packages`, `services`,
-  `containers`, `tools`); `model.py`
+  `containers`, `tools`, `dash`); `model.py`
   defines the persisted `Snapshot` and its strict validation, the exact
   `canonical_collectors`, and the shared `collectors_equal`/`value_equal`
   comparison rules (including the RAM tolerance).
@@ -154,6 +155,14 @@ just audit       # dependency vulnerability scan
   nonempty. Other lists, duplicates and malformed identities remain atomic.
   Only `hardware.memory_total_bytes` has the 1 MiB tolerance; timestamps are
   excluded, statuses/errors included, and scalar types compare exactly.
+- `dash` monitors only `LIONSTATE_`-prefixed symlinks in `~/.shlib/dash` that
+  resolve to a regular file, storing the SHA-256 content hash only, never the
+  file content, target, size or mtime; the list identity is `name`. A missing
+  directory is `ok` with an empty list; a non-directory or unlistable path is
+  `unavailable`, and an opted-in file that cannot be read is `unavailable` with
+  `Unreadable dash entry: <name>` while the other hashes are kept. Unprefixed
+  links, regular files and directory/broken links stay unmonitored (doctor's
+  shlib dash checks report those defects).
 - GPU vendor identity comes from PCI metadata independently of the active driver.
   `compute_platform` is a driver-derived hint, not verified compute support or
   runtime installation. The `tools` collector records PATH visibility only; the

@@ -5,8 +5,9 @@ produces one section of the state. Every section has the common keys `status`
 (`ok`, `unavailable` or `error`) and `error` (a message, empty on success),
 followed by the collector's data fields.
 
-The registry (`src/lion/state/registry.py`) runs seven collectors in this order:
-`host`, `hardware`, `network`, `packages`, `services`, `containers`, `tools`.
+The registry (`src/lion/state/registry.py`) runs eight collectors in this order:
+`host`, `hardware`, `network`, `packages`, `services`, `containers`, `tools`,
+`dash`.
 
 ## `host`
 
@@ -171,6 +172,27 @@ driver hint; vendor identity and tool facts distinguish "NVIDIA card present but
 `nvidia-smi` missing" from "no NVIDIA hardware at all". Tool visibility also
 does not prove an engine is usable: `docker`/`podman` are recorded here, and the
 `containers` collector reports separately whether one actually works.
+
+## `dash`
+
+Content hashes of the opted-in links in `~/.shlib/dash`. Only symlinks whose
+name starts with `LIONSTATE_` and that resolve to a regular file are monitored;
+the prefix is the explicit opt-in marker. Broken links, directory targets,
+regular files and unprefixed links stay unmonitored, and `doctor`'s shlib dash
+checks report those defects. Only the SHA-256 digest of the target content is
+stored, never the file content, target path, size or mtime.
+
+| Field | Meaning |
+| --- | --- |
+| `files` | List of `{name, hash}`, sorted by `name`; `name` is the full link name (the list identity), `hash` the SHA-256 hex digest of the target content. |
+
+A missing `~/.shlib/dash` is `ok` with an empty list. A `dash` path that exists
+but is not a directory, or that cannot be listed, is `unavailable`. An opted-in
+file that exists but cannot be read (for example due to permissions) marks the
+collector `unavailable` with the stable message
+`Unreadable dash entry: <name>` while the other hashes are kept. Any content
+byte change is a new state; mode or target changes alone are invisible because
+only the hash is recorded.
 
 ## Adding a collector
 

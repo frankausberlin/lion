@@ -27,9 +27,9 @@ The shared rule in `src/lion/state/model.py` uses the list identities in
 - Lists of entries with a stable identity ignore order when every entry carries
   a unique, nonempty identity: `hardware.gpu` by `pci_id`;
   `network.interfaces`, `services.units`, `containers.containers`,
-  `containers.volumes` and `containers.networks` by `name`; `containers.images`
-  by the computed `repository:tag`/`repository@digest` reference. Entries at the
-  same identity are compared field by field.
+  `containers.volumes`, `containers.networks` and `dash.files` by `name`;
+  `containers.images` by the computed `repository:tag`/`repository@digest`
+  reference. Entries at the same identity are compared field by field.
 - All other lists, duplicate entries and missing/invalid identities compare as
   complete ordered values. No entries are silently deduplicated or overwritten.
 

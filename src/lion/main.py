@@ -97,6 +97,10 @@ Link a configuration file into dash:
 
   ln -s ~/.config/app/settings.toml ~/.shlib/dash/app_settings.toml
 
+Opt a dash file into content monitoring with the LIONSTATE_ prefix:
+
+  ln -s ~/.config/app/settings.toml ~/.shlib/dash/LIONSTATE_app_settings.toml
+
 Load an existing script without moving it:
 
   ln -s ~/dotfiles/aliases.zsh ~/.shlib/shlibs/20-aliases.sh

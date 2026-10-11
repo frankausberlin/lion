@@ -59,7 +59,7 @@
 |`services`|systemd `*.service` unit-file states.|
 |`containers`|Docker or Podman configuration: engine, images, volumes, networks, containers.|
 |`tools`|External tools visible on `PATH` (lspci, nvidia-smi, systemctl, docker, podman, zsh, ...).|
-|`dash`|Monitors (hash) all files linked in ~/.shlib/dash that start with LIONSTATE_ (only links to files)|
+|`dash`|Monitors (hash) all files linked in `~/.shlib/dash` that start with `LIONSTATE_` (only links to files).|
 
 ## Quickstart
 
