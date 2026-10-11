@@ -58,14 +58,14 @@ def _strip_v2_sections(path: Path) -> None:
 
 
 def test_scan_persists_v2_sections(runner: Callable[..., str], env: dict[str, str]) -> None:
-    """A real scan persists all seven sections with deterministic bare-profile data."""
+    """A real scan persists all eight sections with deterministic bare-profile data."""
     payload = _scan(runner, env)
     assert payload["event"] == "created"
     state = _mapping(payload["state"])
     assert state["schema_version"] == 2
 
     collectors = _mapping(state["collectors"])
-    assert set(collectors) == {"host", "hardware", "network", "packages", "services", "containers", "tools"}
+    assert set(collectors) == {"host", "hardware", "network", "packages", "services", "containers", "tools", "dash"}
 
     network = _mapping(collectors["network"])
     assert network["status"] == "ok"
