@@ -8,12 +8,10 @@ and :func:`runner` executes commands while recording their diagnostics.
 
 import os
 import pwd
-import subprocess
 from pathlib import Path
 
 import pytest
-
-_TIMEOUT = 60
+from e2eutil import Runner
 
 
 def require_container() -> None:
@@ -43,38 +41,6 @@ def env(tmp_path: Path) -> dict[str, str]:
     }
     environment.pop("ZDOTDIR", None)
     return environment
-
-
-class Runner:
-    """Run subprocesses, recording command, exit code, stdout and stderr."""
-
-    def __init__(self, log: Path, prefix: tuple[str, ...] = ()) -> None:
-        """Store the log path used for every invocation."""
-        self._log = log
-        self._prefix = prefix
-
-    def __call__(self, *args: str, env: dict[str, str], expected: int = 0, timeout: int = _TIMEOUT) -> str:
-        """Run ``args`` and return stdout, failing loudly on an unexpected exit code."""
-        environment = {**env, "LC_ALL": "C"}
-        command = [*self._prefix, *args]
-        with self._log.open("a", encoding="utf-8") as stream:
-            _ = stream.write(f"$ {command!r}\n")
-            stream.flush()
-            try:
-                result = subprocess.run(
-                    command, env=environment, capture_output=True, text=True, timeout=timeout, check=False
-                )
-            except subprocess.TimeoutExpired as exc:
-                stdout = exc.stdout.decode(errors="replace") if isinstance(exc.stdout, bytes) else exc.stdout or ""
-                stderr = exc.stderr.decode(errors="replace") if isinstance(exc.stderr, bytes) else exc.stderr or ""
-                _ = stream.write(f"timeout={timeout}\nstdout:\n{stdout}\nstderr:\n{stderr}\n")
-                raise
-            _ = stream.write(f"exit={result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}\n")
-        assert result.returncode == expected, (
-            f"{args!r} exited {result.returncode}, expected {expected}\n"
-            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-        )
-        return result.stdout
 
 
 @pytest.fixture

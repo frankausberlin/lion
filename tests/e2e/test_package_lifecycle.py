@@ -2,12 +2,14 @@
 
 import json
 import os
+import subprocess
 import tomllib
-from collections.abc import Callable
+from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
 import pytest
+from e2eutil import Runner
 
 pytestmark = pytest.mark.e2e
 PACKAGE = "lion-e2e-probe"
@@ -24,11 +26,46 @@ def _history(data: Path) -> dict[str, bytes]:
     return {path.name: path.read_bytes() for path in sorted((data / "lion" / "history").glob("*.toml"))}
 
 
-def test_package_lifecycle(tmp_path: Path, runner: Callable[..., str], env: dict[str, str]) -> None:
-    """Detect installation and removal while preserving every distinct state."""
+def _installed(runner: Runner, env: dict[str, str]) -> bool:
+    """Return whether the probe package is installed, per dpkg-query."""
+    result = runner.invoke("dpkg-query", "-W", "-f=${Status}", PACKAGE, env=env)
+    return result.returncode == 0 and "install ok installed" in result.stdout
+
+
+def _held(runner: Runner, env: dict[str, str]) -> bool:
+    """Return whether the probe package carries an apt hold mark."""
+    result = runner.invoke("apt-mark", "showhold", env=env)
+    return result.returncode == 0 and PACKAGE in result.stdout.split()
+
+
+def _restore(runner: Runner, env: dict[str, str]) -> None:
+    """Unhold and purge the probe package, logging but never raising."""
+    try:
+        if _held(runner, env):
+            result = runner.invoke("apt-mark", "unhold", PACKAGE, env=env)
+            print(f"cleanup: apt-mark unhold {PACKAGE} -> exit {result.returncode}")
+        if _installed(runner, env):
+            result = runner.invoke("dpkg", "--purge", PACKAGE, env=env)
+            print(f"cleanup: dpkg --purge {PACKAGE} -> exit {result.returncode}")
+    except (OSError, subprocess.SubprocessError) as exc:
+        print(f"cleanup: the probe package state could not be restored ({exc!r})")
+
+
+@pytest.fixture
+def probe_package(runner: Runner, env: dict[str, str]) -> Iterator[str]:
+    """Guarantee a clean package state before and after a package scenario."""
     if os.geteuid() != 0:
         pytest.fail("Package lifecycle requires root inside the disposable container")
+    assert not _installed(runner, env), f"{PACKAGE} must not be installed before the scenario"
+    assert not _held(runner, env), f"{PACKAGE} must not be held before the scenario"
+    try:
+        yield PACKAGE
+    finally:
+        _restore(runner, env)
 
+
+def test_package_lifecycle(tmp_path: Path, runner: Runner, env: dict[str, str], probe_package: str) -> None:
+    """Detect installation and removal while preserving every distinct state."""
     data = Path(env["XDG_DATA_HOME"])
 
     def run(args: list[str]) -> str:

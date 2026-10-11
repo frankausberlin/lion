@@ -18,6 +18,7 @@ from typing import cast
 
 import pytest
 import tomli_w
+from e2eutil import Runner
 
 pytestmark = pytest.mark.e2e
 
@@ -183,7 +184,7 @@ def test_read_only_commands_leave_v2_history_untouched(runner: Callable[..., str
     assert len(before) == 2
 
 
-def test_legacy_german_snapshot_fails_loud(runner: Callable[..., str], env: dict[str, str], tmp_path: Path) -> None:
+def test_legacy_german_snapshot_fails_loud(runner: Runner, env: dict[str, str]) -> None:
     """A schema-1 entry in the history fails status loudly instead of being skipped."""
     history = Path(env["XDG_DATA_HOME"]) / "lion" / "history"
     history.mkdir(parents=True)
@@ -193,8 +194,7 @@ def test_legacy_german_snapshot_fails_loud(runner: Callable[..., str], env: dict
         encoding="utf-8",
     )
 
-    runner("lion", "status", "--json", env=env, expected=1)
-    log = (tmp_path / "commands.log").read_text(encoding="utf-8")
-    assert "legacy German snapshot keys" in log
-    assert "erstscan" in log
-    assert "legacy.toml" in log
+    result = runner.invoke("lion", "status", "--json", env=env, expected=1)
+    assert "legacy German snapshot keys" in result.stderr
+    assert "erstscan" in result.stderr
+    assert "legacy.toml" in result.stderr
