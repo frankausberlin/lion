@@ -48,6 +48,18 @@
 > * tools, resources, prompts are not subcommands, just the description of the MCP functions used
 > * `shlib`, `scan`, `status`, `history`, `diff` and `doctor` exist today; `shell`, `watch`, `wiki` and `serve` are planned.
 
+## Collectors
+
+|Name|Description|
+|-|-|
+|`host`|Host identity and operating system: hostname, distribution, kernel, architecture.|
+|`hardware`|Stable hardware facts: CPU model and cores, total memory, GPUs with vendor, driver and VRAM.|
+|`network`|Physical network interfaces with permanent MAC addresses and kernel drivers.|
+|`packages`|Installed Debian packages and `apt-mark` manual/auto/held selections.|
+|`services`|systemd `*.service` unit-file states.|
+|`containers`|Docker or Podman configuration: engine, images, volumes, networks, containers.|
+|`tools`|External tools visible on `PATH` (lspci, nvidia-smi, systemctl, docker, podman, zsh, ...).|
+|`dash`|Monitors (hash) all files linked in ~/.shlib/dash that start with LIONSTATE_ (only links to files)|
 
 ## Quickstart
 
