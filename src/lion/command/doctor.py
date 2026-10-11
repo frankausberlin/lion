@@ -52,6 +52,76 @@ def _with_extra(findings: list[Finding], finding: Finding) -> list[Finding]:
     return doctor.sort_findings([*findings, finding])
 
 
+def _home_finding(home_error: str, installed: bool) -> Finding:
+    """Build the ``shlib.home`` finding for a foreign home.
+
+    A managed install makes the foreign home an error; without one it is a
+    neutral skip. Both carry the same hint.
+    """
+    if installed:
+        return Finding(
+            topic="shlib",
+            name="shlib.home",
+            status=CheckStatus.ERROR,
+            message=home_error,
+            hint=_NO_HOME_HINT,
+        )
+    return Finding(
+        topic="shlib",
+        name="shlib.home",
+        status=CheckStatus.SKIP,
+        message=f"No managed shlib; {home_error}",
+        hint=_NO_HOME_HINT,
+    )
+
+
+def _publish_reco(
+    findings: list[Finding],
+    state: dict[str, dict[str, object]],
+    status: CheckStatus,
+) -> tuple[Path | None, str, list[Finding], CheckStatus]:
+    """Render and publish the reco, folding a write failure into the findings.
+
+    Returns ``(reco_path, content, findings, status)``. A publish ``OSError``
+    adds a ``storage.reco_publish`` error finding, forces the status to
+    ``error`` and re-renders the content with that extra finding.
+    """
+    content = doctor.render_reco(findings, __version__, _host_label(state))
+    try:
+        return publish_reco(content), content, findings, status
+    except OSError as exc:
+        findings = _with_extra(
+            findings,
+            Finding(
+                topic="storage",
+                name="storage.reco_publish",
+                status=CheckStatus.ERROR,
+                message=f"reco.sh could not be written: {exc}",
+                hint="Check write permissions on $XDG_DATA_HOME/lion/recos.",
+            ),
+        )
+        content = doctor.render_reco(findings, __version__, _host_label(state))
+        return None, content, findings, CheckStatus.ERROR
+
+
+def _emit(
+    findings: list[Finding],
+    reco_path: Path | None,
+    content: str,
+    *,
+    json_output: bool,
+    show: bool,
+) -> None:
+    """Write the diagnosis to stdout in JSON or text form."""
+    if json_output:
+        typer.echo(doctor.render_json(findings, reco_path))
+        return
+    typer.echo(doctor.render_text(findings, reco_path))
+    if show and reco_path is not None:
+        typer.echo("")
+        typer.echo(content)
+
+
 def run(json_output: bool = False, show: bool = False) -> None:
     """Run the read-only diagnosis and publish a reco script when needed.
 
@@ -63,57 +133,15 @@ def run(json_output: bool = False, show: bool = False) -> None:
     state = collect_state(COLLECTORS)
     findings = doctor.run_checks(DoctorContext(state=state, home=home))
     if home_error:
-        if _shlib_installed(home):
-            findings = _with_extra(
-                findings,
-                Finding(
-                    topic="shlib",
-                    name="shlib.home",
-                    status=CheckStatus.ERROR,
-                    message=home_error,
-                    hint=_NO_HOME_HINT,
-                ),
-            )
-        else:
-            findings = _with_extra(
-                findings,
-                Finding(
-                    topic="shlib",
-                    name="shlib.home",
-                    status=CheckStatus.SKIP,
-                    message=f"No managed shlib; {home_error}",
-                    hint=_NO_HOME_HINT,
-                ),
-            )
+        findings = _with_extra(findings, _home_finding(home_error, _shlib_installed(home)))
 
     status = doctor.overall(findings)
     reco_path: Path | None = None
     content = ""
     if status in (CheckStatus.WARN, CheckStatus.ERROR):
-        content = doctor.render_reco(findings, __version__, _host_label(state))
-        try:
-            reco_path = publish_reco(content)
-        except OSError as exc:
-            findings = _with_extra(
-                findings,
-                Finding(
-                    topic="storage",
-                    name="storage.reco_publish",
-                    status=CheckStatus.ERROR,
-                    message=f"reco.sh could not be written: {exc}",
-                    hint="Check write permissions on $XDG_DATA_HOME/lion/recos.",
-                ),
-            )
-            status = CheckStatus.ERROR
-            content = doctor.render_reco(findings, __version__, _host_label(state))
+        reco_path, content, findings, status = _publish_reco(findings, state, status)
 
-    if json_output:
-        typer.echo(doctor.render_json(findings, reco_path))
-    else:
-        typer.echo(doctor.render_text(findings, reco_path))
-        if show and reco_path is not None:
-            typer.echo("")
-            typer.echo(content)
+    _emit(findings, reco_path, content, json_output=json_output, show=show)
 
     if status == CheckStatus.ERROR:
         raise typer.Exit(code=1)
