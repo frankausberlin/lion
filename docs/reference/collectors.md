@@ -98,7 +98,7 @@ Missing Dpkg or `apt-mark` marks the collector `unavailable`.
 
 ## `services`
 
-Systemd service unit-file states, read with
+systemd service unit-file states, read with
 `systemctl list-unit-files --type=service` (read-only). Runtime facts such as
 failed units or `is-system-running` are deliberately excluded: they churn and
 belong to a future runtime collector. Units in the `transient` state are
