@@ -137,8 +137,9 @@ gitignored and can be deleted after inspection.
   provides the `runner` (logged subprocess) and `env` (isolated child
   environment) fixtures; no extra imports are needed. The shared
   [e2eutil.py](e2eutil.py) provides `Runner` (use `runner.invoke(...)` to get a
-  typed `CommandResult` with separate `stdout`, `stderr` and `returncode`) and
-  `manifest(root)` for `lstat`-based filesystem preservation checks.
+  typed `CommandResult` with separate `stdout`, `stderr` and `returncode` and an
+  optional `cwd`), `manifest(root, exclude=...)` for `lstat`-based filesystem
+  preservation checks, and the shared `dash_link` and `doctor_findings` helpers.
 - Invoke the installed `lion` command as a subprocess. Use real tools for the
   lifecycle under test rather than mocking collectors or package-manager calls.
 - Isolate writable state with `tmp_path` and pass environment overrides only
