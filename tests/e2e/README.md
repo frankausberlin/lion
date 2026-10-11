@@ -67,18 +67,22 @@ skip the suite to prevent accidental system mutations.
 
 | Test | Behavior checked |
 | --- | --- |
-| [Package lifecycle](test_package_lifecycle.py) | Builds two local dependency-free package versions without maintainer scripts; scans the baseline, installs, upgrades, purges and scans each state. Checks structural changes for install/removal and a nonstructural version change for upgrade. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. |
-| [Collector v2](test_collectors_v2.py) | Scans and asserts the eight collector sections with deterministic bare-profile data (`network` empty, `containers` `runtime=none`), confirmation without volatile fields, a clean read-only `status`, the additive schema-2 contract (an old snapshot without the v2 sections stays readable and is appended on rescan), the v2 `doctor` findings, preserved history bytes after all read-only commands, and a loud failure on a legacy German entry. |
-| [Collector dash](test_collector_dash.py) | Scans a real `~/.shlib/dash`: a missing directory is `ok`/empty, a new `LIONSTATE_` link is an added structural entry, a content change is a nonstructural hash change (`status`, append, confirm), unprefixed/regular/directory/broken links stay ignored, an old snapshot without the dash section is appended on rescan, and read-only commands preserve history bytes. |
+| [Package lifecycle](test_package_lifecycle.py) | Builds two local dependency-free package versions without maintainer scripts; scans the baseline, installs, upgrades, purges and scans each state. Checks structural changes for install/removal and a nonstructural version change for upgrade. Checks exact package changes, create/confirm/append behavior, persisted TOML, stable history references, diff resolution and unchanged files after read-only commands. A teardown fixture proves a clean package state before the scenario and re-unholds and purges after it, even after a mid-scenario failure. |
+| [Collector v2](test_collectors_v2.py) | Scans and asserts the eight collector sections with deterministic bare-profile data (`network` empty, `containers` `runtime=none`), confirmation without volatile fields, a clean read-only `status`, the additive schema-2 contract (an old snapshot without the v2 sections stays readable and is appended on rescan), the v2 and dash `doctor` findings, preserved history bytes after all read-only commands, and a loud failure on a legacy German entry. |
+| [Collector dash](test_collector_dash.py) | Scans a real `~/.shlib/dash`: a missing directory is `ok`/empty; a new `LIONSTATE_` link is structural; a content change, a change/revert pair and a link retargeting are nonstructural hash changes; removing a link is structural in `status` and the stored `diff`; a regular file at the dash path, an unlistable directory and, as the unprivileged `lion-e2e` user, unreadable targets yield `unavailable` with a stable, leak-free error and recover; unprefixed/regular/directory/broken links stay ignored. A synthetic secret never appears in any output, stored TOML or generated reco, an `lstat`-based manifest proves read-only preservation, and a scan leaves only its stored entry and the persistent lock. |
+| [History contract](test_history_contract.py) | A fresh environment leaves no data path or lock after every bare/read-only command; a one-state `diff` exits 1 without writes. An unwritable history fails `scan` loudly without touching the stored bytes or leaving staging files; an unreadable newest or older entry fails `status`, `history`, `diff` and `scan` with the affected path; a syntactically broken older entry is never skipped, not even by `history --limit 1`; the history manifest is preserved. |
 | [Shlib lifecycle](test_shlib_lifecycle.py) | Installs and uninstalls with real Zsh in a temporary home. Checks literal export values, linked scripts, load order, installer additions, syntax-failure handling, file permissions and repeated uninstall. |
 | [Doctor environment](test_doctor_environment.py) | Runs `doctor` over a real filesystem: the deterministic bare profile, pure JSON, read-only preservation, reco permissions/content, hostile-filename safety, no-overwrite on a second run, damaged history and legacy `scans/`, and an unusable data path. |
 | [Doctor permissions](test_doctor_permissions.py) | Runs scan, shlib installation and doctor as the unprivileged `lion-e2e` user. Checks preservation of existing history, shell files, exports and permissions; denied reco publication returns JSON/exit 1 without partial files. |
-| [Runner diagnostics](test_runner.py) | A real subprocess timeout retains the command and partial stdout/stderr. |
+| [Runner diagnostics](test_runner.py) | A real subprocess timeout retains the command and partial stdout/stderr; an expected non-zero exit returns both streams separately without raising. |
 | [Doctor shlib](test_doctor_shlib.py) | Installs the real shell library and inspects the resulting `shlib.*` findings: clean install, missing reference copy, drifted `.zshrc`, missing directory, `dash/` defects, ambiguous markers and a foreign `ZDOTDIR`. |
 
 The package scenario retains four distinct history entries even when removal
 restores the initial collector data. The shlib scenario compares shell behavior
-before and after flattening.
+before and after flattening. Read-only scenarios compare an `lstat`-based
+filesystem manifest, so the permanently retained `lion/.history.lock` is the
+only path a successful `scan` may add and a `doctor` run may add only its
+`recos/` directory and one script.
 
 Physical GPU discovery is outside this suite's coverage. The image deliberately
 installs no `lspci`, no `nvidia-smi` and no container engine, which keeps the
@@ -131,7 +135,10 @@ gitignored and can be deleted after inspection.
 - Add a `test_*.py` file here with `pytestmark = pytest.mark.e2e`. The shared
   [conftest.py](conftest.py) guards every test with the container check and
   provides the `runner` (logged subprocess) and `env` (isolated child
-  environment) fixtures; no extra imports are needed.
+  environment) fixtures; no extra imports are needed. The shared
+  [e2eutil.py](e2eutil.py) provides `Runner` (use `runner.invoke(...)` to get a
+  typed `CommandResult` with separate `stdout`, `stderr` and `returncode`) and
+  `manifest(root)` for `lstat`-based filesystem preservation checks.
 - Invoke the installed `lion` command as a subprocess. Use real tools for the
   lifecycle under test rather than mocking collectors or package-manager calls.
 - Isolate writable state with `tmp_path` and pass environment overrides only
