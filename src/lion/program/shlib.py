@@ -13,9 +13,7 @@ import fcntl
 import os
 import re
 import shlex
-import shutil
 import stat
-import subprocess
 import tempfile
 from collections.abc import Generator
 from contextlib import contextmanager
@@ -24,6 +22,7 @@ from pathlib import Path
 from typing import cast
 
 from lion.program.checks import CheckStatus, DoctorContext, Finding
+from lion.program.zshsyntax import validate_zsh
 
 START = "# >>>>>> SHLIB for zsh"
 END = "# <<<<<< SHLIB for zsh"
@@ -130,16 +129,7 @@ def _exports(directory: Path) -> str:
 
 
 def _validate(text: str) -> None:
-    zsh = shutil.which("zsh")
-    if zsh is None:
-        raise ValueError("zsh is required for syntax validation; no shell configuration changed.")
-    # Under NOEXEC, top-level negation can yield status 1 even for valid syntax.
-    # Parse a function body to avoid evaluating that syntactic exit status.
-    source = "function _lion_syntax_check() {\n" + text + "\n}\n"
-    result = subprocess.run([zsh, "-f", "-n"], input=source, text=True, capture_output=True, timeout=10, check=False)
-    if result.returncode:
-        # Zsh diagnostics can echo source lines containing secrets.
-        raise ValueError("Zsh syntax validation failed; no shell configuration changed.")
+    validate_zsh(text)
 
 
 def _write(path: Path, text: str, mode: int) -> None:

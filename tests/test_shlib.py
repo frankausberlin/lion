@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 from lion.cli import app
 from lion.command.shlib import Action
 from lion.command.shlib import run as run_shlib
-from lion.program import shlib
+from lion.program import shlib, zshsyntax
 from lion.program.checks import CheckStatus, DoctorContext
 
 runner = CliRunner()
@@ -315,11 +315,11 @@ def test_write_failure_rollback(home: Path, monkeypatch: pytest.MonkeyPatch, act
 @pytest.mark.parametrize("outcome", ["missing", "bad", "good", "timeout"])
 def test_syntax_checker(monkeypatch: pytest.MonkeyPatch, outcome: str) -> None:
     """Validate without executing code or exposing diagnostics with secrets."""
-    monkeypatch.setattr(shlib.shutil, "which", Mock(return_value=None if outcome == "missing" else "/bin/zsh"))
+    monkeypatch.setattr(zshsyntax.shutil, "which", Mock(return_value=None if outcome == "missing" else "/bin/zsh"))
     process = Mock(return_value=subprocess.CompletedProcess([], 1 if outcome == "bad" else 0, "", "SECRET"))
     if outcome == "timeout":
         process.side_effect = subprocess.TimeoutExpired("zsh", 10)
-    monkeypatch.setattr(shlib.subprocess, "run", process)
+    monkeypatch.setattr(zshsyntax.subprocess, "run", process)
     if outcome == "good":
         shlib._validate("echo SECRET")  # pyright: ignore[reportPrivateUsage]
         assert process.call_args.args[0] == ["/bin/zsh", "-f", "-n"]
