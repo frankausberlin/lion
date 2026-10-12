@@ -2,15 +2,25 @@
 
 Every scenario must run inside the disposable container started by
 :file:`scripts/test-e2e.sh`. The driver starts ``zsh -i`` behind a pseudo
-terminal with a sentinel prompt and an isolated ``HOME``/``ZDOTDIR``. Results are
-never parsed from the pty text: the scenarios read the recording and spool files
-instead, so prompt and echo noise cannot contaminate assertions. The pty text is
-only used to detect that the shell reached its prompt.
+terminal with an isolated ``HOME``/``ZDOTDIR``. Two prompt modes exist:
+
+* the default mode sets a sentinel ``PROMPT`` so the shell's readiness can be
+  detected exactly (see :meth:`Zsh.wait_prompt`);
+* the ``p10k`` mode loads the real Powerlevel10k from the image. Powerlevel10k
+  manages the prompt itself, so no sentinel may be set; instead the driver
+  waits for observable output such as the ``●`` segment.
+
+Results are never parsed from the pty text: the scenarios read the recording
+and spool files instead, so prompt and echo noise cannot contaminate
+assertions. The pty text is only used to detect readiness and — for the p10k
+scenario — the presence of the prompt segment itself.
 """
 
+import codecs
 import fcntl
 import os
 import pty
+import re
 import select
 import signal
 import struct
@@ -24,29 +34,60 @@ PROMPT = "<<LIONP>>"
 #: Sentinel for the continuation prompt.
 PROMPT2 = "<<LIONP2>>"
 
+#: Pinned Powerlevel10k theme inside the E2E image (see :file:`Dockerfile`).
+P10K_THEME = "/opt/powerlevel10k/powerlevel10k.zsh-theme"
+#: The committed, minimal p10k config that lives next to this module.
+P10K_CONFIG = (Path(__file__).resolve().parent / "p10k" / "p10k.zsh").as_posix()
+
+#: Matches ANSI escape sequences: CSI, OSC (hyperlinks) and single-char escapes.
+_ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
+
+
+def strip_ansi(text: str) -> str:
+    """Remove ANSI escape sequences and carriage returns from ``text``.
+
+    The returned string keeps every printable character, so a prompt segment
+    such as ``●`` survives while colour and hyperlink codes do not.
+    """
+    return _ANSI_RE.sub("", text).replace("\r", "")
+
 
 class Zsh:
     """An interactive zsh behind a pty with a deterministic prompt."""
 
-    def __init__(self, env: dict[str, str], zdotdir: Path) -> None:
+    def __init__(self, env: dict[str, str], zdotdir: Path, p10k: bool = False) -> None:
         """Start ``zsh -i`` with the child environment of an E2E scenario.
 
         ``zdotdir`` receives a small wrapper that sources the real ``HOME``
-        dotfiles (and with them the shlib watch script) and then sets the
-        sentinel prompts, so no global or user prompt can clobber them. The
-        caller's environment is never modified.
+        dotfiles (and with them the shlib watch script). In the default mode it
+        then sets the sentinel prompts, so no global or user prompt can clobber
+        them. With ``p10k=True`` the wrapper mirrors a real p10k ``.zshrc``: it
+        sources the instant-prompt preamble, then the real Powerlevel10k theme
+        and the committed p10k config, and only then the user dotfiles. No
+        prompt is set, because Powerlevel10k owns the prompt and the sentinel
+        would break its rendering. The caller's environment is never modified.
         """
         home = env["HOME"]
         zdotdir.mkdir(parents=True, exist_ok=True)
         (zdotdir / ".zshenv").write_text('[[ -r "$HOME/.zshenv" ]] && source "$HOME/.zshenv"\n')
-        (zdotdir / ".zshrc").write_text(
-            f"[[ -r \"$HOME/.zshrc\" ]] && source \"$HOME/.zshrc\"\nPROMPT='{PROMPT}'\nPROMPT2='{PROMPT2}'\n"
-        )
+        if p10k:
+            (zdotdir / ".zshrc").write_text(
+                'if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then\n'
+                '  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"\n'
+                "fi\n"
+                f"source {P10K_THEME}\n"
+                f"source {P10K_CONFIG}\n"
+                '[[ -r "$HOME/.zshrc" ]] && source "$HOME/.zshrc"\n'
+            )
+        else:
+            (zdotdir / ".zshrc").write_text(
+                f"[[ -r \"$HOME/.zshrc\" ]] && source \"$HOME/.zshrc\"\nPROMPT='{PROMPT}'\nPROMPT2='{PROMPT2}'\n"
+            )
         child_env = {
             **env,
             "HOME": home,
             "ZDOTDIR": str(zdotdir),
-            "TERM": "dumb",
+            "TERM": "xterm-256color" if p10k else "dumb",
         }
         for noisy in ("ZSH_VERSION", "ZSH_NAME", "SHLVL"):
             child_env.pop(noisy, None)
@@ -87,16 +128,41 @@ class Zsh:
         """Read until the primary prompt sentinel appears; return the raw text."""
         end = time.time() + timeout
         text = ""
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
         while time.time() < end:
             chunk = self._read_chunk(min(0.2, max(0.0, end - time.time())))
             if chunk is None:
                 continue
             if chunk == b"":
                 break
-            text += chunk.decode("utf-8", "replace")
+            text += decoder.decode(chunk)
             if PROMPT in text.split(PROMPT2)[-1]:
                 break
         return text
+
+    def wait_for(self, text: str, present: bool = True, timeout: float = 8.0) -> str:
+        """Read fresh output until ``text`` is present; return the raw text.
+
+        Only output that arrives after the call is considered, so the condition
+        describes the next prompt render rather than the whole session. With
+        ``present=False`` the method keeps reading until ``timeout`` expires and
+        then returns: absence can only be observed over a bounded window, since
+        any single early chunk might be an incomplete redraw. The caller strips
+        the result with :func:`strip_ansi` before asserting.
+        """
+        end = time.time() + timeout
+        accumulated = ""
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
+        while time.time() < end:
+            chunk = self._read_chunk(min(0.2, max(0.0, end - time.time())))
+            if chunk is None:
+                continue
+            if chunk == b"":
+                break
+            accumulated += decoder.decode(chunk)
+            if present and text in strip_ansi(accumulated):
+                return accumulated
+        return accumulated
 
     def send_raw(self, data: bytes) -> None:
         """Write raw bytes to the pty without waiting."""
@@ -110,11 +176,12 @@ class Zsh:
         """Read whatever arrives within ``seconds`` without waiting for a prompt."""
         end = time.time() + seconds
         text = ""
+        decoder = codecs.getincrementaldecoder("utf-8")("replace")
         while time.time() < end:
             chunk = self._read_chunk(max(0.0, end - time.time()))
             if chunk is None or chunk == b"":
                 break
-            text += chunk.decode("utf-8", "replace")
+            text += decoder.decode(chunk)
         return text
 
     def run(self, command: str, timeout: float = 15.0) -> str:
