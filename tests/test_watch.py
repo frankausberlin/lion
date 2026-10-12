@@ -48,11 +48,11 @@ def _insert_integration(home: Path) -> None:
     assert report.messages
 
 
-def _append_segment(ref: str, lines: list[str]) -> None:
+def _append_segment(ref: str, lines: list[str], name: str = "100-1-1.log") -> None:
     record_dir = recording.get_recordings_dir() / ref
     events = record_dir / "events"
     events.mkdir(parents=True, exist_ok=True)
-    path = events / "100-1-1.log"
+    path = events / name
     with path.open("a", encoding="utf-8") as stream:
         for line in lines:
             _ = stream.write(line + "\n")
@@ -307,6 +307,34 @@ def test_watch_show_events_json(collect: Mock) -> None:
     assert payload["events"][2]["status"] == 130
     assert payload["events"][2]["duration_ms"] == 2.5
     assert payload["recording"]["ref"] == ref
+
+
+def test_watch_show_text_marks_interleaved_segments(collect: Mock) -> None:
+    """The text view marks the segment when interleaved events switch it."""
+    home = Path(os.environ["HOME"])
+    _insert_integration(home)
+    assert _invoke("watch", "start").exit_code == 0
+    ref = next(entry.ref for entry in recording.list_recordings())
+    base = datetime.now(UTC).timestamp()
+    _append_segment(
+        ref,
+        [_header(str(base)), f"cmd\t{base}\t/tmp\techo\\ A1", f"cmd\t{base + 2}\t/tmp\techo\\ A2"],
+        name="100-1-1.log",
+    )
+    _append_segment(
+        ref,
+        [_header(str(base + 1)), f"cmd\t{base + 1}\t/tmp\techo\\ B1", f"cmd\t{base + 3}\t/tmp\techo\\ B2"],
+        name="200-2-2.log",
+    )
+
+    result = _invoke("watch", "show", ref)
+
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    a2 = next(index for index, line in enumerate(lines) if line.endswith("$ echo A2"))
+    assert lines[a2 - 1] == "  \u2026 segment 100-1-1.log"
+    b2 = next(index for index, line in enumerate(lines) if line.endswith("$ echo B2"))
+    assert lines[b2 - 1] == "  \u2026 segment 200-2-2.log"
 
 
 def test_watch_show_defaults_to_active(collect: Mock) -> None:

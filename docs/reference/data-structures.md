@@ -230,11 +230,12 @@ An empty space reports `{"recordings": []}`.
 }
 ```
 
-Events are ordered by segment start, then time and file line. `time` is ISO 8601
-with a UTC offset; the raw spool format is documented in
-[Recordings](recordings.md). Without a reference, `show` prefers the active
-recording and otherwise the latest; an empty space is `{"recording": null,
-"events": []}`.
+Events are ordered chronologically; the segment name and the file line break
+ties, so interleaved parallel shells stay in execution order and each segment
+header appears at its start. `time` is ISO 8601 with a UTC offset; the raw spool
+format is documented in [Recordings](recordings.md). Without a reference, `show`
+prefers the active recording and otherwise the latest; an empty space is
+`{"recording": null, "events": []}`.
 
 ## Config (planned)
 

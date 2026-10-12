@@ -71,9 +71,10 @@ uv run lion watch show latest --json
 uv run lion watch show 2026-10-12T09  # any unique prefix
 ```
 
-`show` prints the ordered events: commands with their working directory, results
-with exit status and duration, comments and exits. `status`, `list` and `show`
-are read-only.
+`show` prints the events chronologically: commands with their working directory,
+results with exit status and duration, comments and exits. When parallel shells
+interleave, a continuation line marks the segment of the following events.
+`status`, `list` and `show` are read-only.
 
 ## Comments as captured input
 

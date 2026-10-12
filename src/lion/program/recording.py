@@ -907,20 +907,20 @@ def stop_recording(collectors: Mapping[str, Mapping[str, object]], note: str = "
 
 
 def load_events(recording: Recording) -> list[SpoolEvent]:
-    """Return every event of a recording, ordered by segment start, then time.
+    """Return every event of a recording, ordered chronologically.
 
     Args:
         recording: A loaded recording.
 
     Returns:
-        The ordered events; the header event of each segment comes first at its
-        segment's start.
+        The events of every segment ordered by time; the segment name and the
+        file line break ties, so each segment header stays first within its
+        segment and appears at its start instant.
     """
-    epochs = {segment.name: segment.epoch_start for segment in recording.segments}
     events: list[SpoolEvent] = []
     for segment in recording.segments:
         events.extend(read_events(segment.path))
-    events.sort(key=lambda event: (epochs.get(event.segment, 0.0), event.time, event.line))
+    events.sort(key=lambda event: (event.time, event.segment, event.line))
     return events
 
 

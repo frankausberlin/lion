@@ -51,8 +51,9 @@ Recordings live in their own data space, separate from the scan history.
   liveness is still true as open. An older segment whose process was taken
   over (`exec zsh`, a reloaded integration) can receive no further events and
   is reported as ended (`superseded`) instead.
-- Parallel shells are ordered by segment start time and the shared `boot_id`, so
-  their events interleave deterministically on read.
+- Parallel shells interleave chronologically on read; the segment name and the
+  file line break ties, so the order stays deterministic and the text view can
+  mark the segment when the event stream switches.
 
 ## E2 implementation notes
 
@@ -74,9 +75,11 @@ Recordings live in their own data space, separate from the scan history.
   of the chain keeps its liveness verdict, every older one ends as
   `superseded` — unconditionally, so the takeover date stays stable after the
   process ends.
-- Readers validate strictly and order events by segment start, then time and
-  file line. `stop` guards against the last event of its own record, and both
-  mutations use the shared clock guard over meta, states and segment starts.
+- Readers validate strictly and order events chronologically, with the segment
+  name and file line as tie-breakers; the text view prints a continuation line
+  when interleaved events switch the segment. `stop` guards against the last
+  event of its own record, and both mutations use the shared clock guard over
+  meta, states and segment starts.
 - `read_events` decodes the documented event grammar and fails loudly with the
   segment path and line number on damage; no read function writes.
 

@@ -250,6 +250,8 @@ def test_parallel_shells_keep_separate_segments(runner: Runner, env: dict[str, s
     assert {"echo A1", "echo A2"} <= a_group
     assert {"echo B1", "echo B2"} <= b_group
     assert "echo B1" not in a_group and "echo A1" not in b_group
+    commands = [str(event["text"]) for event in events if event["kind"] == "cmd"]
+    assert commands == ["echo A1", "echo B1", "echo A2", "echo B2"]
     order = [segment["name"] for segment in _segments(_mapping(payload["recording"]))]
     starts = [str(event["segment"]) for event in events if event["kind"] == "segment"]
     assert starts == order

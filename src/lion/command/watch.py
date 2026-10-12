@@ -224,8 +224,12 @@ def _run_show(reference: str | None, json_output: bool) -> None:
     for segment in record.segments:
         typer.echo(_segment_text(segment))
     typer.echo("")
+    previous_segment: str | None = None
     for event in events:
+        if event.kind != "segment" and previous_segment is not None and event.segment != previous_segment:
+            typer.echo(f"  \u2026 segment {event.segment}")
         typer.echo(_event_text(event))
+        previous_segment = event.segment
 
 
 def run(action: str = "status", argument: str | None = None, json_output: bool = False) -> None:

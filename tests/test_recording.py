@@ -431,18 +431,34 @@ def test_segment_statistics(monkeypatch: pytest.MonkeyPatch) -> None:
     assert segment.end_reason == ""
 
 
-def test_load_events_orders_by_segment_start(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Events are ordered by segment start, then time and line."""
+def test_load_events_orders_chronologically(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Events of parallel segments interleave by time; segment and line break ties."""
     _freeze(monkeypatch, T0)
     start_recording(_state())
     ref = next(entry.ref for entry in list_recordings())
-    _append_segment(ref, "200-1-1.log", [_header(epoch=T1.timestamp()), f"cmd\t{T1.timestamp()}\t/tmp\tsecond"])
-    _append_segment(ref, "100-1-1.log", [_header(epoch=T0.timestamp()), f"cmd\t{T0.timestamp()}\t/tmp\tfirst"])
+    t0, t1, t2, t3 = (T0.timestamp() + offset for offset in (0.0, 1.0, 2.0, 3.0))
+    _append_segment(
+        ref,
+        "100-1-1.log",
+        [_header(pid=1001, ticks=1, epoch=t0), f"cmd\t{t0}\t/tmp\tA1", f"cmd\t{t2}\t/tmp\tA2"],
+    )
+    _append_segment(
+        ref,
+        "200-2-2.log",
+        [_header(pid=1002, ticks=2, epoch=t1), f"cmd\t{t1}\t/tmp\tB1", f"cmd\t{t3}\t/tmp\tB2"],
+    )
 
     events = load_events(load_recording(ref))
 
-    assert [event.text for event in events if event.kind == "cmd"] == ["first", "second"]
-    assert [event.kind for event in events] == ["segment", "cmd", "segment", "cmd"]
+    assert [(event.kind, event.segment) for event in events] == [
+        ("segment", "100-1-1.log"),
+        ("cmd", "100-1-1.log"),
+        ("segment", "200-2-2.log"),
+        ("cmd", "200-2-2.log"),
+        ("cmd", "100-1-1.log"),
+        ("cmd", "200-2-2.log"),
+    ]
+    assert [event.text for event in events if event.kind == "cmd"] == ["A1", "B1", "A2", "B2"]
 
 
 def test_damaged_segment_line_fails_with_path_and_line(monkeypatch: pytest.MonkeyPatch) -> None:
