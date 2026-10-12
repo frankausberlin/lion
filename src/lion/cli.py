@@ -20,18 +20,24 @@ from lion.command.diff import run as run_diff
 from lion.command.doctor import run as run_doctor
 from lion.command.history import run as run_history
 from lion.command.scan import run as run_scan
+from lion.command.shell import run as run_shell
 from lion.command.shlib import Action
 from lion.command.shlib import run as run_shlib
 from lion.command.status import run as run_status
+from lion.command.watch import run as run_watch
 from lion.main import (
     DIFF_EPILOG,
     DOCTOR_EPILOG,
     HISTORY_EPILOG,
     ROOT_EPILOG,
     SCAN_EPILOG,
+    SHELL_EPILOG,
+    SHELL_HELP,
     SHLIB_EPILOG,
     SHLIB_HELP,
     STATUS_EPILOG,
+    WATCH_EPILOG,
+    WATCH_HELP,
 )
 
 app = typer.Typer(
@@ -150,3 +156,98 @@ def shlib_uninstall() -> None:
 
 
 app.add_typer(shlib_app)
+
+shell_app = typer.Typer(
+    name="shell",
+    help=SHELL_HELP,
+    short_help="Manage the watch shell integration (~/.zshrc, ~/.shlib).",
+    epilog=SHELL_EPILOG,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@shell_app.callback()
+def shell_root(ctx: typer.Context) -> None:
+    """Run ``lion shell status`` when no operation is given."""
+    if ctx.invoked_subcommand is None:
+        run_shell("status", False)
+
+
+@shell_app.command("status")
+def shell_status(json_output: Annotated[bool, typer.Option("--json", help="Output status as JSON.")] = False) -> None:
+    """Show whether the watch integration is inserted and where."""
+    run_shell("status", json_output)
+
+
+@shell_app.command("insert")
+def shell_insert() -> None:
+    """Insert the watch integration without overwriting anything."""
+    run_shell("insert", False)
+
+
+@shell_app.command("remove")
+def shell_remove() -> None:
+    """Remove the watch integration again."""
+    run_shell("remove", False)
+
+
+watch_app = typer.Typer(
+    name="watch",
+    help=WATCH_HELP,
+    short_help="Record shell sessions and read the recordings.",
+    epilog=WATCH_EPILOG,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@watch_app.callback()
+def watch_root(ctx: typer.Context) -> None:
+    """Run ``lion watch status`` when no operation is given."""
+    if ctx.invoked_subcommand is None:
+        run_watch("status", None, False)
+
+
+@watch_app.command("status")
+def watch_status(json_output: Annotated[bool, typer.Option("--json", help="Output status as JSON.")] = False) -> None:
+    """Show the active recording and what changed since it started."""
+    run_watch("status", None, json_output)
+
+
+@watch_app.command("start")
+def watch_start(
+    note: Annotated[str, typer.Option("--note", help="Free-text note stored with the recording.")] = "",
+) -> None:
+    """Start a recording; requires 'lion shell insert'."""
+    run_watch("start", note, False)
+
+
+@watch_app.command("stop")
+def watch_stop(
+    note: Annotated[str, typer.Option("--note", help="Free-text note stored with the recording.")] = "",
+) -> None:
+    """Stop the active recording and store its end state."""
+    run_watch("stop", note, False)
+
+
+@watch_app.command("list")
+def watch_list(json_output: Annotated[bool, typer.Option("--json", help="Output the list as JSON.")] = False) -> None:
+    """List stored recordings with their event counts and size."""
+    run_watch("list", None, json_output)
+
+
+@watch_app.command("show")
+def watch_show(
+    reference: Annotated[
+        str | None,
+        typer.Argument(help="Recording reference ('latest', 'active', a unique prefix); defaults to active or latest."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output the recording as JSON.")] = False,
+) -> None:
+    """Print the events of one recording (read-only)."""
+    run_watch("show", reference, json_output)
+
+
+app.add_typer(shell_app)
+app.add_typer(watch_app)

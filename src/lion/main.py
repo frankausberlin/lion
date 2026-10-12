@@ -15,6 +15,8 @@ Common commands:
   lion diff 1 2        compare two stored states
   lion doctor          diagnose the machine and write a reviewable fix script
   lion shlib           manage the Zsh shell library (~/.shlib)
+  lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
+  lion watch           record shell sessions and read the recordings
   lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
@@ -104,6 +106,57 @@ Opt a dash file into content monitoring with the LIONSTATE_ prefix:
 Load an existing script without moving it:
 
   ln -s ~/dotfiles/aliases.zsh ~/.shlib/shlibs/20-aliases.sh
+"""
+
+SHELL_HELP = """Manage the watch shell integration that records your Zsh input blocks into the
+active recording:
+
+  insert   install the integration (a script under ~/.shlib/shlibs when shlib
+           is installed, otherwise a marked block in ~/.zshrc)
+  remove   remove the recognized artifact again
+  status   show mode, path, modified and warnings (read-only)
+
+The integration loads silently and never starts a process in the input path.
+"""
+
+SHELL_EPILOG = """Running 'lion shell' without an operation shows the status.
+
+Examples:
+
+  lion shell            show the current status (same as 'lion shell status')
+  lion shell insert     install the integration and back up ~/.zshrc
+  lion shell remove     remove the integration again
+
+After 'lion shell insert', open a new shell or run 'exec zsh'. Existing shells
+pick up start and stop with their next prompt.
+"""
+
+WATCH_HELP = """Record shell sessions: start a recording, work in any Zsh, stop it later and
+read the captured events:
+
+  start    begin a recording (requires 'lion shell insert')
+  stop     end the active recording; optional --note TEXT
+  status   show the active recording and a diff since its start (read-only)
+  list     list stored recordings with event counts and size (read-only)
+  show     print the events of one recording (read-only)
+
+Events are captured in zsh; Python never runs in the input path.
+"""
+
+WATCH_EPILOG = """One recording is active per user and machine. A recording survives shell
+restarts, 'exec zsh' and reboots: segment liveness is derived from the kernel
+boot id plus the writing shell's PID and start time, and a missing exit event
+is never treated as success.
+
+Examples:
+
+  lion watch start --note "debugging wifi"
+  lion watch status            what changed since the recording started
+  lion watch list              stored recordings with events and size
+  lion watch show latest       print the recorded events
+  lion watch stop --note "done"
+
+Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
 """
 
 

@@ -11,10 +11,26 @@ import typer
 
 from lion.command import fail
 from lion.command.diagnostics import warn_incomplete
+from lion.program import recording
 from lion.program.diff import diff_collectors, has_structural_change, render
 from lion.program.storage import get_data_dir, load_latest
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
+
+
+def _watch_banner() -> None:
+    """Append the short watch banner to the text output.
+
+    A damaged recording space must not break the ``status`` contract, so an
+    unreadable pointer warns on stderr instead of failing the command.
+    """
+    try:
+        active = recording.active_recording()
+    except (OSError, ValueError) as exc:
+        typer.echo(f"Warning: recording space unreadable ({exc}); run 'lion doctor'.", err=True)
+        return
+    if active is not None:
+        typer.echo(f"Watch is recording since {active.meta.started_at}; run 'lion watch status'.")
 
 
 def run(json_output: bool = False) -> None:
@@ -35,11 +51,12 @@ def run(json_output: bool = False) -> None:
             typer.echo("null")
         else:
             typer.echo("No state stored. Run 'lion scan'.")
-        if (get_data_dir() / "scans").is_dir():
-            typer.echo(
-                "Note: old states under 'scans/' are no longer read; run 'lion scan' to start a new history.",
-                err=True,
-            )
+            if (get_data_dir() / "scans").is_dir():
+                typer.echo(
+                    "Note: old states under 'scans/' are no longer read; run 'lion scan' to start a new history.",
+                    err=True,
+                )
+            _watch_banner()
         return
 
     diff = diff_collectors(latest.collectors, state)
@@ -51,9 +68,11 @@ def run(json_output: bool = False) -> None:
             "differences": diff,
         }
         typer.echo(json.dumps(payload))
-    elif not diff:
+        return
+    if not diff:
         typer.echo(f"Nothing has changed since the last scan at {latest.confirmed_at}.")
     else:
         if has_structural_change(diff):
             typer.echo("Structure changed.")
         typer.echo(render(diff))
+    _watch_banner()

@@ -28,6 +28,8 @@ Common commands:
   lion diff 1 2        compare two stored states
   lion doctor          diagnose the machine and write a reviewable fix script
   lion shlib           manage the Zsh shell library (~/.shlib)
+  lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
+  lion watch           record shell sessions and read the recordings
   lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
@@ -41,6 +43,8 @@ Run 'lion <command> --help' for details on a command.
 * `diff`: Compare two stored states without...
 * `doctor`: Run a read-only diagnosis and write a...
 * `shlib`: Manage the Zsh shell library (~/.shlib).
+* `shell`: Manage the watch shell integration (~/.zshrc, ~/.shlib).
+* `watch`: Record shell sessions and read the recordings.
 
 ## `lion scan`
 
@@ -268,4 +272,213 @@ $ lion shlib uninstall [OPTIONS]
 
 **Options**:
 
+* `--help`: Show this message and exit.
+
+## `lion shell`
+
+Manage the watch shell integration that records your Zsh input blocks into the
+active recording:
+
+  insert   install the integration (a script under ~/.shlib/shlibs when shlib
+           is installed, otherwise a marked block in ~/.zshrc)
+  remove   remove the recognized artifact again
+  status   show mode, path, modified and warnings (read-only)
+
+The integration loads silently and never starts a process in the input path.
+
+**Usage**:
+
+```console
+$ lion shell [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+Running 'lion shell' without an operation shows the status.
+
+Examples:
+
+  lion shell            show the current status (same as 'lion shell status')
+  lion shell insert     install the integration and back up ~/.zshrc
+  lion shell remove     remove the integration again
+
+After 'lion shell insert', open a new shell or run 'exec zsh'. Existing shells
+pick up start and stop with their next prompt.
+
+
+**Commands**:
+
+* `status`: Show whether the watch integration is...
+* `insert`: Insert the watch integration without...
+* `remove`: Remove the watch integration again.
+
+### `lion shell status`
+
+Show whether the watch integration is inserted and where.
+
+**Usage**:
+
+```console
+$ lion shell status [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output status as JSON.
+* `--help`: Show this message and exit.
+
+### `lion shell insert`
+
+Insert the watch integration without overwriting anything.
+
+**Usage**:
+
+```console
+$ lion shell insert [OPTIONS]
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+### `lion shell remove`
+
+Remove the watch integration again.
+
+**Usage**:
+
+```console
+$ lion shell remove [OPTIONS]
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+## `lion watch`
+
+Record shell sessions: start a recording, work in any Zsh, stop it later and
+read the captured events:
+
+  start    begin a recording (requires &#x27;lion shell insert&#x27;)
+  stop     end the active recording; optional --note TEXT
+  status   show the active recording and a diff since its start (read-only)
+  list     list stored recordings with event counts and size (read-only)
+  show     print the events of one recording (read-only)
+
+Events are captured in zsh; Python never runs in the input path.
+
+**Usage**:
+
+```console
+$ lion watch [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+One recording is active per user and machine. A recording survives shell
+restarts, 'exec zsh' and reboots: segment liveness is derived from the kernel
+boot id plus the writing shell's PID and start time, and a missing exit event
+is never treated as success.
+
+Examples:
+
+  lion watch start --note "debugging wifi"
+  lion watch status            what changed since the recording started
+  lion watch list              stored recordings with events and size
+  lion watch show latest       print the recorded events
+  lion watch stop --note "done"
+
+Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
+
+
+**Commands**:
+
+* `status`: Show the active recording and what changed...
+* `start`: Start a recording; requires &#x27;lion shell...
+* `stop`: Stop the active recording and store its...
+* `list`: List stored recordings with their event...
+* `show`: Print the events of one recording...
+
+### `lion watch status`
+
+Show the active recording and what changed since it started.
+
+**Usage**:
+
+```console
+$ lion watch status [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output status as JSON.
+* `--help`: Show this message and exit.
+
+### `lion watch start`
+
+Start a recording; requires &#x27;lion shell insert&#x27;.
+
+**Usage**:
+
+```console
+$ lion watch start [OPTIONS]
+```
+
+**Options**:
+
+* `--note <str>`: Free-text note stored with the recording.
+* `--help`: Show this message and exit.
+
+### `lion watch stop`
+
+Stop the active recording and store its end state.
+
+**Usage**:
+
+```console
+$ lion watch stop [OPTIONS]
+```
+
+**Options**:
+
+* `--note <str>`: Free-text note stored with the recording.
+* `--help`: Show this message and exit.
+
+### `lion watch list`
+
+List stored recordings with their event counts and size.
+
+**Usage**:
+
+```console
+$ lion watch list [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output the list as JSON.
+* `--help`: Show this message and exit.
+
+### `lion watch show`
+
+Print the events of one recording (read-only).
+
+**Usage**:
+
+```console
+$ lion watch show [OPTIONS] [reference]
+```
+
+**Arguments**:
+
+* `reference`: Recording reference (&#x27;latest&#x27;, &#x27;active&#x27;, a unique prefix); defaults to active or latest.
+
+**Options**:
+
+* `--json`: Output the recording as JSON.
 * `--help`: Show this message and exit.
