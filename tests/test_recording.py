@@ -291,6 +291,40 @@ def test_stop_refuses_when_clock_precedes_last_event(monkeypatch: pytest.MonkeyP
     assert active_recording() is not None
 
 
+def test_start_tolerates_a_record_directory_without_any_timestamp(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A concurrent start's fresh record directory cannot poison the guard.
+
+    The other process can be between ``mkdir`` and publishing ``meta.toml``;
+    such a directory holds no timestamp, so the guard skips it instead of
+    failing on a record that does not exist yet.
+    """
+    _freeze(monkeypatch, T0)
+    recordings = get_recordings_dir()
+    recordings.mkdir(mode=0o700, parents=True)
+    (recordings / "2026-01-01T00-00-00~0000").mkdir(mode=0o700)
+    racing = recordings / "2026-01-01T00-00-00~0001"
+    racing.mkdir(mode=0o700)
+    (racing / "events").mkdir(mode=0o700)
+
+    record = start_recording(_state())
+
+    assert record.active is True
+    assert racing.is_dir()
+
+
+def test_guard_still_fails_loudly_on_a_record_without_meta(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A directory with content but no meta.toml stays a loud guard failure."""
+    _freeze(monkeypatch, T0)
+    start_recording(_state())
+    damaged = get_recordings_dir() / "2026-01-01T00-00-00~0000"
+    damaged.mkdir(mode=0o700)
+    (damaged / "state-start.toml").write_text("schema_version = 1\n")
+
+    _freeze(monkeypatch, T1)
+    with pytest.raises(RecordingError, match=r"meta\.toml"):
+        stop_recording(_state())
+
+
 # --- reading -----------------------------------------------------------------
 
 

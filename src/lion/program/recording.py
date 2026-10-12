@@ -782,10 +782,17 @@ def _timestamps_in(record_dir: Path) -> list[datetime]:
 
     This includes the metadata timestamps, both state snapshots and every
     segment start. Reading is strict: a damaged record fails the guard instead
-    of being skipped.
+    of being skipped. Only a directory that holds no timestamp at all is
+    skipped: a concurrent ``watch start`` can be between creating its record
+    directory and publishing ``meta.toml``, and an empty directory cannot carry
+    a later instant.
     """
     instants: list[datetime] = []
     meta_path = record_dir / "meta.toml"
+    if not meta_path.exists():
+        states = [(record_dir / name).is_file() for name in ("state-start.toml", "state-end.toml")]
+        if not any(states) and not _segment_paths(record_dir):
+            return []
     meta = _load_meta(meta_path)
     instants.append(_parse_instant(meta.started_at, meta_path, "started_at"))
     if meta.stopped_at:

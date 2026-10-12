@@ -145,7 +145,11 @@ is late, stale or unreadable never breaks the prompt; capture simply stays off.
 `watch start` and `watch stop` refuse to mutate anything when the system clock
 precedes the newest known timestamp of the recording space (all `meta.toml`
 times, both state snapshots and every segment start); `stop` additionally guards
-against the last event of its own record. Nothing is written in that case.
+against the last event of its own record. Nothing is written in that case. A
+record directory that carries no timestamp at all is skipped: a concurrent
+`watch start` can be between its `mkdir` and the publication of `meta.toml`,
+and such a directory cannot contain a later instant. A directory with content
+but no `meta.toml` stays a loud failure.
 
 Damaged records are always loud: readers name the file and line, and never skip
 an entry silently. `lion doctor` reports the recording space without writing
