@@ -16,6 +16,7 @@ from lion.command.diagnostics import warn_incomplete
 from lion.program import recording
 from lion.program import shell as shell_logic
 from lion.program.diff import diff_collectors, has_structural_change, render
+from lion.program.recording import Recording
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
 
@@ -173,6 +174,13 @@ def _run_stop(note: str) -> None:
     typer.echo(f"State end: {record.path / 'state-end.toml'}")
 
 
+def record_totals(record: Recording) -> tuple[int, int]:
+    """Return the event total and the byte size of a recording's segments."""
+    events = sum(segment.commands + segment.results + segment.comments + segment.exits for segment in record.segments)
+    size = sum(segment.size_bytes for segment in record.segments)
+    return events, size
+
+
 def _run_list(json_output: bool) -> None:
     records = recording.list_recordings()
     if json_output:
@@ -184,10 +192,7 @@ def _run_list(json_output: bool) -> None:
         return
     typer.echo(f"{'#':>3}  {'REF':<30}  {'STATUS':<7}  {'STARTED':<32}  {'EVENTS':>6}  SIZE")
     for index, record in enumerate(records, start=1):
-        events = sum(
-            segment.commands + segment.results + segment.comments + segment.exits for segment in record.segments
-        )
-        size = sum(segment.size_bytes for segment in record.segments)
+        events, size = record_totals(record)
         typer.echo(
             f"{index:>3}  {record.ref:<30}  {record.meta.status:<7}  {record.meta.started_at:<32}  "
             f"{events:>6}  {format_size(size)}"

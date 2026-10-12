@@ -10,14 +10,12 @@ import json
 import os
 import shlex
 import subprocess
-import tempfile
 from dataclasses import dataclass
-from pathlib import Path
 
 import typer
 
 from lion.command import fail
-from lion.command.watch import format_size, recording_json
+from lion.command.watch import format_size, record_totals, recording_json
 from lion.program import annotations, recording
 from lion.program.annotations import Adr, AdrIssue, ResolvedRef
 from lion.program.recording import Recording
@@ -29,11 +27,11 @@ __all__ = ["run"]
 class _AdrSummary:
     """The ADR counters of the whole recording space."""
 
-    total: int = 0
-    complete: int = 0
-    incomplete: int = 0
-    edited: int = 0
-    status: dict[str, int] | None = None
+    total: int
+    complete: int
+    incomplete: int
+    edited: int
+    status: dict[str, int]
 
     def to_json(self) -> dict[str, object]:
         """Return the counters as the ``records status`` JSON shape."""
@@ -42,7 +40,7 @@ class _AdrSummary:
             "complete": self.complete,
             "incomplete": self.incomplete,
             "edited": self.edited,
-            "status": self.status or {},
+            "status": self.status,
         }
 
 
@@ -131,7 +129,7 @@ def _run_status(json_output: bool) -> None:
         f"ADRs: {summary.total} total, {summary.complete} complete, "
         f"{summary.incomplete} incomplete, {summary.edited} edited."
     )
-    status = summary.status or {}
+    status = summary.status
     distribution = ", ".join(f"{name} {status[name]}" for name in annotations.STATUS_VALUES)
     typer.echo(f"Status: {distribution}.")
 
@@ -150,10 +148,7 @@ def _run_list(json_output: bool) -> None:
         return
     typer.echo(f"{'#':>3}  {'REF':<30}  {'STATUS':<7}  {'STARTED':<32}  {'EVENTS':>6}  {'SIZE':>9}  ADR")
     for index, record in enumerate(records, start=1):
-        events = sum(
-            segment.commands + segment.results + segment.comments + segment.exits for segment in record.segments
-        )
-        size = sum(segment.size_bytes for segment in record.segments)
+        events, size = record_totals(record)
         adr = annotations.adr_for(record)
         label = "-" if adr is None else _adr_label(adr)
         typer.echo(
@@ -293,13 +288,12 @@ def _run_edit(reference: str | None) -> None:
     if not editor:
         raise annotations.AnnotationError("No $EDITOR is set; export EDITOR=<editor> and retry.")
     current = annotations.annotations_for(record).adr
-    fd, name = tempfile.mkstemp(prefix=".adr-edit-", suffix=".toml", dir=record.path)
-    draft = Path(name)
-    with os.fdopen(fd, "w", encoding="utf-8") as stream:
-        os.fchmod(stream.fileno(), 0o600)
-        _ = stream.write(annotations.overlay_template(current))
-        stream.flush()
-        os.fsync(stream.fileno())
+    draft = recording.stage_text(
+        record.path,
+        annotations.overlay_template(current),
+        prefix=".adr-edit-",
+        suffix=".toml",
+    )
     try:
         completed = subprocess.run([*shlex.split(editor), str(draft)], check=False)
     except OSError as exc:

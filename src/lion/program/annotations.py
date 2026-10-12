@@ -16,7 +16,6 @@ annotation.
 import getpass
 import os
 import re
-import tempfile
 import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -120,7 +119,6 @@ class AdrIssue:
     reason: str
     marker: str
     segment: str
-    event_index: int
     line: int
     time: str
     text: str
@@ -132,8 +130,6 @@ class AdrAction:
 
     kind: str
     marker: str
-    segment: str
-    event_index: int
     name: str
     value: str
     line: int
@@ -154,7 +150,6 @@ class AdrAnchor:
     """The shell block an ADR is attached to: a ``cmd`` event reference."""
 
     kind: str
-    event_index: int
     segment: str
     line: int
     time: str
@@ -229,12 +224,11 @@ def _marker_line(line: str) -> tuple[str, str] | None:
     return None
 
 
-def _issue(reason: str, marker: str, line: str, number: int, event: SpoolEvent, index: int) -> AdrIssue:
+def _issue(reason: str, marker: str, line: str, number: int, event: SpoolEvent) -> AdrIssue:
     return AdrIssue(
         reason=reason,
         marker=marker,
         segment=event.segment,
-        event_index=index,
         line=number,
         time=_instant(event.time),
         text=line,
@@ -247,13 +241,12 @@ def _annotation_line(
     line: str,
     number: int,
     event: SpoolEvent,
-    index: int,
 ) -> AdrAction | AdrIssue:
     """Parse the payload after a marker into an action or an issue."""
     if not rest.strip():
-        return _issue(REASON_EMPTY_LINE, marker, line, number, event, index)
+        return _issue(REASON_EMPTY_LINE, marker, line, number, event)
     if not rest[0].isspace():
-        return _issue(REASON_UNKNOWN_FORM, marker, line, number, event, index)
+        return _issue(REASON_UNKNOWN_FORM, marker, line, number, event)
     payload = rest.strip()
     parts = payload.split(maxsplit=1)
     token = parts[0]
@@ -263,8 +256,6 @@ def _annotation_line(
         return AdrAction(
             kind=kind,
             marker=marker,
-            segment=event.segment,
-            event_index=index,
             name=name,
             value=value,
             line=number,
@@ -274,18 +265,18 @@ def _annotation_line(
 
     if token == "adr":
         if remainder:
-            return _issue(REASON_ADR_VALUE, marker, line, number, event, index)
+            return _issue(REASON_ADR_VALUE, marker, line, number, event)
         return action("clear")
     if token.startswith("adr."):
         name = token[len("adr.") :]
         if not name:
-            return _issue(REASON_EMPTY_FIELD, marker, line, number, event, index)
+            return _issue(REASON_EMPTY_FIELD, marker, line, number, event)
         if not remainder:
             return action("delete", name=name)
         return action("set", name=name, value=remainder)
     if marker == ".":
         return action("continue", value=payload)
-    return _issue(REASON_UNKNOWN_FORM, marker, line, number, event, index)
+    return _issue(REASON_UNKNOWN_FORM, marker, line, number, event)
 
 
 def _find_closing(line: str, start: int, quote: str, *, escapes: bool) -> int:
@@ -369,19 +360,22 @@ def _parse_heredoc(line: str, start: int) -> tuple[int, tuple[str, bool] | None]
         if end < 0:
             return None
         return end + 1, (line[index + 1 : end], strip_tabs)
-    if char == "\\":
-        if index + 1 >= len(line):
-            return None
-        return index + 2, (line[index + 1], strip_tabs)
     if char in ";&|<>()#$`":
         return None
     end = index
-    while end < len(line) and not line[end].isspace() and line[end] not in ";&|<>()`'\"$\\":
+    delimiter_parts: list[str] = []
+    while end < len(line) and not line[end].isspace() and line[end] not in ";&|<>()`'\"$":
+        if line[end] == "\\":
+            if end + 1 >= len(line):
+                return None
+            delimiter_parts.append(line[end + 1])
+            end += 2
+            continue
+        delimiter_parts.append(line[end])
         end += 1
-    delimiter = line[index:end]
-    if not delimiter:
+    if not delimiter_parts:
         return None
-    return end, (delimiter, strip_tabs)
+    return end, ("".join(delimiter_parts), strip_tabs)
 
 
 @dataclass
@@ -391,7 +385,7 @@ class _ScanState:
     mode: str = _MODE_NORMAL
     heredocs: list[tuple[str, bool]] = field(default_factory=list)
 
-    def feed(self, line: str, number: int, event: SpoolEvent, index: int) -> AdrAction | AdrIssue | None:
+    def feed(self, line: str, number: int, event: SpoolEvent) -> AdrAction | AdrIssue | None:
         """Consume one line and return a marker result when there is one."""
         if self.heredocs:
             delimiter, strip_tabs = self.heredocs[0]
@@ -407,11 +401,11 @@ class _ScanState:
         if self.mode == _MODE_UNKNOWN:
             hit = _marker_line(line)
             if hit is not None:
-                return _issue(REASON_UNRESOLVED, hit[0], line, number, event, index)
+                return _issue(REASON_UNRESOLVED, hit[0], line, number, event)
             return None
         hit = _marker_line(line)
         if hit is not None:
-            return _annotation_line(hit[0], hit[1], line, number, event, index)
+            return _annotation_line(hit[0], hit[1], line, number, event)
         self._scan_normal(line)
         return None
 
@@ -452,7 +446,7 @@ class _ScanState:
             if char == "$" and index + 1 < len(line) and line[index + 1] == "'":
                 end = _find_closing(line, index + 2, "'", escapes=True)
                 if end < 0:
-                    self.mode = _MODE_UNKNOWN
+                    self.mode = _MODE_DOLLAR
                     return
                 index = end + 1
                 continue
@@ -482,7 +476,7 @@ class _ScanState:
             index += 1
 
 
-def parse_event_text(event: SpoolEvent, index: int = 0) -> ParsedEvent:
+def parse_event_text(event: SpoolEvent) -> ParsedEvent:
     """Parse the annotation lines of one ``cmd`` or ``comment`` event text.
 
     Marker-like lines inside strings or here-document bodies are text; in an
@@ -500,7 +494,7 @@ def parse_event_text(event: SpoolEvent, index: int = 0) -> ParsedEvent:
             hit = _marker_line(line)
             if hit is None:
                 continue
-            result = _annotation_line(hit[0], hit[1], line, number, event, index)
+            result = _annotation_line(hit[0], hit[1], line, number, event)
             if isinstance(result, AdrIssue):
                 issues.append(result)
             else:
@@ -508,7 +502,7 @@ def parse_event_text(event: SpoolEvent, index: int = 0) -> ParsedEvent:
         return ParsedEvent(actions=tuple(actions), issues=tuple(issues))
     state = _ScanState()
     for number, line in enumerate(lines, start=1):
-        result = state.feed(line, number, event, index)
+        result = state.feed(line, number, event)
         if isinstance(result, AdrIssue):
             issues.append(result)
         elif result is not None:
@@ -548,7 +542,6 @@ def _anchor_for(
     event = events[chosen]
     return AdrAnchor(
         kind=kind,
-        event_index=chosen,
         segment=event.segment,
         line=event.line,
         time=_instant(event.time),
@@ -584,12 +577,13 @@ def fold_events(
     last_set: str | None = None
     issues: list[AdrIssue] = []
     anchor: AdrAnchor | None = None
+    anchor_seen = False
     first_at = ""
     last_at = ""
     cwd = ""
     segments: list[str] = []
     for index, event in enumerate(events):
-        parsed = parse_event_text(event, index)
+        parsed = parse_event_text(event)
         items: list[AdrAction | AdrIssue] = [*parsed.actions, *parsed.issues]
         items.sort(key=lambda item: item.line)
         for item in items:
@@ -599,7 +593,8 @@ def fold_events(
             last_at = item.time
             if event.segment not in segments:
                 segments.append(event.segment)
-            if anchor is None and item.marker in ("-", "+"):
+            if not anchor_seen and item.marker in ("-", "+"):
+                anchor_seen = True
                 anchor = _anchor_for(events, cmd_indices, index, item.marker)
             if isinstance(item, AdrIssue):
                 issues.append(item)
@@ -607,8 +602,8 @@ def fold_events(
             if item.kind == "set":
                 fields[item.name] = item.value
                 last_set = item.name
-                if item.name == "status" and item.value not in STATUS_VALUES:
-                    issues.append(_issue(REASON_UNKNOWN_STATUS, item.marker, item.text, item.line, event, index))
+                if item.name == "status" and not _known_status(item.value):
+                    issues.append(_issue(REASON_UNKNOWN_STATUS, item.marker, item.text, item.line, event))
             elif item.kind == "delete":
                 _ = fields.pop(item.name, None)
                 if last_set == item.name:
@@ -618,9 +613,54 @@ def fold_events(
                 last_set = None
             elif item.kind == "continue":
                 if last_set is None:
-                    issues.append(_issue(REASON_NO_TARGET, item.marker, item.text, item.line, event, index))
+                    issues.append(_issue(REASON_NO_TARGET, item.marker, item.text, item.line, event))
                 else:
                     fields[last_set] = fields[last_set] + "\n" + item.value
+    return _make_adr(
+        ref,
+        fields,
+        anchor=anchor,
+        issues=issues,
+        first_at=first_at,
+        last_at=last_at,
+        user=reader,
+        host=host,
+        cwd=cwd,
+        segments=tuple(segments),
+        edited=False,
+    )
+
+
+def _known_status(value: str) -> bool:
+    """Return whether a status value is one of the recognized values."""
+    return value in STATUS_VALUES
+
+
+def _status_is_unknown(fields: Mapping[str, str]) -> bool:
+    """Return whether a status value is set but not recognized."""
+    status = fields.get("status")
+    return bool(status) and not _known_status(status)
+
+
+def _make_adr(
+    ref: str,
+    fields: Mapping[str, str],
+    *,
+    anchor: AdrAnchor | None,
+    issues: list[AdrIssue],
+    first_at: str,
+    last_at: str,
+    user: str,
+    host: str,
+    cwd: str,
+    segments: tuple[str, ...],
+    edited: bool,
+) -> RecordAnnotations:
+    """Build the ADR result (or ``None``) from the effective fields.
+
+    The completeness rule (``title`` plus ``decision``) and the status default
+    live here once, so the event fold and an overlay cannot drift apart.
+    """
     ordered = _ordered_fields(fields)
     if not ordered:
         return RecordAnnotations(adr=None, issues=tuple(issues))
@@ -633,10 +673,11 @@ def fold_events(
         issues=tuple(issues),
         first_at=first_at,
         last_at=last_at,
-        user=reader,
+        user=user,
         host=host,
         cwd=cwd,
-        segments=tuple(segments),
+        segments=segments,
+        edited=edited,
     )
     return RecordAnnotations(adr=adr, issues=tuple(issues))
 
@@ -664,29 +705,23 @@ def annotations_for(record: Recording) -> RecordAnnotations:
     if overlay is None:
         return folded
     issues = list(folded.issues)
-    ordered = _ordered_fields(overlay.fields)
-    if ordered.get("status") and ordered["status"] not in STATUS_VALUES:
+    if _status_is_unknown(overlay.fields):
         issues.append(
             AdrIssue(
                 reason=REASON_UNKNOWN_STATUS,
                 marker=".",
                 segment=OVERLAY_FILENAME,
-                event_index=-1,
                 line=0,
                 time=overlay.edited_at,
-                text=f"adr.status {ordered['status']}",
+                text=f"adr.status {overlay.fields['status']}",
             )
         )
-    if not ordered:
-        return RecordAnnotations(adr=None, issues=tuple(issues))
     base = folded.adr
-    adr = Adr(
-        ref=record.ref,
-        fields=ordered,
-        complete=bool(ordered.get("title")) and bool(ordered.get("decision")),
-        status=ordered.get("status") or STATUS_PROPOSED,
+    return _make_adr(
+        record.ref,
+        overlay.fields,
         anchor=None if base is None else base.anchor,
-        issues=tuple(issues),
+        issues=issues,
         first_at="" if base is None else base.first_at,
         last_at="" if base is None else base.last_at,
         user=base.user if base is not None else _current_user(),
@@ -695,7 +730,6 @@ def annotations_for(record: Recording) -> RecordAnnotations:
         segments=() if base is None else base.segments,
         edited=True,
     )
-    return RecordAnnotations(adr=adr, issues=tuple(issues))
 
 
 def adr_for(record: Recording) -> Adr | None:
@@ -799,24 +833,17 @@ def load_overlay(record_dir: Path) -> AdrOverlay | None:
 def write_overlay(record_dir: Path, fields: Mapping[str, str]) -> Path:
     """Write the overlay atomically (mode ``600``) and return its path.
 
-    The document is staged in the record directory and published with
-    ``os.replace``; a failure leaves no partial file behind.
+    The document is staged via :func:`lion.program.recording.stage_text` and
+    published with ``os.replace``; a failure leaves no partial file behind.
     """
     payload: dict[str, object] = {
         "schema_version": OVERLAY_SCHEMA_VERSION,
         "edited_at": datetime.now(UTC).isoformat(),
         "fields": dict(fields),
     }
-    content = tomli_w.dumps(payload)
     target = record_dir / OVERLAY_FILENAME
-    fd, name = tempfile.mkstemp(prefix=".adr-", suffix=".toml.tmp", dir=record_dir)
-    temporary = Path(name)
+    temporary = recording.stage_text(record_dir, tomli_w.dumps(payload))
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            _ = stream.write(content)
-            stream.flush()
-            os.fsync(stream.fileno())
         os.replace(temporary, target)
     except BaseException:
         temporary.unlink(missing_ok=True)

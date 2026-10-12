@@ -268,6 +268,38 @@ def test_unresolved_construct_reports_marker_like_lines() -> None:
     assert _issues([_event(resolved, kind="cmd")]) == []
 
 
+def test_dollar_single_quote_continues_across_lines() -> None:
+    """An open ``$'...'`` is a cross-line quote state, not an unknown construct."""
+    text = "echo $'first\n#-LION: adr.title Hidden\n'\n#-LION: adr.title Real"
+    actions = _actions([_event(text, kind="cmd")])
+
+    assert [(action.kind, action.name, action.value) for action in actions] == [("set", "title", "Real")]
+    assert _issues([_event(text, kind="cmd")]) == []
+
+
+def test_backslashed_here_document_delimiter_matches_the_word() -> None:
+    r"""``<<\EOF`` closes on ``EOF`` like the shell, not on a one-char delimiter."""
+    text = "cat <<\\EOF\n#-LION: adr.title FAKE\nEOF\n#-LION: adr.title Real"
+    actions = _actions([_event(text, kind="cmd")])
+
+    assert [action.value for action in actions] == ["Real"]
+    assert _issues([_event(text, kind="cmd")]) == []
+
+
+def test_anchor_fixed_by_the_first_marker_without_neighbour() -> None:
+    """A later ``#+`` cannot attach an anchor the first marker left without."""
+    events = [
+        _event("#-LION: adr.title T", time=1.0),
+        _event("echo A", kind="cmd", time=2.0, line=2),
+        _event("#+LION: adr.decision D", time=3.0),
+        _event("echo B", kind="cmd", time=4.0, line=4),
+    ]
+    result = _fold(events)
+
+    assert result.adr is not None
+    assert result.adr.anchor is None
+
+
 def test_comment_events_do_not_carry_quote_state() -> None:
     """A comment event is all comments, so quotes inside never hide a marker."""
     comment = _event("# it's fine\n#-LION: adr.title Real", kind="comment")

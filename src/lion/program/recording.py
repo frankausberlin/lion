@@ -703,9 +703,14 @@ def resolve_recording(reference: str) -> Recording:
     raise RecordingError(f"Unknown reference '{token}'. Valid: {options}")
 
 
-def _stage_text(directory: Path, content: str) -> Path:
-    """Write text to a fresh temporary file in ``directory`` and fsync it."""
-    fd, name = tempfile.mkstemp(prefix=".lion.", suffix=".tmp", dir=directory, text=True)
+def stage_text(directory: Path, content: str, *, prefix: str = ".lion.", suffix: str = ".tmp") -> Path:
+    """Write text to a fresh temporary file in ``directory`` and fsync it.
+
+    The temporary file is mode ``600`` and is returned for the caller to
+    publish (``os.replace``/``os.link``) or remove; only a write failure is
+    cleaned up here.
+    """
+    fd, name = tempfile.mkstemp(prefix=prefix, suffix=suffix, dir=directory, text=True)
     temporary = Path(name)
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as stream:
@@ -721,7 +726,7 @@ def _stage_text(directory: Path, content: str) -> Path:
 
 def _publish_new(directory: Path, content: str, target: Path) -> None:
     """Publish content via a hard link; an existing destination is a loud error."""
-    temporary = _stage_text(directory, content)
+    temporary = stage_text(directory, content)
     try:
         os.link(temporary, target)
     except FileExistsError as exc:
@@ -732,7 +737,7 @@ def _publish_new(directory: Path, content: str, target: Path) -> None:
 
 def _write_meta(path: Path, meta: RecordingMeta) -> None:
     """Atomically replace ``meta.toml`` (the single allowed in-place mutation)."""
-    temporary = _stage_text(path.parent, tomli_w.dumps(meta.to_toml_dict()))
+    temporary = stage_text(path.parent, tomli_w.dumps(meta.to_toml_dict()))
     try:
         os.replace(temporary, path)
     finally:
