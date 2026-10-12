@@ -2,8 +2,10 @@
 
 ``start`` and ``stop`` collect the machine state once and hand it to
 :mod:`lion.program.recording`; ``status`` collects once and compares the active
-recording's start state with the fresh capture. ``list`` and ``show`` are pure
-readers: they never collect and never write.
+recording's start state with the fresh capture. ``list``, ``show``, ``R`` and
+``R-`` are pure readers: they never collect and never write. ``R`` and ``R-``
+render the read-time classification of the active recording (see
+:mod:`lion.classify`).
 """
 
 import json
@@ -11,9 +13,13 @@ from datetime import UTC, datetime
 
 import typer
 
+from lion.classify import engine as classify_engine
+from lion.classify import rules as classify_rules
+from lion.classify.model import Classification
 from lion.command import fail
+from lion.command.classify import block_line
 from lion.command.diagnostics import warn_incomplete
-from lion.program import recording
+from lion.program import annotations, recording
 from lion.program import shell as shell_logic
 from lion.program.diff import diff_collectors, has_structural_change, render
 from lion.program.recording import Recording
@@ -237,11 +243,54 @@ def _run_show(reference: str | None, json_output: bool) -> None:
         previous_segment = event.segment
 
 
+def _collapse(value: str) -> str:
+    return " ".join(value.split())
+
+
+def _classification(record: Recording) -> Classification:
+    """Classify one recording with the merged rule set (read-only)."""
+    return classify_engine.classify_recording(record, classify_rules.load_ruleset())
+
+
+def _run_overview() -> None:
+    """Show the active recording's ADR fields and every classified block."""
+    record = recording.active_recording()
+    if record is None:
+        typer.echo("No active recording.")
+        return
+    classification = _classification(record)
+    adr = annotations.adr_for(record)
+    typer.echo(f"Recording {record.ref}")
+    if adr is None:
+        typer.echo("  adr: -")
+    else:
+        pairs = ", ".join(f"{name}={_collapse(value)}" for name, value in adr.fields.items())
+        typer.echo(f"  adr: {pairs}")
+    open_fields = [name for name in annotations.CATALOG if adr is None or name not in adr.fields]
+    typer.echo("  open: " + (", ".join(open_fields) if open_fields else "-"))
+    for block in classification.blocks:
+        typer.echo(block_line(block))
+
+
+def _run_previous() -> None:
+    """Show the terse line of the previous block of the active recording."""
+    record = recording.active_recording()
+    if record is None:
+        typer.echo("No active recording.")
+        return
+    classification = _classification(record)
+    if not classification.blocks:
+        typer.echo("No previous block.")
+        return
+    typer.echo(block_line(classification.blocks[-1]))
+
+
 def run(action: str = "status", argument: str | None = None, json_output: bool = False) -> None:
     """Run one watch operation.
 
     Args:
-        action: ``status``, ``start``, ``stop``, ``list`` or ``show``.
+        action: ``status``, ``start``, ``stop``, ``list``, ``show``, ``R`` or
+            ``R-``.
         argument: The ``--note`` text for ``start``/``stop`` or the reference
             for ``show``.
         json_output: Emit a single JSON object instead of human text.
@@ -255,6 +304,10 @@ def run(action: str = "status", argument: str | None = None, json_output: bool =
             _run_list(json_output)
         elif action == "show":
             _run_show(argument, json_output)
+        elif action == "R":
+            _run_overview()
+        elif action == "R-":
+            _run_previous()
         else:
             _run_status(json_output)
     except (OSError, ValueError) as exc:

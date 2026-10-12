@@ -125,6 +125,30 @@ annotations — the raw events are never modified — and `lion records adrs
 latest` shows `edited: true` afterwards. Only stopped recordings can be
 edited; run `lion watch stop` first.
 
+## Classify the input blocks
+
+`lion classify` derives metadata from the recorded blocks — which package
+manager ran, which service changed, which download was piped into a shell —
+without executing anything and without storing the result:
+
+```bash
+uv run lion classify                 # the active, else the newest recording
+uv run lion classify latest --json   # rule set, blocks and matches
+```
+
+While a recording is active you can read the same classification without
+leaving the session; both reads are terse, text-only and never collect:
+
+```zsh
+lion watch R      # the ADR fields and every classified block: R1: …, R2: …
+lion watch R-     # only the previous block, one line
+```
+
+A match is metadata, never proof that a command succeeded. Set your own rules
+in `~/.config/lion/classifier.json` (one JSON file, rules override the
+built-ins by id); the full schema, the group catalog and the ERE subset live in
+[Classifiers](../reference/classifiers.md).
+
 ## Comments as captured input
 
 Comments are information here, not noise: pasted setup guides with `#` lines are

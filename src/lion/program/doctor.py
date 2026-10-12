@@ -4,16 +4,18 @@
 collector/tool checks live in :mod:`lion.state.diagnosis`, the history/storage
 checks in :mod:`lion.program.storage`, the shlib check in
 :mod:`lion.program.shlib`, the shell-integration check in :mod:`lion.program.shell`,
-the recording check in :mod:`lion.program.recording` and the ADR overlay check
-in :mod:`lion.program.annotations`. This module only runs them, catches a
-crashing check, orders the findings deterministically and renders text, JSON
-and the human-executed ``reco.sh``.
+the recording check in :mod:`lion.program.recording`, the ADR overlay check
+in :mod:`lion.program.annotations` and the classifier rule check in
+:mod:`lion.classify.checks`. This module only runs them, catches a crashing
+check, orders the findings deterministically and renders text, JSON and the
+human-executed ``reco.sh``.
 """
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
+from lion.classify.checks import classifier_checks
 from lion.program import annotations, recording, shell, shlib, storage
 from lion.program.checks import Check, CheckStatus, DoctorContext, Finding
 from lion.state import diagnosis
@@ -35,7 +37,7 @@ __all__ = [
 ]
 
 #: Semantic topic order used for output; kept aligned with :data:`CHECKS`.
-TOPIC_ORDER: tuple[str, ...] = ("collectors", "tools", "history", "storage", "shlib", "shell", "watch")
+TOPIC_ORDER: tuple[str, ...] = ("collectors", "tools", "history", "storage", "shlib", "shell", "watch", "classify")
 
 #: The ordered checks ``doctor`` runs as ``(topic, check)`` pairs; the ``watch``
 #: topic carries two checks (recordings and ADR overlays).
@@ -48,6 +50,7 @@ CHECKS: tuple[tuple[str, Check], ...] = (
     ("shell", shell.shell_checks),
     ("watch", recording.watch_checks),
     ("watch", annotations.annotations_checks),
+    ("classify", classifier_checks),
 )
 
 _TOPIC_INDEX = {topic: index for index, topic in enumerate(TOPIC_ORDER)}

@@ -102,9 +102,9 @@ just audit       # dependency vulnerability scan
   `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
   module per command with a `run` function (`scan.py` writes the history;
-  `status.py`, `history.py` and `diff.py` read only; `doctor.py` only publishes
-  the reco; `shlib.py` manages `~/.shlib` and takes `--json` for `status`
-  only), plus the shared `diagnostics.py` stderr-warning helper. The English CLI
+  `status.py`, `history.py`, `diff.py` and `classify.py` read only; `doctor.py`
+  only publishes the reco; `shlib.py` manages `~/.shlib` and takes `--json` for
+  `status` only), plus the shared `diagnostics.py` stderr-warning helper. The English CLI
   help texts (epilogs and sub-app help) live in `main.py` and are imported by
   `cli.py`. `shlib` is a Typer
   sub-app with `status`/`install`/`uninstall`. A command group with a `status`
@@ -155,16 +155,31 @@ just audit       # dependency vulnerability scan
   bare invocation runs `status`); the read commands never collect and never
   write, and the `scan`/`status`/`watch` JSON contracts stay unchanged.
   `watch list`/`watch show` remain untouched.
+- `src/lion/classify/` is the read-time classifier (E4): `parser.py` is the
+  bounded shell parser (`parse_command`, `strip_prefixes`, stable reason codes,
+  `PARSER_VERSION = "classify/1"`); `rules.py` loads, validates, merges and
+  hashes the declarative JSON rules (bundled `default_rules.json` plus the
+  optional user file `$XDG_CONFIG_HOME/lion/classifier.json`, override by `id`)
+  and validates the POSIX-ERE subset, translating `[[:…:]]` classes for
+  Python `re`; `model.py` holds `Match`/`Block`/`Classification` with their
+  JSON shapes; `engine.py` builds the blocks (non-empty, non-silent `cmd`
+  events only), matches segment scope anchored after the prefix strip and
+  block scope on masked lines, deduplicates by `(group, rule_id, fields)` and
+  orders deterministically; `checks.py` owns the doctor check
+  `classify.ruleset`. `command/classify.py` implements `lion classify` and
+  shares `preview`/`matches_text` with the terse `watch R`/`R-` reads in
+  `command/watch.py` (both text-only, read-only, never collect).
 - `doctor` is a read-only check framework: `program/checks.py` holds the shared
   `CheckStatus`/`Finding`/`DoctorContext`/`Check` types (a leaf module, so the
   owning check modules never import the aggregator and create a cycle); the
   checks are owned by `state/diagnosis.py` (`collector_checks`, `tool_checks`),
   `program/storage.py` (`history_checks`, `storage_checks`),
   `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`),
-  `program/recording.py` (`watch_checks`) and `program/annotations.py`
-  (`annotations_checks`); `program/doctor.py` only runs, orders
-  and renders them (`TOPIC_ORDER` includes `shell` and `watch`; `CHECKS` is an
-  ordered tuple of `(topic, check)` pairs, so the `watch` topic carries two);
+  `program/recording.py` (`watch_checks`), `program/annotations.py`
+  (`annotations_checks`) and `classify/checks.py` (`classifier_checks`);
+  `program/doctor.py` only runs, orders and renders them (`TOPIC_ORDER`
+  includes `shell`, `watch` and `classify`; `CHECKS` is an ordered tuple of
+  `(topic, check)` pairs, so the `watch` topic carries two);
   `command/doctor.py` resolves the home, collects once and publishes at most one
   `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any finding is
   `warn`/`error`. `doctor` writes nothing when everything is `ok`/`skip`, and
@@ -212,6 +227,17 @@ just audit       # dependency vulnerability scan
   exactly one overlay file `<record>/adr.toml` (atomic `os.replace`, mode
   `600`) for stopped records and never touches the raw events; overlay fields
   replace the event-derived field set and set the `edited` flag.
+- Classifications are derived from the raw recording events on every read (no
+  writer, no new event type, nothing persisted); `classify` and the terse
+  `watch R`/`R-` never collect and never write. Blocks are the non-empty,
+  non-silent `cmd` events; unsupported syntax yields no matches (never a
+  guess); segment scope anchors after the `sudo`/`NAME=value` strip, block
+  scope searches masked lines; matches deduplicate by `(group, rule_id,
+  fields)` and order deterministically. Rules are data in a closed group
+  vocabulary with a POSIX-ERE subset (ADR 0015); the merged rule list carries
+  a deterministic hash, invalid files fail loudly with their path, the doctor
+  topic `classify` reports `classify.ruleset`, and the
+  `scan`/`status`/`watch` JSON contracts stay unchanged.
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
   `STRING_LISTS` (package selections) and an `IDENTITY_KEYS` map (`hardware.gpu`
   by `pci_id`; `network.interfaces`, `services.units`, `containers.containers`,

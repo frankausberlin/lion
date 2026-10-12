@@ -16,6 +16,7 @@ from typing import Annotated
 import typer
 
 from lion import __version__
+from lion.command.classify import run as run_classify
 from lion.command.diff import run as run_diff
 from lion.command.doctor import run as run_doctor
 from lion.command.history import run as run_history
@@ -27,6 +28,8 @@ from lion.command.shlib import run as run_shlib
 from lion.command.status import run as run_status
 from lion.command.watch import run as run_watch
 from lion.main import (
+    CLASSIFY_EPILOG,
+    CLASSIFY_HELP,
     DIFF_EPILOG,
     DOCTOR_EPILOG,
     HISTORY_EPILOG,
@@ -121,6 +124,18 @@ def doctor(
 ) -> None:
     """Run a read-only diagnosis and write a reviewable fix script."""
     run_doctor(json_output, show)
+
+
+@app.command(help=CLASSIFY_HELP, epilog=CLASSIFY_EPILOG)
+def classify(
+    reference: Annotated[
+        str | None,
+        typer.Argument(help="Recording reference; defaults to the active or newest recording."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output the classification as JSON.")] = False,
+) -> None:
+    """Classify the recorded input blocks with the declarative rules (read-only)."""
+    run_classify(reference, json_output)
 
 
 shlib_app = typer.Typer(
@@ -250,6 +265,18 @@ def watch_show(
 ) -> None:
     """Print the events of one recording (read-only)."""
     run_watch("show", reference, json_output)
+
+
+@watch_app.command("R")
+def watch_overview() -> None:
+    """Show the active recording's ADR fields and every classified block."""
+    run_watch("R", None, False)
+
+
+@watch_app.command("R-")
+def watch_previous() -> None:
+    """Show the classified previous block of the active recording."""
+    run_watch("R-", None, False)
 
 
 app.add_typer(shell_app)

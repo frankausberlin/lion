@@ -19,7 +19,7 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Manage the shell configuration](how-to/manage-shell-config.md) — install,
   use and remove the Zsh shell library.
 - [Record a shell session](how-to/record-shell.md) — insert the watch
-  integration, record, stop and read the events.
+  integration, record, stop, read the events and classify the blocks.
 - [Compare stored states](how-to/compare-states.md) — list the history and diff
   two states.
 - [Diagnose with doctor](how-to/diagnose-with-doctor.md) — run the read-only
@@ -36,6 +36,8 @@ reference reproduces it, and the other pages explain, guide and link.
   masking and segment liveness.
 - [Records and ADRs](reference/records-and-adrs.md) — the `#-LION:` annotation
   grammar, the fold into one ADR per record and the `lion records` views.
+- [Classifiers](reference/classifiers.md) — the rule file schema, the group
+  catalog, the ERE subset and the `lion classify`/`watch R` views.
 - [Collectors](reference/collectors.md) — the fields each collector records.
 
 ## Explanation
@@ -68,3 +70,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0012 — Recording layout and shell-segment liveness](decisions/0012-watch-recording-layout-liveness.md)
 - [0013 — ADRs as flat annotation lines](decisions/0013-watch-adr-annotations.md)
 - [0014 — Watch dog: an `accept-line` guard widget](decisions/0014-watch-dog-accept-line.md)
+- [0015 — Classifier rules: read-time data in a POSIX-ERE subset](decisions/0015-classifier-rules-read-time-ere.md)

@@ -31,6 +31,7 @@ Common commands:
   lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
   lion watch           record shell sessions and read the recordings
   lion records         read and edit the ADRs attached to recordings
+  lion classify        classify recorded input blocks (read-only)
   lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
@@ -43,6 +44,7 @@ Run 'lion <command> --help' for details on a command.
 * `history`: List stored states with their stable...
 * `diff`: Compare two stored states without...
 * `doctor`: Run a read-only diagnosis and write a...
+* `classify`: Classify the recorded input blocks of a...
 * `shlib`: Manage the Zsh shell library (~/.shlib).
 * `shell`: Manage the watch shell integration (~/.zshrc, ~/.shlib).
 * `watch`: Record shell sessions and read the recordings.
@@ -184,6 +186,45 @@ Examples:
   lion doctor          show the diagnosis and the reco script path
   lion doctor --show   also print the reco script to stdout
   lion doctor --json   emit the findings as a single JSON object
+
+
+## `lion classify`
+
+Classify the recorded input blocks of a recording into groups and fields with
+the declarative rule set: built-in defaults plus the optional user file
+$XDG_CONFIG_HOME/lion/classifier.json.
+
+The groups are packages, services, containers, shell, downloads, interruptions
+and checks. A match is metadata derived from the input text, never a claim that
+a command ran or succeeded; unsupported shell syntax yields no matches.
+
+**Usage**:
+
+```console
+$ lion classify [OPTIONS] [reference]
+```
+
+**Arguments**:
+
+* `reference`: Recording reference; defaults to the active or newest recording.
+
+**Options**:
+
+* `--json`: Output the classification as JSON.
+* `--help`: Show this message and exit.
+
+Read-only: it never collects a state, never changes a recording and never
+executes anything. The classification is derived from the raw events on every
+run; the JSON carries the rule set version and hash plus one object per block.
+
+Examples:
+
+  lion classify                the active, else the newest recording
+  lion classify latest         one recording by reference
+  lion classify --json         emit the classification as a single JSON object
+
+Inside an active recording, 'lion watch R' lists the blocks tersely and
+'lion watch R-' shows only the previous block.
 
 
 ## `lion shlib`
@@ -369,6 +410,8 @@ read the captured events:
   status   show the active recording and a diff since its start (read-only)
   list     list stored recordings with event counts and size (read-only)
   show     print the events of one recording (read-only)
+  R        the active recording&#x27;s ADR fields and classified blocks (read-only)
+  R-       the previous block&#x27;s one-line classification (read-only)
 
 Events are captured in zsh; Python never runs in the input path.
 
@@ -393,6 +436,8 @@ Examples:
   lion watch status            what changed since the recording started
   lion watch list              stored recordings with events and size
   lion watch show latest       print the recorded events
+  lion watch R                 ADR fields and blocks of the active recording
+  lion watch R-                the previous block in one line
   lion watch stop --note "done"
 
 Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
@@ -405,6 +450,8 @@ Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
 * `stop`: Stop the active recording and store its...
 * `list`: List stored recordings with their event...
 * `show`: Print the events of one recording...
+* `R`: Show the active recording&#x27;s ADR fields and...
+* `R-`: Show the classified previous block of the...
 
 ### `lion watch status`
 
@@ -483,6 +530,34 @@ $ lion watch show [OPTIONS] [reference]
 **Options**:
 
 * `--json`: Output the recording as JSON.
+* `--help`: Show this message and exit.
+
+### `lion watch R`
+
+Show the active recording&#x27;s ADR fields and every classified block.
+
+**Usage**:
+
+```console
+$ lion watch R [OPTIONS]
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+### `lion watch R-`
+
+Show the classified previous block of the active recording.
+
+**Usage**:
+
+```console
+$ lion watch R- [OPTIONS]
+```
+
+**Options**:
+
 * `--help`: Show this message and exit.
 
 ## `lion records`

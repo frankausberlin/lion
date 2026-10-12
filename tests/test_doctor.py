@@ -14,6 +14,7 @@ from types import SimpleNamespace
 import pytest
 from typer.testing import CliRunner
 
+from lion.classify.checks import classifier_checks
 from lion.cli import app
 from lion.command import doctor as command_doctor
 from lion.program import annotations, doctor, recording, storage
@@ -127,7 +128,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 14 ok, 0 warn, 0 error, 9 skip" in result.stdout
+    assert "Result: 15 ok, 0 warn, 0 error, 9 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -182,7 +183,16 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
     assert result.stderr == ""
     payload = json.loads(result.stdout)
     assert payload["status"] == "warn"
-    assert payload["checked"] == ["collectors", "tools", "history", "storage", "shlib", "shell", "watch"]
+    assert payload["checked"] == [
+        "collectors",
+        "tools",
+        "history",
+        "storage",
+        "shlib",
+        "shell",
+        "watch",
+        "classify",
+    ]
     assert payload["summary"]["warn"] == 1
     assert payload["reco_path"] is not None
     assert payload["reco_path"].endswith(".sh")
@@ -588,7 +598,16 @@ def test_shell_and_watch_topics_checked(monkeypatch: pytest.MonkeyPatch) -> None
 
     assert result.exit_code == 0
     payload = json.loads(result.stdout)
-    assert payload["checked"] == ["collectors", "tools", "history", "storage", "shlib", "shell", "watch"]
+    assert payload["checked"] == [
+        "collectors",
+        "tools",
+        "history",
+        "storage",
+        "shlib",
+        "shell",
+        "watch",
+        "classify",
+    ]
     findings = {item["name"]: item for item in payload["findings"]}
     assert findings["shell.inserted"]["status"] == "skip"
     assert findings["watch.records"]["status"] == "skip"
@@ -654,3 +673,55 @@ def test_annotations_check_reports_invalid_overlay(doctor_env: SimpleNamespace) 
     assert findings[0].status == CheckStatus.ERROR
     assert annotations.OVERLAY_FILENAME in findings[0].message
     path.rmdir()
+
+
+def test_classifier_check_reports_invalid_user_rules(doctor_env: SimpleNamespace) -> None:
+    """The classifier check is ok normally and an error for an invalid user file."""
+    state = _state()
+    ctx = DoctorContext(state=state, home=doctor_env.home)
+
+    bundled = classifier_checks(ctx)
+    assert len(bundled) == 1
+    assert bundled[0].name == "classify.ruleset"
+    assert bundled[0].status == CheckStatus.OK
+    assert "built-in rules only" in bundled[0].message
+
+    path = doctor_env.home / ".config" / "lion" / "classifier.json"
+    path.parent.mkdir(parents=True)
+    path.write_text("{not json", encoding="utf-8")
+    findings = classifier_checks(ctx)
+
+    assert len(findings) == 1
+    assert findings[0].status == CheckStatus.ERROR
+    assert str(path) in findings[0].message
+    assert findings[0].hint
+
+
+def test_classifier_check_reports_the_user_file(doctor_env: SimpleNamespace) -> None:
+    """A valid user file is reported with its path in the ok message."""
+    state = _state()
+    ctx = DoctorContext(state=state, home=doctor_env.home)
+    path = doctor_env.home / ".config" / "lion" / "classifier.json"
+    path.parent.mkdir(parents=True)
+    path.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rules": [
+                    {
+                        "id": "packages.custom",
+                        "group": "packages",
+                        "match": "^custompkg[[:space:]]+install",
+                        "emit": {"manager": "custompkg", "action": "install"},
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    findings = classifier_checks(ctx)
+
+    assert len(findings) == 1
+    assert findings[0].status == CheckStatus.OK
+    assert str(path) in findings[0].message
