@@ -176,6 +176,25 @@ Notes:
   records stay under `~/.local/share/lion/recordings/<ref>` until removed by
   hand.
 
+### 1-minute smoke
+
+* copy / paste line after line and execute in zsh
+* After the run, copy the complete shell output and analyze it (have it analyzed)
+
+```bash
+lion shell insert
+lion shell status --json
+lion watch start --note "manual 1-minute smoke"
+exec zsh
+lion watch status
+lion watch stop
+lion doctor
+lion shell remove
+lion shell status --json
+lion watch list
+ls ~/.local/share/lion/recordings
+```
+
 ### 10-minute smoke
 
 Use one installed integration and `--note` so the test recording is
@@ -183,7 +202,7 @@ recognizable. In a **new** terminal:
 
 ```bash
 lion shell status --json
-lion watch start --note "manual smoke"
+lion watch start --note "manual 10-minutes smoke"
 exec zsh
 lion watch status
 ```
