@@ -83,6 +83,19 @@ Recordings live in their own data space, separate from the scan history.
 - `read_events` decodes the documented event grammar and fails loudly with the
   segment path and line number on damage; no read function writes.
 
+## E3 addendum — the ADR overlay
+
+- An optional `adr.toml` (schema version 1: `edited_at` plus a `[fields]`
+  table) may live inside a record directory. It is the second documented
+  in-place write next to `meta.toml` and is written only by `lion records
+  edit`: atomically via `os.replace`, mode `600`, and only for stopped
+  recordings.
+- `start`, `stop` and `watch` never read or write it. Readers fail loudly with
+  the path on a damaged overlay (never skipping it), and `doctor` reports it
+  as an error finding (`watch.adr.<ref>`).
+- Overlay fields replace the event-derived field set completely; the raw
+  events are never modified (see ADR 0013).
+
 ## Alternatives
 
 - **Store recordings in the scan history / one ledger.** Deferred, not chosen:

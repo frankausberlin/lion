@@ -87,7 +87,7 @@ original line and a fixed reason (`empty annotation line`,
 
 **No new event writer:** ADRs are derived from the raw events on every read.
 The only write that ever touches an ADR is the explicit `records edit` overlay
-of milestone 2 (a separate decision, ADR 0012 addendum).
+(see the ADR 0012 addendum), and it never modifies the events.
 
 ## Consequences
 

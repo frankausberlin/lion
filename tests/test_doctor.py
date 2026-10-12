@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from lion.cli import app
 from lion.command import doctor as command_doctor
-from lion.program import doctor, recording, storage
+from lion.program import annotations, doctor, recording, storage
 from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
@@ -352,8 +352,7 @@ def test_run_checks_isolates_crashing_check(monkeypatch: pytest.MonkeyPatch, doc
     def boom(ctx: DoctorContext) -> list[Finding]:
         raise RuntimeError("kaputt")
 
-    monkeypatch.setattr(doctor, "TOPIC_ORDER", ("collectors",))
-    monkeypatch.setattr(doctor, "CHECKS", (boom,))
+    monkeypatch.setattr(doctor, "CHECKS", (("collectors", boom),))
 
     findings = doctor.run_checks(DoctorContext(state=_state(), home=doctor_env.home))
 
@@ -623,3 +622,26 @@ def test_active_recording_without_integration_warns(monkeypatch: pytest.MonkeyPa
     assert findings["watch.active"]["status"] == "ok"
     assert findings["shell.warning"]["status"] == "warn"
     assert "no events are captured" in findings["shell.warning"]["message"]
+
+
+def test_annotations_check_reports_invalid_overlay(doctor_env: SimpleNamespace) -> None:
+    """An invalid adr.toml is an error finding; absent and valid ones are not."""
+    state = _state()
+    record = recording.start_recording(state, "")
+    _ = recording.stop_recording(state)
+    ctx = DoctorContext(state=state, home=doctor_env.home)
+
+    assert annotations.annotations_checks(ctx) == []
+
+    path = record.path / annotations.OVERLAY_FILENAME
+    path.write_text("broken = [")
+    findings = annotations.annotations_checks(ctx)
+
+    assert len(findings) == 1
+    assert findings[0].name == f"watch.adr.{record.ref}"
+    assert findings[0].status == CheckStatus.ERROR
+    assert annotations.OVERLAY_FILENAME in findings[0].message
+    assert findings[0].hint
+
+    _ = annotations.write_overlay(record.path, {"title": "T"})
+    assert annotations.annotations_checks(ctx) == []

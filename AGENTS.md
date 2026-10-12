@@ -160,9 +160,11 @@ just audit       # dependency vulnerability scan
   owning check modules never import the aggregator and create a cycle); the
   checks are owned by `state/diagnosis.py` (`collector_checks`, `tool_checks`),
   `program/storage.py` (`history_checks`, `storage_checks`),
-  `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`) and
-  `program/recording.py` (`watch_checks`); `program/doctor.py` only runs, orders
-  and renders them (`TOPIC_ORDER` includes `shell` and `watch`);
+  `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`),
+  `program/recording.py` (`watch_checks`) and `program/annotations.py`
+  (`annotations_checks`); `program/doctor.py` only runs, orders
+  and renders them (`TOPIC_ORDER` includes `shell` and `watch`; `CHECKS` is an
+  ordered tuple of `(topic, check)` pairs, so the `watch` topic carries two);
   `command/doctor.py` resolves the home, collects once and publishes at most one
   `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any finding is
   `warn`/`error`. `doctor` writes nothing when everything is `ok`/`skip`, and

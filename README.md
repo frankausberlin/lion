@@ -36,7 +36,7 @@
 |**doctor**||--json\|--show|<li>read-only diagnosis; writes a reviewable fix script when needed|
 |**shell**<br><br><br>|[*status*]<br>*insert*<br>*remove*||<li>Shows whether the watch hook is inserted in zsh<br><li>Inserts the watch hook into zsh<br><li>Removes the watch hook from zsh|
 |**watch**<br><br><br><br><br>|[*status*]<br>*start*<br>*stop*<br>*list*<br>*show*||<li>Shows whether a recording is active<br><li>Starts a persistent recording and captures a fresh state<br><li>Stops and finalizes the recording<br><li>Lists the recordings with their size and event count<br><li>Shows a recording's metadata and events|
-|**records**<br><br><br>|[*status*]<br>*list*<br>*adrs*||<li>Shows the recording space and the ADR counters<br><li>Lists recordings with their ADR state<br><li>Lists all ADRs or shows one in detail|
+|**records**<br><br><br><br>|[*status*]<br>*list*<br>*adrs*<br>*edit*||<li>Shows the recording space and the ADR counters<br><li>Lists recordings with their ADR state<br><li>Lists all ADRs or shows one in detail<br><li>Edits the ADR overlay of a stopped recording|
 
 ### planned
 

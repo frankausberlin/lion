@@ -107,6 +107,24 @@ count — a marker inside a string or a here-document body is text. `title` and
 `decision` make an ADR `complete`; the ADR stays inside the recording and
 never enters the scan history.
 
+## Edit an ADR afterwards
+
+`lion records edit` (or `lion records edit <REF>`) opens the ADR of a
+**stopped** recording in `$EDITOR` as a TOML overlay and stores it back
+atomically:
+
+```bash
+export EDITOR=vim
+uv run lion records edit latest
+```
+
+Adjust the `[fields]` table, save and close. An invalid draft stops loudly and
+keeps the temporary file so you can fix it; an empty `[fields]` table removes
+the ADR on purpose. The overlay replaces the fields derived from the recorded
+annotations — the raw events are never modified — and `lion records adrs
+latest` shows `edited: true` afterwards. Only stopped recordings can be
+edited; run `lion watch stop` first.
+
 ## Comments as captured input
 
 Comments are information here, not noise: pasted setup guides with `#` lines are

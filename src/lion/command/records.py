@@ -7,7 +7,12 @@ the views and maps errors to CLI failures.
 """
 
 import json
+import os
+import shlex
+import subprocess
+import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 import typer
 
@@ -275,12 +280,44 @@ def _run_adrs(reference: str | None, json_output: bool) -> None:
     _run_adrs_detail(record, refs, json_output)
 
 
+def _run_edit(reference: str | None) -> None:
+    """Open the ADR overlay of a stopped recording in ``$EDITOR`` and store it."""
+    if reference is not None:
+        record = recording.resolve_recording(reference)
+    else:
+        active = recording.active_recording()
+        record = active if active is not None else recording.resolve_recording("latest")
+    if record.active:
+        raise annotations.AnnotationError(f"Recording {record.ref} is still open; run 'lion watch stop' first.")
+    editor = os.environ.get("EDITOR", "").strip()
+    if not editor:
+        raise annotations.AnnotationError("No $EDITOR is set; export EDITOR=<editor> and retry.")
+    current = annotations.annotations_for(record).adr
+    fd, name = tempfile.mkstemp(prefix=".adr-edit-", suffix=".toml", dir=record.path)
+    draft = Path(name)
+    with os.fdopen(fd, "w", encoding="utf-8") as stream:
+        os.fchmod(stream.fileno(), 0o600)
+        _ = stream.write(annotations.overlay_template(current))
+        stream.flush()
+        os.fsync(stream.fileno())
+    completed = subprocess.run([*shlex.split(editor), str(draft)], check=False)
+    if completed.returncode != 0:
+        raise annotations.AnnotationError(
+            f"{editor} exited with status {completed.returncode}; the draft remains at {draft}."
+        )
+    overlay = annotations.parse_overlay_document(draft.read_bytes(), draft)
+    target = annotations.write_overlay(record.path, overlay.fields)
+    draft.unlink(missing_ok=True)
+    typer.echo(f"ADR overlay written: {target}")
+
+
 def run(action: str = "status", argument: str | None = None, json_output: bool = False) -> None:
     """Run one records operation.
 
     Args:
-        action: ``status``, ``list`` or ``adrs``.
-        argument: The recording reference for the ``adrs`` detail view.
+        action: ``status``, ``list``, ``adrs`` or ``edit``.
+        argument: The recording reference for the ``adrs`` detail view and
+            ``edit`` (defaults to the active or newest recording there).
         json_output: Emit a single JSON object instead of human text.
     """
     try:
@@ -288,6 +325,8 @@ def run(action: str = "status", argument: str | None = None, json_output: bool =
             _run_list(json_output)
         elif action == "adrs":
             _run_adrs(argument, json_output)
+        elif action == "edit":
+            _run_edit(argument)
         else:
             _run_status(json_output)
     except (OSError, ValueError) as exc:

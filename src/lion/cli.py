@@ -296,4 +296,15 @@ def records_adrs(
     run_records("adrs", reference, json_output)
 
 
+@records_app.command("edit")
+def records_edit(
+    reference: Annotated[
+        str | None,
+        typer.Argument(help="Recording reference; defaults to the active, else the newest recording."),
+    ] = None,
+) -> None:
+    """Edit the ADR overlay of a stopped recording in $EDITOR."""
+    run_records("edit", reference, False)
+
+
 app.add_typer(records_app)

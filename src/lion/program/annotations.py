@@ -14,16 +14,26 @@ annotation.
 """
 
 import getpass
+import os
 import re
+import tempfile
+import tomllib
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
+from typing import cast
+
+import tomli_w
 
 from lion.program import recording
+from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.recording import Recording, SpoolEvent
 
 __all__ = [
     "CATALOG",
+    "OVERLAY_FILENAME",
+    "OVERLAY_SCHEMA_VERSION",
     "STATUS_ACCEPTED",
     "STATUS_PROPOSED",
     "STATUS_SUPERSEDED",
@@ -32,17 +42,23 @@ __all__ = [
     "AdrAction",
     "AdrAnchor",
     "AdrIssue",
+    "AdrOverlay",
     "AnnotationError",
     "ParsedEvent",
     "RecordAnnotations",
     "ResolvedRef",
     "adr_for",
     "adrs_for",
+    "annotations_checks",
     "annotations_for",
     "fold_events",
+    "load_overlay",
+    "overlay_template",
     "parse_event_text",
+    "parse_overlay_document",
     "parse_ref_list",
     "resolve_ref_list",
+    "write_overlay",
 ]
 
 #: The three annotation markers; the key is the marker character used in actions.
@@ -80,6 +96,11 @@ REASON_EMPTY_FIELD = "empty field name"
 REASON_NO_TARGET = "continuation without a field"
 REASON_UNKNOWN_STATUS = "unknown status value"
 REASON_UNRESOLVED = "unresolved construct"
+
+#: The overlay file that ``records edit`` writes inside a record directory.
+OVERLAY_FILENAME = "adr.toml"
+#: The only overlay schema version the reader accepts.
+OVERLAY_SCHEMA_VERSION = 1
 
 _MODE_NORMAL = "normal"
 _MODE_SINGLE = "single"
@@ -631,8 +652,50 @@ def _host_of(record: Recording) -> str:
 
 
 def annotations_for(record: Recording) -> RecordAnnotations:
-    """Read and fold the annotations of one recording."""
-    return fold_events(recording.load_events(record), ref=record.ref, host=_host_of(record))
+    """Read and fold the annotations of one recording.
+
+    A valid ``adr.toml`` overlay replaces the event-derived field set
+    completely (an explicit edit beats observation); the event findings stay
+    visible and the ADR is marked as edited. Anchor and auto fields still
+    derive from the events when there are annotation lines.
+    """
+    folded = fold_events(recording.load_events(record), ref=record.ref, host=_host_of(record))
+    overlay = load_overlay(record.path)
+    if overlay is None:
+        return folded
+    issues = list(folded.issues)
+    ordered = _ordered_fields(overlay.fields)
+    if ordered.get("status") and ordered["status"] not in STATUS_VALUES:
+        issues.append(
+            AdrIssue(
+                reason=REASON_UNKNOWN_STATUS,
+                marker=".",
+                segment=OVERLAY_FILENAME,
+                event_index=-1,
+                line=0,
+                time=overlay.edited_at,
+                text=f"adr.status {ordered['status']}",
+            )
+        )
+    if not ordered:
+        return RecordAnnotations(adr=None, issues=tuple(issues))
+    base = folded.adr
+    adr = Adr(
+        ref=record.ref,
+        fields=ordered,
+        complete=bool(ordered.get("title")) and bool(ordered.get("decision")),
+        status=ordered.get("status") or STATUS_PROPOSED,
+        anchor=None if base is None else base.anchor,
+        issues=tuple(issues),
+        first_at="" if base is None else base.first_at,
+        last_at="" if base is None else base.last_at,
+        user=base.user if base is not None else _current_user(),
+        host=base.host if base is not None else _host_of(record),
+        cwd="" if base is None else base.cwd,
+        segments=() if base is None else base.segments,
+        edited=True,
+    )
+    return RecordAnnotations(adr=adr, issues=tuple(issues))
 
 
 def adr_for(record: Recording) -> Adr | None:
@@ -672,3 +735,152 @@ def resolve_ref_list(value: str, refs: Sequence[str]) -> tuple[ResolvedRef, ...]
         matches = [ref for ref in refs if ref.lower().startswith(lowered)]
         resolved.append(ResolvedRef(raw=token, resolved=matches[0] if len(matches) == 1 else None))
     return tuple(resolved)
+
+
+@dataclass(frozen=True)
+class AdrOverlay:
+    """The parsed ``adr.toml`` overlay of one recording."""
+
+    edited_at: str
+    fields: Mapping[str, str]
+
+
+def _invalid_overlay(source: Path, message: str) -> AnnotationError:
+    return AnnotationError(f"Invalid ADR overlay: {source}: {message}")
+
+
+def parse_overlay_document(raw: bytes, source: Path) -> AdrOverlay:
+    """Parse and strictly validate an overlay document.
+
+    The document must be a TOML table with ``schema_version = 1`` and a
+    ``[fields]`` table of non-empty strings; the field names are arbitrary
+    (catalog or extra). An empty ``[fields]`` table is valid and means
+    "deliberately no ADR". Any violation is a loud :class:`AnnotationError`
+    naming ``source``.
+    """
+    try:
+        data = tomllib.loads(raw.decode("utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+        raise _invalid_overlay(source, str(exc)) from exc
+    version = data.get("schema_version")
+    if isinstance(version, bool) or version != OVERLAY_SCHEMA_VERSION:
+        raise _invalid_overlay(source, f"schema_version must be {OVERLAY_SCHEMA_VERSION}")
+    fields_raw = data.get("fields")
+    if not isinstance(fields_raw, dict):
+        raise _invalid_overlay(source, "missing [fields] table")
+    fields: dict[str, str] = {}
+    typed_fields = cast("dict[str, object]", fields_raw)
+    for name, value in typed_fields.items():
+        if not isinstance(value, str) or not value.strip():
+            raise _invalid_overlay(source, f"field '{name}' must be a non-empty string")
+        fields[name] = value
+    edited_at = data.get("edited_at", "")
+    if not isinstance(edited_at, str):
+        raise _invalid_overlay(source, "edited_at must be a string")
+    return AdrOverlay(edited_at=edited_at, fields=fields)
+
+
+def load_overlay(record_dir: Path) -> AdrOverlay | None:
+    """Return the record's overlay, or ``None`` when there is none.
+
+    A present but unreadable or invalid overlay fails loudly with its path; it
+    is never skipped.
+    """
+    path = record_dir / OVERLAY_FILENAME
+    if not path.is_file():
+        return None
+    try:
+        raw = path.read_bytes()
+    except OSError as exc:
+        raise AnnotationError(f"Cannot read ADR overlay: {path}: {exc}") from exc
+    return parse_overlay_document(raw, path)
+
+
+def write_overlay(record_dir: Path, fields: Mapping[str, str]) -> Path:
+    """Write the overlay atomically (mode ``600``) and return its path.
+
+    The document is staged in the record directory and published with
+    ``os.replace``; a failure leaves no partial file behind.
+    """
+    payload: dict[str, object] = {
+        "schema_version": OVERLAY_SCHEMA_VERSION,
+        "edited_at": datetime.now(UTC).isoformat(),
+        "fields": dict(fields),
+    }
+    content = tomli_w.dumps(payload)
+    target = record_dir / OVERLAY_FILENAME
+    fd, name = tempfile.mkstemp(prefix=".adr-", suffix=".toml.tmp", dir=record_dir)
+    temporary = Path(name)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            os.fchmod(stream.fileno(), 0o600)
+            _ = stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        temporary.unlink(missing_ok=True)
+        raise
+    return target
+
+
+def _toml_field(name: str, value: str) -> str:
+    """Render one field as a TOML line with proper key/value escaping."""
+    return tomli_w.dumps({name: value}).strip()
+
+
+def overlay_template(adr: Adr | None) -> str:
+    """Return the editable overlay template shown by ``records edit``.
+
+    The current effective fields appear as active lines in catalog order
+    (extras after them); unset catalog fields appear as comments so the shape
+    is visible without inventing values.
+    """
+    lines = [
+        "# LION ADR overlay — edit the [fields] table and save.",
+        "# An empty [fields] table deliberately removes the ADR.",
+        "# Catalog: " + ", ".join(CATALOG) + ".",
+        "# status: " + " | ".join(STATUS_VALUES) + ".",
+        f"schema_version = {OVERLAY_SCHEMA_VERSION}",
+        "",
+        "[fields]",
+    ]
+    current = dict(adr.fields) if adr is not None else {}
+    for name in CATALOG:
+        if name in current:
+            lines.append(_toml_field(name, current[name]))
+        else:
+            lines.append(f'# {name} = ""')
+    extras = {name: value for name, value in current.items() if name not in CATALOG}
+    if extras:
+        lines.append("")
+        lines.append("# Additional fields:")
+        for name, value in extras.items():
+            lines.append(_toml_field(name, value))
+    return "\n".join(lines) + "\n"
+
+
+def annotations_checks(_ctx: DoctorContext) -> list[Finding]:
+    """Report invalid ADR overlays without writing (doctor topic ``watch``).
+
+    Damaged records are already reported by ``watch_checks``; this check only
+    inspects the readable ones. Incomplete or open ADRs are never a finding.
+    """
+    space = recording.inspect_space()
+    findings: list[Finding] = []
+    for record in space.recordings:
+        if record is None:
+            continue
+        try:
+            _ = load_overlay(record.path)
+        except AnnotationError as exc:
+            findings.append(
+                Finding(
+                    topic="watch",
+                    name=f"watch.adr.{record.ref}",
+                    status=CheckStatus.ERROR,
+                    message=str(exc),
+                    hint="Fix or remove adr.toml in the record, or rewrite it with 'lion records edit <ref>'.",
+                )
+            )
+    return findings

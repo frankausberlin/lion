@@ -22,6 +22,7 @@ recordings/
     meta.toml                    # schema_version, ref, status, started_at, …, note
     state-start.toml             # Snapshot at start (same model as the history)
     state-end.toml               # Snapshot at stop, published once
+    adr.toml                     # optional ADR overlay, written only by 'lion records edit'
     events/
       100-452123-4096.log        # one file per shell segment
 ```
@@ -30,6 +31,9 @@ The record directory uses mode `700`, every file `600`. `active` exists only
 while a recording is open; `start` refuses to run while it exists and never
 overwrites it (it is published with `os.link`). New records and states are never
 overwritten: a same-instant record directory receives a `~NNNN` suffix.
+`adr.toml` is optional and appears only after `lion records edit`; it is the
+one file `start`/`stop`/`watch` never touch (see
+[Records and ADRs](records-and-adrs.md)).
 
 `meta.toml` fields:
 

@@ -7,6 +7,7 @@ tests stay deterministic and never touch the developer's machine.
 
 import json
 import os
+import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -16,7 +17,7 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from lion.cli import app
-from lion.program import recording
+from lion.program import annotations, recording
 
 runner = CliRunner()
 
@@ -357,3 +358,179 @@ def test_records_help_documents_grammar() -> None:
     assert "#-LION:" in result.stdout
     assert "#.LION:" in result.stdout
     assert "#+LION:" in result.stdout
+
+
+# --- overlay and edit --------------------------------------------------------
+
+
+def _overlay_path(ref: str) -> Path:
+    return recording.load_recording(ref).path / annotations.OVERLAY_FILENAME
+
+
+def _edit_script(tmp_path: Path, body: str) -> str:
+    """Write an executable $EDITOR stub that runs ``body`` after reading argv[1]."""
+    script = tmp_path / "editor_stub.py"
+    script.write_text(
+        "import pathlib, sys\npath = pathlib.Path(sys.argv[1])\ntext = path.read_text()\n" + body,
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return f"{sys.executable} {script}"
+
+
+def test_overlay_replaces_event_fields(tmp_path: Path) -> None:
+    """A valid overlay beats observation and flips the edited flag."""
+    ref = _record(COMPLETE_ADR)
+    _ = annotations.write_overlay(
+        recording.load_recording(ref).path,
+        {"title": "Edited title", "decision": "Edited decision", "status": "superseded", "extra": "kept"},
+    )
+
+    payload = json.loads(_invoke("records", "adrs", ref, "--json").stdout)["adr"]
+
+    assert payload["edited"] is True
+    assert payload["status"] == "superseded"
+    assert list(payload["fields"]) == ["title", "decision", "status", "extra"]
+    assert payload["fields"]["title"] == "Edited title"
+    assert payload["issues"] == []
+
+    text = _invoke("records", "adrs", ref).stdout
+    assert "  edited: true" in text
+    by_ref = {item["ref"]: item for item in json.loads(_invoke("records", "list", "--json").stdout)["recordings"]}
+    assert by_ref[ref]["adr"]["edited"] is True
+    assert by_ref[ref]["adr"]["title"] == "Edited title"
+
+
+def test_overlay_unknown_status_is_reported() -> None:
+    """An unknown overlay status stays verbatim and becomes a visible finding."""
+    ref = _record([("comment", "#-LION: adr.title T")])
+    _ = annotations.write_overlay(recording.load_recording(ref).path, {"title": "T", "status": "bogus"})
+
+    payload = json.loads(_invoke("records", "adrs", ref, "--json").stdout)["adr"]
+
+    assert payload["status"] == "bogus"
+    assert [issue["reason"] for issue in payload["issues"]] == ["unknown status value"]
+    assert payload["issues"][0]["segment"] == annotations.OVERLAY_FILENAME
+
+
+def test_overlay_empty_fields_means_no_adr() -> None:
+    """An empty [fields] table deliberately removes the ADR."""
+    ref = _record(COMPLETE_ADR)
+    _ = annotations.write_overlay(recording.load_recording(ref).path, {})
+
+    result = _invoke("records", "adrs", ref)
+    assert result.exit_code == 0
+    assert f"No ADR in recording {ref}." in result.stdout
+    assert json.loads(_invoke("records", "adrs", ref, "--json").stdout)["adr"] is None
+    by_ref = {item["ref"]: item for item in json.loads(_invoke("records", "list", "--json").stdout)["recordings"]}
+    assert by_ref[ref]["adr"] is None
+
+
+def test_invalid_overlay_fails_loudly() -> None:
+    """Every broken overlay fails with exit 1 naming the file, never skipped."""
+    ref = _record(COMPLETE_ADR)
+    path = _overlay_path(ref)
+    cases = [
+        "broken = [",
+        'schema_version = 2\n[fields]\ntitle = "T"\n',
+        "schema_version = 1\n",
+        'schema_version = 1\n[fields]\ntitle = ""\n',
+    ]
+    for content in cases:
+        path.write_text(content, encoding="utf-8")
+        for args in (("records", "list"), ("records", "adrs", ref)):
+            result = _invoke(*args)
+            assert result.exit_code == 1, (content, args)
+            assert annotations.OVERLAY_FILENAME in result.stderr, (content, args)
+    path.unlink()
+
+
+def test_edit_writes_overlay_and_cleans_the_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The editor flow validates, stores atomically and removes the draft."""
+    ref = _record(COMPLETE_ADR)
+    document = 'schema_version = 1\\n\\n[fields]\\ntitle = "Edited title"\\ndecision = "Edited decision"\\n'
+    monkeypatch.setenv(
+        "EDITOR",
+        _edit_script(
+            tmp_path,
+            "assert 'schema_version = 1' in text, text\n"
+            "assert 'Antidote for the shell' in text, text\n"
+            f"path.write_text('{document}')\n",
+        ),
+    )
+
+    result = _invoke("records", "edit", ref)
+
+    assert result.exit_code == 0
+    assert "ADR overlay written" in result.stdout
+    path = _overlay_path(ref)
+    assert path.is_file()
+    assert (path.stat().st_mode & 0o777) == 0o600
+    record_dir = recording.load_recording(ref).path
+    assert not list(record_dir.glob(".adr-edit-*"))
+    payload = json.loads(_invoke("records", "adrs", ref, "--json").stdout)["adr"]
+    assert payload["edited"] is True
+    assert payload["fields"]["title"] == "Edited title"
+
+
+def test_edit_defaults_to_active_recording(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without REF edit targets the active recording and refuses to touch it."""
+    monkeypatch.setenv("EDITOR", _edit_script(tmp_path, "path.write_text('')\n"))
+    _record(COMPLETE_ADR)
+    _start("open")
+
+    result = _invoke("records", "edit")
+
+    assert result.exit_code == 1
+    assert "still open" in result.stderr
+    assert not list(recording.get_recordings_dir().rglob(annotations.OVERLAY_FILENAME))
+
+
+def test_edit_requires_editor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing $EDITOR is a loud error and changes nothing."""
+    monkeypatch.delenv("EDITOR", raising=False)
+    ref = _record(COMPLETE_ADR)
+
+    result = _invoke("records", "edit", ref)
+
+    assert result.exit_code == 1
+    assert "EDITOR" in result.stderr
+    assert not _overlay_path(ref).exists()
+    assert not list(recording.load_recording(ref).path.glob(".adr-edit-*"))
+
+
+def test_edit_editor_failure_keeps_the_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failing editor aborts loudly and leaves the draft for reconciliation."""
+    monkeypatch.setenv("EDITOR", _edit_script(tmp_path, "sys.exit(3)\n"))
+    ref = _record(COMPLETE_ADR)
+
+    result = _invoke("records", "edit", ref)
+
+    assert result.exit_code == 1
+    assert "exited with status 3" in result.stderr
+    drafts = list(recording.load_recording(ref).path.glob(".adr-edit-*"))
+    assert len(drafts) == 1
+    assert str(drafts[0]) in result.stderr
+    assert not _overlay_path(ref).exists()
+
+
+def test_edit_invalid_content_keeps_the_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invalid edited content fails with the draft path and writes no overlay."""
+    monkeypatch.setenv("EDITOR", _edit_script(tmp_path, "path.write_text('broken = [')\n"))
+    ref = _record(COMPLETE_ADR)
+
+    result = _invoke("records", "edit", ref)
+
+    assert result.exit_code == 1
+    assert "Invalid ADR overlay" in result.stderr
+    drafts = list(recording.load_recording(ref).path.glob(".adr-edit-*"))
+    assert len(drafts) == 1
+    assert str(drafts[0]) in result.stderr
+    assert not _overlay_path(ref).exists()
+
+
+def test_edit_rejects_json_option() -> None:
+    """``edit`` has no JSON mode (typer rejects the option)."""
+    result = _invoke("records", "edit", "--json")
+
+    assert result.exit_code == 2

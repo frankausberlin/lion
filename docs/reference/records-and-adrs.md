@@ -114,6 +114,7 @@ end of the event. Known boundaries, accepted on purpose:
 | `records` / `records status` | Overview: active recording or none, recordings and open count, ADR counters (`total`, `complete`, `incomplete`, `edited`, status distribution). Read-only, never collects. |
 | `records list` | Like `lion watch list` plus an `ADR` column: `-`, `incomplete`, `proposed`, `accepted`, `superseded` (or the unknown value). |
 | `records adrs [REF]` | Without `REF`: all ADRs oldest first (`#`, REF, STATUS, TITLE, STARTED). With `REF`: one ADR in detail. |
+| `records edit [REF]` | Edit the ADR overlay of a stopped recording in `$EDITOR` (see below). |
 
 The detail view prints the header `ADR <ref> (<status>, complete|incomplete)`,
 the fields in catalog order, the anchor with command preview, the auto fields,
@@ -156,3 +157,35 @@ fails loudly with its path and exit code 1.
 A record without an ADR yields `{"adr": null, "issues": [...]}`. The read
 commands never write and never touch the scan history; the JSON of `scan`,
 `status` and `watch` is unchanged.
+
+## Overlay (`records edit`)
+
+`lion records edit [REF]` opens a TOML template of the current effective ADR
+in `$EDITOR` (fields in catalog order, unset catalog fields commented) and
+stores the result as `<record>/adr.toml`:
+
+```toml
+schema_version = 1
+edited_at = "2026-10-12T14:00:00+00:00"
+
+[fields]
+title = "…"
+decision = "…"
+status = "accepted"
+```
+
+- Only **stopped** recordings can be edited (`stop first` otherwise); `REF`
+  defaults to the active, else the newest recording.
+- Saving validates strictly: `schema_version = 1` and a `[fields]` table of
+  non-empty strings; field names are arbitrary (catalog or extra). An invalid
+  draft aborts loudly, the temporary file stays in the record directory with
+  its path in the message, and no overlay is written.
+- On success the overlay is staged and published atomically (`os.replace`,
+  mode `600`); the draft is removed and the path is printed.
+- While an overlay exists, its fields **replace** the event-derived field set
+  completely — including an empty `[fields]` table, which deliberately means
+  "no ADR". Event findings stay visible, anchor and auto fields still derive
+  from the events, and `edited` becomes `true`.
+- Reading is strict: a damaged overlay fails loudly with its path in `records
+  list`, `records adrs` and `doctor` (`watch.adr.<ref>`, status `error`) —
+  never skipped. `start`, `stop` and `watch` never read or write it.

@@ -160,14 +160,16 @@ Examples:
 Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
 """
 
-RECORDS_HELP = """Read the decisions (ADRs) attached to recordings as flat ``#-LION:``,
+RECORDS_HELP = """Read and edit the decisions (ADRs) attached to recordings as flat ``#-LION:``,
 ``#+LION:`` and ``#.LION:`` annotation lines:
 
   status   overview of the recording space and the ADR counters (read-only)
   list     recordings like 'lion watch list' plus an ADR column (read-only)
   adrs     list all ADRs; with REF show one ADR in detail (read-only)
+  edit     edit the ADR overlay (adr.toml) of a stopped recording in $EDITOR
 
-Annotations stay inside the recording; 'lion records' only reads them.
+Annotations stay inside the recording; the read commands only read them, and
+'edit' writes the record's single adr.toml overlay.
 """
 
 RECORDS_EPILOG = """Running 'lion records' without an operation shows the status. Read commands never
@@ -184,6 +186,7 @@ Examples:
   lion records list            recordings with event counts and ADR state
   lion records adrs            all ADRs, oldest first
   lion records adrs latest     the newest recording's ADR in detail
+  lion records edit latest     edit the ADR overlay of a stopped recording
 """
 
 

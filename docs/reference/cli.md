@@ -487,14 +487,16 @@ $ lion watch show [OPTIONS] [reference]
 
 ## `lion records`
 
-Read the decisions (ADRs) attached to recordings as flat ``#-LION:``,
+Read and edit the decisions (ADRs) attached to recordings as flat ``#-LION:``,
 ``#+LION:`` and ``#.LION:`` annotation lines:
 
   status   overview of the recording space and the ADR counters (read-only)
   list     recordings like &#x27;lion watch list&#x27; plus an ADR column (read-only)
   adrs     list all ADRs; with REF show one ADR in detail (read-only)
+  edit     edit the ADR overlay (adr.toml) of a stopped recording in $EDITOR
 
-Annotations stay inside the recording; &#x27;lion records&#x27; only reads them.
+Annotations stay inside the recording; the read commands only read them, and
+&#x27;edit&#x27; writes the record&#x27;s single adr.toml overlay.
 
 **Usage**:
 
@@ -520,6 +522,7 @@ Examples:
   lion records list            recordings with event counts and ADR state
   lion records adrs            all ADRs, oldest first
   lion records adrs latest     the newest recording's ADR in detail
+  lion records edit latest     edit the ADR overlay of a stopped recording
 
 
 **Commands**:
@@ -527,6 +530,7 @@ Examples:
 * `status`: Show the recording space and the ADR...
 * `list`: List stored recordings with their ADR...
 * `adrs`: List all ADRs, or show one ADR in detail...
+* `edit`: Edit the ADR overlay of a stopped...
 
 ### `lion records status`
 
@@ -575,4 +579,22 @@ $ lion records adrs [OPTIONS] [reference]
 **Options**:
 
 * `--json`: Output the ADR(s) as JSON.
+* `--help`: Show this message and exit.
+
+### `lion records edit`
+
+Edit the ADR overlay of a stopped recording in $EDITOR.
+
+**Usage**:
+
+```console
+$ lion records edit [OPTIONS] [reference]
+```
+
+**Arguments**:
+
+* `reference`: Recording reference; defaults to the active, else the newest recording.
+
+**Options**:
+
 * `--help`: Show this message and exit.
