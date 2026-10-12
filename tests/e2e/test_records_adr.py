@@ -51,6 +51,10 @@ def test_adr_annotations_from_a_real_session(runner: Runner, env: dict[str, str]
         _ = shell.run("echo anchored-command")
         mixed = "cat <<'EOF'\n#-LION: adr.title FAKE\nEOF\n#-LION: adr.decision Real decision from a mixed paste"
         _ = shell.paste_and_run(mixed)
+        # Regression: the partially quoted delimiter <<'EO'F is one word and
+        # closes on EOF, so the decoy marker after the partial EO stays text.
+        quoted = "cat <<'EO'F\nEO\n#-LION: adr.title QUOTED-SPLIT\nEOF\n"
+        _ = shell.paste_and_run(quoted)
         _ = shell.run("#.LION: adr.status accepted")
         _ = shell.run("#.LION: adr.uses does-not-exist")
 
@@ -70,6 +74,7 @@ def test_adr_annotations_from_a_real_session(runner: Runner, env: dict[str, str]
     assert anchor["text"] == "echo anchored-command"
     assert _mapping(cast("list[object]", detail["uses"])[0]) == {"ref": "does-not-exist", "resolved": None}
     assert "FAKE" not in json.dumps(detail)
+    assert "QUOTED-SPLIT" not in json.dumps(detail)
 
     listing = _json(runner.invoke("lion", "records", "list", "--json", env=env, expected=0))["recordings"]
     entry = _mapping(cast("list[object]", listing)[0])

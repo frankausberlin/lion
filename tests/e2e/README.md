@@ -72,7 +72,10 @@ database. The package scenario requires root **inside the disposable
 container**; LION itself does not require root. The permissions scenarios
 switch to the dedicated unprivileged `lion-e2e` user
 using `runuser --preserve-environment`; only their temporary directories are
-owned by that user. Package mutation remains root-only. Shlib and the
+owned by that user. Package mutation remains root-only. The unprivileged watch
+scenario gives the user its own tmux server through a private `TMUX_TMPDIR`
+socket directory, so the interactive shell and every file it writes belong to
+`lion-e2e`. Shlib and the
 `doctor` scenarios
 use a temporary `HOME` and `ZDOTDIR`, and package-history and `doctor` tests use
 a temporary `XDG_DATA_HOME`.
@@ -101,9 +104,13 @@ skip the suite to prevent accidental system mutations.
 | [Doctor environment](test_doctor_environment.py) | Runs `doctor` over a real filesystem: the deterministic bare profile, pure JSON, read-only preservation, reco permissions/content, hostile-filename safety, no-overwrite on a second run, damaged history and legacy `scans/`, and an unusable data path. |
 | [Doctor permissions](test_doctor_permissions.py) | Runs scan, shlib installation and doctor as the unprivileged `lion-e2e` user. Checks preservation of existing history, shell files, exports and permissions; denied reco publication returns JSON/exit 1 without partial files. |
 | [Runner diagnostics](test_runner.py) | A real subprocess timeout retains the command and partial stdout/stderr; an expected non-zero exit returns both streams separately without raising. |
-| [Watch lifecycle](test_watch_lifecycle.py) | Drives real interactive zsh sessions inside tmux (`watchutil.py`) with an isolated `HOME`/`ZDOTDIR` and reads results only from recording files. Checks the full lifecycle (commands, comment input, failure status, duration, secret masking, multiline paste), that a mixed pasted block stays one `cmd` and comment-only input one `comment` (never doubled), `exec zsh` continuity (same PID, new segment, a missing exit is never success), a closed terminal window, two interleaved shells without mixing, the silent load and the p10k pointer segment, the loud failure paths, read-only preservation of home and data, and the `shell`/`watch` doctor findings. |
-| [Watch p10k](test_watch_p10k.py) | Loads the pinned Powerlevel10k and the committed minimal config before the user dotfiles, then asserts on the prompt itself: the `●` segment appears while a recording is active (with no instant-prompt startup warning), vanishes at the prompt after `stop`, and reappears in an `exec`'d shell because the pointer is read at load. |
-| [Records ADR](test_records_adr.py) | Drives real interactive zsh sessions, annotates them with typed `#-LION:`/`#+LION:`/`#.LION:` comment lines plus a mixed paste whose here-document body holds a decoy marker, and reads results only from recording files via `lion records`. Checks the folded ADR (title/component/decision/status, anchor, `uses` unknown), that the decoy never becomes an annotation, the `records` JSON views, read-only preservation of the data directory, and a scripted-`$EDITOR` `records edit` roundtrip whose overlay `doctor` accepts. |
+| [Watch lifecycle](test_watch_lifecycle.py) | Drives real interactive zsh sessions inside tmux (`watchutil.py`) with an isolated `HOME`/`ZDOTDIR` and reads results only from recording files. Checks the full lifecycle (commands, comment input, failure status, duration, secret masking, multiline paste), that a mixed pasted block stays one `cmd` and comment-only input one `comment` (never doubled), `exec zsh` continuity (same PID, new segment, a missing exit is never success), a closed terminal window, two interleaved shells without mixing, the direct `~/.zshrc` block path without shlib (insert, record, remove restores the file byte-for-byte), adoption and record switching across shells (the documented pointer lag applies at the next prompt), foreign `preexec`/`precmd` hooks before and after the integration with late p10k element registration, the silent load and the p10k pointer segment, the loud failure paths, read-only preservation of home and data, and the `shell`/`watch` doctor findings. |
+| [Watch exit paths](test_watch_exit_paths.py) | Pins what the recording says about endings: `exit 7` records the exit status and no result for the exit line, SIGKILL leaves no exit event and the segment ends as `gone`, Ctrl-C leaves a non-zero result, a background job's result is the prompt return while the job still runs (proved with a marker file), and pipelines and compound lines carry the whole line's status. |
+| [Watch masking](test_watch_masking.py) | Runs the pane under `C.UTF-8` and checks the masking variants (bare, single- and double-quoted values, `Authorization:` headers, `LION_WATCH_MASK=0` opt-out) plus exact UTF-8 roundtrip of command text and a masked UTF-8 secret, and the documented 4096-character cap on a 5000-character command. |
+| [Watch races](test_watch_races.py) | Two shells really overlap: while one runs `sleep 2`, the other completes a command and its result is already recorded (the slow result follows only at its prompt, duration ≥ 1 s). Two simultaneous `watch start` (and later `watch stop`) processes produce exactly one winner, a loud loser, no second record directory and no staging leftovers; the one remaining record ends `stopped`. |
+| [Watch user](test_watch_user.py) | Runs a full watch lifecycle as the unprivileged `lion-e2e` user inside its own tmux server (private `TMUX_TMPDIR`): the recording space and every file stay user-owned and record directories stay `0700`. A denied overlay write (`records edit` into an unwritable record directory) fails loudly without `adr.toml` or a draft file, while `records adrs` still reads. |
+| [Watch p10k](test_watch_p10k.py) | Loads the pinned Powerlevel10k and the committed minimal config before the user dotfiles, then asserts on the prompt itself: the `●` segment appears while a recording is active (with no instant-prompt startup warning), vanishes at the prompt after `stop`, and reappears in an `exec`'d shell because the pointer is read at load. The main scenario asserts the cold start generated the instant-prompt cache and deletes the readiness marker before `exec`, so the warm-run silence assertion cannot pass on a cached prompt or a stale marker. |
+| [Records ADR](test_records_adr.py) | Drives real interactive zsh sessions, annotates them with typed `#-LION:`/`#+LION:`/`#.LION:` comment lines plus a mixed paste whose here-document body holds a decoy marker and a partially quoted delimiter (`<<'EO'F`, which closes on `EOF`), and reads results only from recording files via `lion records`. Checks the folded ADR (title/component/decision/status, anchor, `uses` unknown), that neither decoy becomes an annotation, the `records` JSON views, read-only preservation of the data directory, and a scripted-`$EDITOR` `records edit` roundtrip whose overlay `doctor` accepts. |
 | [Doctor shlib](test_doctor_shlib.py) | Installs the real shell library and inspects the resulting `shlib.*` findings: clean install, missing reference copy, drifted `.zshrc`, missing directory, `dash/` defects, ambiguous markers and a foreign `ZDOTDIR`. |
 
 The package scenario retains four distinct history entries even when removal
@@ -142,7 +149,8 @@ Read the pytest summary in the terminal and the final
 | --- | --- |
 | `junit.xml` | Test results and assertion failures. |
 | `work/**/commands.log` | Package-, shlib- and doctor-scenario commands, exit codes, stdout and stderr. |
-| `work/**/user-commands.log` | Non-root doctor and shlib commands and output. |
+| `work/**/user-commands.log` | Non-root doctor, shlib and watch commands and output. |
+| `work/**/shell-diagnostics/*.txt` | Per-shell failure diagnostics from interactive scenarios: session and pane state, every input step, and the last screen including scrollback. Written only when a scenario fails and never an assertion source. |
 | `work/**/data/lion/history/*.toml` | Persisted package-scenario snapshots. |
 | Other files under `work/` | Temporary shell configuration, `recos/`, and package fixture files. |
 
@@ -305,7 +313,20 @@ anything surprising with its exact output.
 
 Send the versions and option values from "Before you start", the PASS/FAIL
 verdict per checklist item, and every deviation with its exact output —
-especially anything printed before the first prompt.
+especially anything printed before the first prompt. This compact shape keeps
+reports comparable:
+
+```text
+report: guided|exploratory | <date> | lion <version>
+env: zsh <version> | TERM=<term> | terminal/multiplexer=<...> |
+     interactive_comments=<set|MISSING> | p10k instant prompt=<mode> | XDG_DATA_HOME=<default|override>
+1-minute: PASS|FAIL — <one line>
+10-minute: PASS|FAIL — <per checklist item, e.g. "dot after start: PASS">
+deviations:
+- step <n>: expected <x>, saw <y>; output: <verbatim>
+surprises:
+- <anything unexpected, verbatim>
+```
 
 | Symptom | Likely cause to check |
 | --- | --- |

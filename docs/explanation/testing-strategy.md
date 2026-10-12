@@ -11,7 +11,7 @@ for a real machine. The operational checklists live in the
 | Level | Command | Environment | What it proves |
 | --- | --- | --- | --- |
 | Unit and contract tests | `just check` | The developer's checkout, mocks and temporary paths | The observable behavior and the LION invariants of each module, deterministically and fast. |
-| End-to-end tests | `just test-e2e` | A disposable, offline Ubuntu container | The installed `lion` executable against real tools and a real interactive zsh, without touching the host. |
+| End-to-end tests | `just test-e2e` | A disposable, offline Ubuntu container | The installed `lion` executable against real tools and a real interactive zsh — watch lifecycle, exit and signal truthfulness, masking, races and an unprivileged user included — without touching the host. |
 | Alpha test | manual | A real machine with the maintainer's own shell, prompt and hardware | The integration works in the environment LION actually runs in — the one thing the container cannot reproduce. |
 
 `just check` is the gate every change must pass; it runs the fast suite, lint,

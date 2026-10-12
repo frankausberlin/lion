@@ -470,3 +470,52 @@ def test_record_switch_and_resume_across_shells(runner: Runner, env: dict[str, s
     second_texts = _command_texts(_events(second_payload))
     assert "echo switched-to-second" in second_texts
     assert "echo resumed-in-first" not in second_texts
+
+
+def test_foreign_hooks_and_late_p10k_registration(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """User hooks before and after the integration keep working.
+
+    A ``precmd`` hook registered after Lion's must still see the command's exit
+    status (Lion returns it), and the p10k element registration must succeed
+    when the prompt array is created only after the integration loaded.
+    """
+    _install(runner, env)
+    home = Path(env["HOME"])
+    (home / ".zshenv").write_text(
+        "autoload -Uz add-zsh-hook\n"
+        "typeset -g LION_HOOK_LOG=$HOME/hook.log\n"
+        '_user_before_preexec() { print -r -- "preexec-before:$1" >> $LION_HOOK_LOG }\n'
+        '_user_before_precmd() { local code=$?; print -r -- "precmd-before:$code" >> $LION_HOOK_LOG }\n'
+        "add-zsh-hook preexec _user_before_preexec\n"
+        "add-zsh-hook precmd _user_before_precmd\n"
+    )
+    hooks_file = home / ".shlib" / "shlibs" / "99-user-hooks.sh"
+    hooks_file.write_text(
+        '_user_after_preexec() { print -r -- "preexec-after:$1" >> $LION_HOOK_LOG }\n'
+        '_user_after_precmd() { local code=$?; print -r -- "precmd-after:$code" >> $LION_HOOK_LOG }\n'
+        "add-zsh-hook preexec _user_after_preexec\n"
+        "add-zsh-hook precmd _user_after_precmd\n"
+    )
+
+    _ = runner("lion", "watch", "start", "--note", "hooks", env=env)
+    with Zsh(env, tmp_path / "zdot") as shell:
+        _ = shell.wait_prompt()
+        _ = shell.run("echo hooks-ok")
+        _ = shell.run("false")
+
+        # The array exists only now; the integration retries registration in
+        # precmd, so the next prompt adds the segment.
+        _ = shell.run("POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS=(time)")
+        elements = shell.run('print -r -- "${POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS}"')
+        assert "lion_watch" in elements
+
+    _ = runner("lion", "watch", "stop", env=env)
+    log = (home / "hook.log").read_text()
+    assert "preexec-before:echo hooks-ok" in log
+    assert "preexec-after:echo hooks-ok" in log
+    # The hook after Lion's still sees the failed command's status.
+    assert "precmd-before:1" in log
+    assert "precmd-after:1" in log
+    events = _events(_show(runner, env, "latest"))
+    assert "echo hooks-ok" in _command_texts(events)
+    assert any(event["kind"] == "result" and event["status"] == 1 for event in events)
