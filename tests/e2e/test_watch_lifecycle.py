@@ -183,12 +183,15 @@ def test_resourcing_keeps_segment_and_result(runner: Runner, env: dict[str, str]
         _ = shell.run('source "$HOME/.zshrc"')
         _ = shell.run("echo second")
 
+        segments = _segments(_active(runner, env))
+        assert len(segments) == 1
+        # The source command itself gets its result: the reload kept the state.
+        assert segments[0]["commands"] == 3
+        assert segments[0]["results"] == 3
+
     payload = _show(runner, env, "latest")
     segments = _segments(_mapping(payload["recording"]))
     assert len(segments) == 1
-    # The source command itself gets its result: the reload kept the state.
-    assert segments[0]["commands"] == 3
-    assert segments[0]["results"] == 3
     texts = _command_texts(_events(payload))
     assert "echo first" in texts
     assert 'source "$HOME/.zshrc"' in texts
@@ -236,6 +239,16 @@ def test_parallel_shells_keep_separate_segments(runner: Runner, env: dict[str, s
         assert len(segments) == 2
         assert len({segment["pid"] for segment in segments}) == 2
 
+        # Read while both shells are open: the only commands are the four
+        # interleaved echos, in execution order (no harness 'exit' yet).
+        payload = _show(runner, env, "latest")
+        events = _events(payload)
+        commands = [str(event["text"]) for event in events if event["kind"] == "cmd"]
+        assert commands == ["echo A1", "echo B1", "echo A2", "echo B2"]
+        order = [segment["name"] for segment in _segments(_mapping(payload["recording"]))]
+        starts = [str(event["segment"]) for event in events if event["kind"] == "segment"]
+        assert starts == order
+
     payload = _show(runner, env, "latest")
     events = _events(payload)
     by_segment: dict[str, set[str]] = {}
@@ -250,11 +263,6 @@ def test_parallel_shells_keep_separate_segments(runner: Runner, env: dict[str, s
     assert {"echo A1", "echo A2"} <= a_group
     assert {"echo B1", "echo B2"} <= b_group
     assert "echo B1" not in a_group and "echo A1" not in b_group
-    commands = [str(event["text"]) for event in events if event["kind"] == "cmd"]
-    assert commands == ["echo A1", "echo B1", "echo A2", "echo B2"]
-    order = [segment["name"] for segment in _segments(_mapping(payload["recording"]))]
-    starts = [str(event["segment"]) for event in events if event["kind"] == "segment"]
-    assert starts == order
 
 
 def test_prompt_path_reads_pointer_and_loads_silently(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
