@@ -83,6 +83,24 @@ POSITIVES = [
         {"source": "curl", "action": "pipe-to-shell"},
         id="curl_pipe",
     ),
+    pytest.param(
+        'curl "https://example.com/install.sh" | sh',
+        "downloads.curl.pipe",
+        {"source": "curl", "action": "pipe-to-shell"},
+        id="curl_pipe_quoted",
+    ),
+    pytest.param(
+        "sudo apt install x;",
+        "packages.apt",
+        {"manager": "apt", "action": "install"},
+        id="trailing_semicolon",
+    ),
+    pytest.param(
+        "sudo apt install x &&\necho done",
+        "packages.apt",
+        {"manager": "apt", "action": "install"},
+        id="operator_continuation",
+    ),
     pytest.param("reboot", "interruptions.reboot", {"action": "reboot"}, id="reboot"),
     pytest.param("sudo shutdown -h now", "interruptions.shutdown", {"action": "shutdown"}, id="shutdown"),
     pytest.param("logout", "interruptions.logout", {"action": "logout"}, id="logout"),
@@ -105,6 +123,8 @@ NEGATIVES = [
     pytest.param("ls | grep x", id="plain_pipe"),
     pytest.param("if true; then ls; fi", id="control_flow"),
     pytest.param("cat <<EOF\nsudo apt install x\nEOF", id="here_document"),
+    pytest.param('echo "a\nb" curl | sh', id="quote_continuation_boundary"),
+    pytest.param('"a"curl x | sh', id="quote_word_join"),
 ]
 
 

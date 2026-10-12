@@ -41,7 +41,16 @@ SCHEMA_CASES = [
     pytest.param([1], "top level must be a JSON object", id="top_level"),
     pytest.param({"schema_version": 2, "rules": [CUSTOM_RULE]}, "schema_version must be 1", id="schema_version"),
     pytest.param({"schema_version": True, "rules": [CUSTOM_RULE]}, "schema_version must be 1", id="schema_bool"),
-    pytest.param(_document([CUSTOM_RULE], version=""), "version must be a non-empty string", id="version_empty"),
+    pytest.param(
+        _document([CUSTOM_RULE], version=""),
+        "version must be a non-empty string",
+        id="version_empty",
+    ),
+    pytest.param(
+        _document([CUSTOM_RULE], version="v1\x1b[0m"),
+        "version must be a non-empty string without control characters",
+        id="version_controls",
+    ),
     pytest.param({"schema_version": 1, "rules": []}, "rules must be a non-empty list", id="rules_empty"),
     pytest.param(
         {"schema_version": 1, "rules": [CUSTOM_RULE], "extra": 1},
@@ -89,6 +98,14 @@ PATTERN_CASES = [
     pytest.param("[abc", "unterminated character class", id="unterminated_class"),
     pytest.param("[[:space]", "unterminated POSIX character class", id="unterminated_posix"),
     pytest.param("a(b", "invalid pattern", id="invalid"),
+    pytest.param("(a+)+$", "nested quantifiers are not supported", id="nested_repetition"),
+    pytest.param("(a*)*", "nested quantifiers are not supported", id="nested_star"),
+    pytest.param("(a?)*", "nested quantifiers are not supported", id="nested_optional"),
+    pytest.param("([ab]+)+", "nested quantifiers are not supported", id="nested_class_repetition"),
+    pytest.param("(a{2,})+", "nested quantifiers are not supported", id="nested_brace"),
+    pytest.param("(a|a)*", "must start with disjoint characters", id="overlapping_alternation"),
+    pytest.param("(a|ab)+", "must start with disjoint characters", id="prefix_alternation"),
+    pytest.param("(x(a|a)y)*", "must start with disjoint characters", id="nested_overlapping_alternation"),
 ]
 
 
@@ -168,6 +185,22 @@ def test_unreadable_and_unparsable_files_fail_loudly(tmp_path: Path) -> None:
         rules.load_ruleset(directory)
     assert "Cannot read classifier rules" in str(excinfo.value)
     assert str(directory) in str(excinfo.value)
+
+
+def test_complexity_checks_allow_disjoint_or_bounded_repetitions(tmp_path: Path) -> None:
+    """Safe shapes stay accepted: disjoint alternations, single optional groups."""
+    rules_items = [
+        {**CUSTOM_RULE, "match": "^(a|b)+[[:space:]]+c$"},
+        {**CUSTOM_RULE, "id": "packages.flags", "match": "^tool([[:space:]]+-[^[:space:]]+)?[[:space:]]+run"},
+        {**CUSTOM_RULE, "id": "packages.optional", "match": "^tool([[:space:]]+pip)?[[:space:]]+run"},
+    ]
+    path = _write(tmp_path, _document(rules_items))
+    ruleset = rules.load_ruleset(path)
+    assert {rule.id for rule in ruleset.rules if rule.source == rules.SOURCE_USER} == {
+        "packages.custom",
+        "packages.flags",
+        "packages.optional",
+    }
 
 
 def test_compile_pattern_translates_posix_classes() -> None:

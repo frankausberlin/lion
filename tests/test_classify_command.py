@@ -219,6 +219,23 @@ def test_classify_invalid_user_rules_fail_loudly() -> None:
     assert str(path) in result.stderr
 
 
+def test_classify_strips_control_characters_from_text_output() -> None:
+    """Recorded ESC/BEL bytes never reach the terminal; JSON escapes them."""
+    ref = _record(["echo \x1b[31mred\x1b[0m", "echo \x07bell"])
+
+    text = _invoke("classify", ref)
+
+    assert text.exit_code == 0
+    assert "\x1b" not in text.stdout
+    assert "\x07" not in text.stdout
+    assert "red" in text.stdout
+
+    machine = _invoke("classify", ref, "--json")
+    assert machine.exit_code == 0
+    assert "\x1b" not in machine.stdout
+    assert "\x07" not in machine.stdout
+
+
 def test_classify_help_documents_the_groups() -> None:
     """The help text names the rule file and the group vocabulary."""
     result = _invoke("classify", "--help")

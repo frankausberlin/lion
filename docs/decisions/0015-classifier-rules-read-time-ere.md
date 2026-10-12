@@ -46,6 +46,9 @@ carries a deterministic SHA-256 content hash; `schema_version`, ruleset
   groups, unknown fields or bad capture references are errors, not guesses.
 - Some convenient regex features (lookarounds, `\d`, non-greedy) are
   unavailable by design; patterns are validated against the subset instead.
+  The validator also rejects super-linear backtracking shapes (nested
+  quantifiers, ambiguous alternations under a repetition), so neither the
+  read commands nor the future Zsh key path can be frozen by a rule.
 - Stable provenance (ruleset version plus hash) makes a classification
   reproducible and debuggable after the rules changed.
 

@@ -16,13 +16,14 @@ import typer
 from lion.classify import engine as classify_engine
 from lion.classify import rules as classify_rules
 from lion.classify.model import Classification
+from lion.classify.text import sanitize_controls
 from lion.command import fail
 from lion.command.classify import block_line
 from lion.command.diagnostics import warn_incomplete
 from lion.program import annotations, recording
 from lion.program import shell as shell_logic
 from lion.program.diff import diff_collectors, has_structural_change, render
-from lion.program.recording import Recording
+from lion.program.recording import Recording, SpoolEvent
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
 
@@ -244,12 +245,12 @@ def _run_show(reference: str | None, json_output: bool) -> None:
 
 
 def _collapse(value: str) -> str:
-    return " ".join(value.split())
+    return sanitize_controls(" ".join(value.split()))
 
 
-def _classification(record: Recording) -> Classification:
+def _classification(record: Recording, events: list[SpoolEvent] | None = None) -> Classification:
     """Classify one recording with the merged rule set (read-only)."""
-    return classify_engine.classify_recording(record, classify_rules.load_ruleset())
+    return classify_engine.classify_recording(record, classify_rules.load_ruleset(), events)
 
 
 def _run_overview() -> None:
@@ -258,8 +259,9 @@ def _run_overview() -> None:
     if record is None:
         typer.echo("No active recording.")
         return
-    classification = _classification(record)
-    adr = annotations.adr_for(record)
+    events = recording.load_events(record)
+    classification = _classification(record, events)
+    adr = annotations.adr_for(record, events)
     typer.echo(f"Recording {record.ref}")
     if adr is None:
         typer.echo("  adr: -")

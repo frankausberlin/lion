@@ -797,15 +797,22 @@ def _host_of(record: Recording) -> str:
     return "Unknown"
 
 
-def annotations_for(record: Recording) -> RecordAnnotations:
+def annotations_for(record: Recording, events: Sequence[SpoolEvent] | None = None) -> RecordAnnotations:
     """Read and fold the annotations of one recording.
 
     A valid ``adr.toml`` overlay replaces the event-derived field set
     completely (an explicit edit beats observation); the event findings stay
     visible and the ADR is marked as edited. Anchor and auto fields still
     derive from the events when there are annotation lines.
+
+    Args:
+        record: The recording whose annotations are folded.
+        events: Optional pre-loaded events; loaded from the recording when
+            omitted, so callers that already hold the events read the
+            recording only once.
     """
-    folded = fold_events(recording.load_events(record), ref=record.ref, host=_host_of(record))
+    folded_events = recording.load_events(record) if events is None else events
+    folded = fold_events(folded_events, ref=record.ref, host=_host_of(record))
     overlay = load_overlay(record.path)
     if overlay is None:
         return folded
@@ -837,9 +844,14 @@ def annotations_for(record: Recording) -> RecordAnnotations:
     )
 
 
-def adr_for(record: Recording) -> Adr | None:
-    """Return the recording's ADR, or ``None`` when it carries no field."""
-    return annotations_for(record).adr
+def adr_for(record: Recording, events: Sequence[SpoolEvent] | None = None) -> Adr | None:
+    """Return the recording's ADR, or ``None`` when it carries no field.
+
+    Args:
+        record: The recording whose ADR is returned.
+        events: Optional pre-loaded events (see :func:`annotations_for`).
+    """
+    return annotations_for(record, events).adr
 
 
 def adrs_for(recordings: Sequence[Recording]) -> list[Adr]:

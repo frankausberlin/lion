@@ -23,6 +23,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from lion.classify.text import has_controls, sanitize_controls
+
 __all__ = [
     "GROUP_FIELDS",
     "GUARDS",
@@ -150,7 +152,8 @@ def compile_pattern(pattern: str) -> re.Pattern[str]:
 
 
 def _invalid(source: Path, message: str) -> ClassifierRuleError:
-    return ClassifierRuleError(f"Invalid classifier rules: {source}: {message}")
+    clean_source = sanitize_controls(str(source))
+    return ClassifierRuleError(f"Invalid classifier rules: {clean_source}: {sanitize_controls(message)}")
 
 
 def _escape_problem(next_char: str) -> str:
@@ -268,15 +271,257 @@ def _translate_posix_classes(pattern: str) -> str:
     return "".join(parts)
 
 
+@dataclass(frozen=True)
+class _RegexNode:
+    """One node of a parsed pattern, used only for the complexity check.
+
+    ``repeat`` marks quantifiers that can iterate at least twice (the shape
+    that turns an ambiguous body into exponential backtracking); ``nullable``
+    marks bodies that can match the empty string.
+    """
+
+    kind: str
+    char: str = ""
+    positive: frozenset[str] | None = None
+    repeat: bool = False
+    nullable: bool = False
+    children: tuple["_RegexNode", ...] = ()
+
+
+def _posix_members(name: str) -> frozenset[str]:
+    """Expand one POSIX class name into the explicit character set."""
+    expansion = _POSIX_CLASSES[name]
+    members: set[str] = set()
+    index = 0
+    while index < len(expansion):
+        if index + 2 < len(expansion) and expansion[index + 1] == "-":
+            members.update(chr(code) for code in range(ord(expansion[index]), ord(expansion[index + 2]) + 1))
+            index += 3
+        else:
+            members.add(expansion[index])
+            index += 1
+    return frozenset(members)
+
+
+def _parse_class(pattern: str, start: int) -> tuple[_RegexNode, int]:
+    """Parse one bracket expression; a negated class has an unknown set."""
+    index = start + 1
+    negated = False
+    if index < len(pattern) and pattern[index] == "^":
+        negated = True
+        index += 1
+    tokens: list[frozenset[str]] = []
+    if index < len(pattern) and pattern[index] == "]":
+        tokens.append(frozenset({"]"}))
+        index += 1
+    while index < len(pattern) and pattern[index] != "]":
+        char = pattern[index]
+        if char == "\\":
+            tokens.append(frozenset({pattern[index + 1]}))
+            index += 2
+            continue
+        if char == "[" and pattern[index + 1 : index + 2] == ":":
+            end = pattern.find(":]", index + 2)
+            tokens.append(_posix_members(pattern[index + 2 : end]))
+            index = end + 2
+            continue
+        tokens.append(frozenset({char}))
+        index += 1
+    index += 1
+    if negated:
+        return _RegexNode(kind="class", positive=None), index
+    members: set[str] = set()
+    position = 0
+    while position < len(tokens):
+        token = tokens[position]
+        if (
+            token != frozenset({"-"})
+            and len(token) == 1
+            and position + 2 < len(tokens)
+            and tokens[position + 1] == frozenset({"-"})
+            and len(tokens[position + 2]) == 1
+        ):
+            first = next(iter(token))
+            last = next(iter(tokens[position + 2]))
+            if ord(first) <= ord(last):
+                members.update(chr(code) for code in range(ord(first), ord(last) + 1))
+            position += 3
+            continue
+        members |= token
+        position += 1
+    return _RegexNode(kind="class", positive=frozenset(members)), index
+
+
+def _parse_alternation(pattern: str, index: int) -> tuple[_RegexNode, int]:
+    branches: list[_RegexNode] = []
+    while True:
+        branch, index = _parse_sequence(pattern, index)
+        branches.append(branch)
+        if index < len(pattern) and pattern[index] == "|":
+            index += 1
+            continue
+        break
+    if len(branches) == 1:
+        return branches[0], index
+    return _RegexNode(kind="alternation", children=tuple(branches)), index
+
+
+def _parse_sequence(pattern: str, index: int) -> tuple[_RegexNode, int]:
+    nodes: list[_RegexNode] = []
+    while index < len(pattern) and pattern[index] not in "|)":
+        node, index = _parse_quantified(pattern, index)
+        nodes.append(node)
+    return _RegexNode(kind="sequence", children=tuple(nodes)), index
+
+
+def _parse_quantified(pattern: str, index: int) -> tuple[_RegexNode, int]:
+    atom, index = _parse_atom(pattern, index)
+    if index < len(pattern) and pattern[index] in "*+?":
+        operator = pattern[index]
+        node = _RegexNode(kind="quant", repeat=operator != "?", nullable=operator != "+", children=(atom,))
+        return node, index + 1
+    if index < len(pattern) and pattern[index] == "{":
+        end = pattern.find("}", index)
+        token = pattern[index + 1 : end] if end != -1 else ""
+        if end != -1 and token not in ("", ",") and re.fullmatch(r"\d*(?:,\d*)?", token):
+            if "," in token:
+                left, right = token.split(",", 1)
+                minimum = int(left) if left else 0
+                maximum = int(right) if right else None
+            else:
+                minimum = maximum = int(token)
+            repeat = maximum is None or maximum >= 2
+            node = _RegexNode(kind="quant", repeat=repeat, nullable=minimum == 0, children=(atom,))
+            return node, end + 1
+    return atom, index
+
+
+def _parse_atom(pattern: str, index: int) -> tuple[_RegexNode, int]:
+    char = pattern[index]
+    if char == "\\":
+        return _RegexNode(kind="literal", char=pattern[index + 1]), index + 2
+    if char == ".":
+        return _RegexNode(kind="dot"), index + 1
+    if char in "^$":
+        return _RegexNode(kind="anchor"), index + 1
+    if char == "[":
+        return _parse_class(pattern, index)
+    if char == "(":
+        node, index = _parse_alternation(pattern, index + 1)
+        return node, index + 1
+    return _RegexNode(kind="literal", char=char), index + 1
+
+
+def _first_set(node: _RegexNode) -> frozenset[str] | None:
+    """Return the characters a node can start with, or ``None`` when unknown."""
+    if node.kind == "literal":
+        return frozenset({node.char})
+    if node.kind == "class":
+        return node.positive
+    if node.kind == "dot":
+        return None
+    if node.kind == "anchor":
+        return frozenset()
+    if node.kind == "quant":
+        return _first_set(node.children[0])
+    if node.kind == "alternation":
+        result: set[str] = set()
+        for branch in node.children:
+            first = _first_set(branch)
+            if first is None:
+                return None
+            result |= first
+        return frozenset(result)
+    result = set()
+    for child in node.children:
+        first = _first_set(child)
+        if first is None:
+            return None
+        result |= first
+        if not _can_match_empty(child):
+            break
+    return frozenset(result)
+
+
+def _can_match_empty(node: _RegexNode) -> bool:
+    """Return whether a node can match the empty string."""
+    if node.kind in ("literal", "class", "dot"):
+        return False
+    if node.kind == "anchor":
+        return True
+    if node.kind == "quant":
+        return node.nullable or _can_match_empty(node.children[0])
+    if node.kind == "alternation":
+        return any(_can_match_empty(branch) for branch in node.children)
+    return all(_can_match_empty(child) for child in node.children)
+
+
+def _has_quantifier(node: _RegexNode) -> bool:
+    if node.kind == "quant":
+        return True
+    return any(_has_quantifier(child) for child in node.children)
+
+
+def _alternations(node: _RegexNode) -> list[_RegexNode]:
+    found: list[_RegexNode] = []
+    if node.kind == "alternation":
+        found.append(node)
+    for child in node.children:
+        found.extend(_alternations(child))
+    return found
+
+
+def _alternation_problem(node: _RegexNode) -> str | None:
+    sets: list[frozenset[str]] = []
+    for branch in node.children:
+        if _can_match_empty(branch):
+            return "an alternation under a repetition must not match empty (backtracking risk)"
+        first = _first_set(branch)
+        if first is None or not first:
+            return "an alternation under a repetition must start with a known character set (backtracking risk)"
+        sets.append(first)
+    for left in range(len(sets)):
+        for right in range(left + 1, len(sets)):
+            if sets[left] & sets[right]:
+                return "an alternation under a repetition must start with disjoint characters (backtracking risk)"
+    return None
+
+
+def _complexity_problem(node: _RegexNode) -> str | None:
+    if node.kind == "quant" and node.repeat:
+        body = node.children[0]
+        if _has_quantifier(body):
+            return "nested quantifiers are not supported (backtracking risk)"
+        for alternation in _alternations(body):
+            problem = _alternation_problem(alternation)
+            if problem is not None:
+                return problem
+    for child in node.children:
+        problem = _complexity_problem(child)
+        if problem is not None:
+            return problem
+    return None
+
+
 def _validate_pattern(pattern: str, source: Path, label: str) -> re.Pattern[str]:
-    """Validate the ERE subset and return the compiled Python pattern."""
+    """Validate the ERE subset and return the compiled Python pattern.
+
+    Beyond the dialect, the pattern must stay free of super-linear
+    backtracking shapes (nested quantifiers, ambiguous alternations under a
+    repetition), so untrusted recorded text can never freeze a read.
+    """
     problem = _scan_ere(pattern)
     if problem is not None:
         raise _invalid(source, f"{label}: {problem}")
     try:
-        return re.compile(_translate_posix_classes(pattern))
+        compiled = re.compile(_translate_posix_classes(pattern))
     except re.error as exc:
         raise _invalid(source, f"{label}: invalid pattern: {exc}") from exc
+    root, _ = _parse_alternation(pattern, 0)
+    problem = _complexity_problem(root)
+    if problem is not None:
+        raise _invalid(source, f"{label}: {problem}")
+    return compiled
 
 
 def _require_str(value: object, source: Path, label: str) -> str:
@@ -344,7 +589,9 @@ def _load_document(path: Path, origin: str) -> tuple[str | None, tuple[Rule, ...
     try:
         raw = path.read_bytes()
     except OSError as exc:
-        raise ClassifierRuleError(f"Cannot read classifier rules: {path}: {exc}") from exc
+        raise ClassifierRuleError(
+            f"Cannot read classifier rules: {sanitize_controls(str(path))}: {sanitize_controls(str(exc))}"
+        ) from exc
     try:
         data = json.loads(raw.decode("utf-8"))
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
@@ -359,8 +606,8 @@ def _load_document(path: Path, origin: str) -> tuple[str | None, tuple[Rule, ...
     if isinstance(schema_version, bool) or schema_version != SCHEMA_VERSION:
         raise _invalid(path, f"schema_version must be {SCHEMA_VERSION}")
     version = document.get("version")
-    if version is not None and (not isinstance(version, str) or not version.strip()):
-        raise _invalid(path, "version must be a non-empty string")
+    if version is not None and (not isinstance(version, str) or not version.strip() or has_controls(version)):
+        raise _invalid(path, "version must be a non-empty string without control characters")
     rules_raw = document.get("rules")
     if not isinstance(rules_raw, list) or not rules_raw:
         raise _invalid(path, "rules must be a non-empty list")

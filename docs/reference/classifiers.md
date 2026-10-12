@@ -47,10 +47,11 @@ Rules have a `scope`:
   (`re.match` semantics after the prefix strip), so printed text such as
   `echo "sudo nala install"` never matches.
 - `block` (opt-in): the pattern is searched (`re.search`) in every **masked
-  line** of the block — quotes, comments and here-document bodies are masked
-  out — which allows cross-segment matches such as `curl … | sh`. A line that
-  cannot be masked statically (for example an unresolvable `$(`, a backtick or
-  an escape outside quotes) yields no block-scope matches.
+  line** of the block — quoted spans and comments are replaced by a separator
+  that can neither join two words nor fake a segment start — which allows
+  cross-segment matches such as `curl … | sh`. Substitutions, here-documents
+  and unquoted escaping never reach the masker: the parser gate above rejects
+  them first, so printed and argument text cannot match.
 
 Every matching rule contributes a match. There is **no first-match-wins**:
 matches are deduplicated by `(group, rule_id, fields)` and ordered by
@@ -144,6 +145,13 @@ Rejected loudly: backreferences and alphanumeric escapes (`\1`, `\b`, `\d`,
 `\s`, `\w`), `(?…)` group constructs (non-capturing, lookarounds, named
 groups), non-greedy quantifiers (`*?`, `+?`, `??`), unknown POSIX classes,
 unterminated classes and any pattern Python `re` cannot compile.
+
+Patterns must also stay free of super-linear backtracking shapes: nested
+quantifiers (`(a+)+`, `(a*)*`, `(a?)*`) and alternations under a repetition
+with overlapping start characters (`(a|a)*`, `(a|ab)+`) are rejected, so
+untrusted recorded text can never freeze a read or the watch dog. The check is
+deliberately conservative; disjoint alternations such as `(a|b)+` and single
+optional groups such as `([[:space:]]+-[^[:space:]]+)?` stay allowed.
 
 ## `lion classify`
 

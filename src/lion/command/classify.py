@@ -13,6 +13,7 @@ import typer
 from lion.classify import engine, rules
 from lion.classify.model import Block, Match
 from lion.classify.parser import PARSER_VERSION
+from lion.classify.text import sanitize_controls
 from lion.command import fail
 from lion.program import recording
 from lion.program.recording import Recording
@@ -24,8 +25,12 @@ PREVIEW_LENGTH = 40
 
 
 def preview(text: str) -> str:
-    """Return the single-line preview of a block: collapsed, first 40 characters."""
-    return " ".join(text.split())[:PREVIEW_LENGTH]
+    """Return the terminal-safe single-line preview of a block.
+
+    The text is whitespace-collapsed, stripped of control characters and cut
+    to the first 40 characters, so recorded text cannot move the cursor.
+    """
+    return sanitize_controls(" ".join(text.split()))[:PREVIEW_LENGTH]
 
 
 def matches_text(matches: tuple[Match, ...]) -> str:
@@ -34,7 +39,7 @@ def matches_text(matches: tuple[Match, ...]) -> str:
         return "-"
     parts: list[str] = []
     for match in matches:
-        fields = ",".join(f"{name}={value}" for name, value in match.fields.items())
+        fields = ",".join(f"{name}={sanitize_controls(value)}" for name, value in match.fields.items())
         parts.append(f"{match.group}:{fields}")
     return "; ".join(parts)
 
@@ -50,7 +55,7 @@ def _resolve(reference: str | None) -> Recording | None:
 
 
 def _match_detail(match: Match) -> str:
-    fields = ", ".join(f"{name}={value}" for name, value in match.fields.items())
+    fields = ", ".join(f"{name}={sanitize_controls(value)}" for name, value in match.fields.items())
     return f"{match.group}: {fields}"
 
 

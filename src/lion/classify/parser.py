@@ -18,7 +18,7 @@ as ``echo "sudo nala install"`` never matches an anchored pattern.
 import re
 from dataclasses import dataclass
 
-__all__ = ["PARSER_VERSION", "ParsedCommand", "parse_command", "strip_prefixes"]
+__all__ = ["PARSER_VERSION", "ParsedCommand", "find_closing_quote", "parse_command", "strip_prefixes"]
 
 #: Stable identifier of the parser and matching contract, stored with every
 #: classification.
@@ -68,7 +68,7 @@ def _unsupported(reason: str) -> ParsedCommand:
 
 
 def _flush(segments: list[str], buffer: list[str]) -> ParsedCommand | None:
-    """Flush one pending segment, rejecting empty segments as ambiguous."""
+    """Flush one pending segment; an operator without an operand is ambiguous."""
     text = "".join(buffer).strip()
     if not text:
         return _unsupported("ambiguous_separator")
@@ -81,11 +81,15 @@ def parse_command(command: str) -> ParsedCommand:
     """Parse one input text into conservative simple segments.
 
     Supported syntax keeps balanced quotes (single and double) and top-level
-    ``&&``/``||``/``;``/``|``/end-of-line separators. Every construct that could
-    change how the input is interpreted - unbalanced quotes, escaping,
-    subshells, grouping, command and process substitution, here-documents and
-    here-strings, control flow, function definitions and background jobs -
-    yields ``supported=False`` with a stable reason code.
+    ``&&``/``||``/``;``/``|``/end-of-line separators. A newline with no pending
+    segment is insignificant, so an operator carried across a pasted line
+    (``… &&`` + newline), a blank line and a trailing ``;`` stay supported,
+    while a genuinely missing operand (``a && && b``) is
+    ``ambiguous_separator``. Every construct that could change how the input is
+    interpreted - unbalanced quotes, escaping, subshells, grouping, command and
+    process substitution, here-documents and here-strings, control flow,
+    function definitions and background jobs - yields ``supported=False`` with
+    a stable reason code.
     """
     text = command.strip()
     if not text:
@@ -151,6 +155,10 @@ def parse_command(command: str) -> ParsedCommand:
             index += 2 if nxt == "|" else 1
             continue
         if char in ";\n":
+            if char == "\n" and not "".join(buffer).strip():
+                buffer.clear()
+                index += 1
+                continue
             flushed = _flush(segments, buffer)
             if flushed is not None:
                 return flushed
@@ -161,9 +169,12 @@ def parse_command(command: str) -> ParsedCommand:
 
     if quote is not None:
         return _unsupported("unbalanced_quote")
-    flushed = _flush(segments, buffer)
-    if flushed is not None:
-        return flushed
+    if "".join(buffer).strip():
+        flushed = _flush(segments, buffer)
+        if flushed is not None:
+            return flushed
+    if not segments:
+        return _unsupported("empty")
 
     for segment in segments:
         first_token = segment.split(maxsplit=1)[0]
@@ -172,15 +183,22 @@ def parse_command(command: str) -> ParsedCommand:
     return ParsedCommand(supported=True, segments=tuple(segments), reason=None)
 
 
-def _find_closing(text: str, start: int, quote: str) -> int:
+def find_closing_quote(text: str, start: int, quote: str, escapes: bool | None = None) -> int:
     """Return the index of the closing quote, or ``-1``.
 
-    A double quote honors backslash escapes; a single quote is literal.
+    Args:
+        text: The text to scan.
+        start: The index to start scanning at.
+        quote: The quote character to find.
+        escapes: Whether backslash escapes apply inside the quote; defaults to
+            true for a double quote and false otherwise.
     """
+    if escapes is None:
+        escapes = quote == '"'
     index = start
     while index < len(text):
         char = text[index]
-        if quote == '"' and char == "\\":
+        if escapes and char == "\\":
             index += 2
             continue
         if char == quote:
@@ -204,7 +222,7 @@ def _word_end(text: str, start: int) -> int | None:
             index += 2
             continue
         if char in ("'", '"'):
-            end = _find_closing(text, index + 1, char)
+            end = find_closing_quote(text, index + 1, char)
             if end < 0:
                 return None
             index = end + 1

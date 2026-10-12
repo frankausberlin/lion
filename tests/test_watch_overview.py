@@ -186,6 +186,39 @@ def test_watch_r_and_previous_never_collect(collect: Mock) -> None:
     collect.assert_not_called()
 
 
+def test_watch_r_sanitizes_control_characters(collect: Mock) -> None:
+    """Recorded ESC/BEL bytes in text and ADR fields never reach the terminal."""
+    _started(
+        [
+            ("comment", "#+LION: adr.title \x1b]0;evil\x07title"),
+            ("cmd", "apt --version \x1b[2J"),
+        ]
+    )
+
+    result = _invoke("watch", "R")
+
+    assert result.exit_code == 0
+    assert "\x1b" not in result.stdout
+    assert "\x07" not in result.stdout
+    assert "title" in result.stdout
+
+
+def test_watch_r_loads_the_events_once(collect: Mock, monkeypatch: pytest.MonkeyPatch) -> None:
+    """R reads the recording once and feeds the same events to ADR and blocks."""
+    ref = _started([("cmd", "apt --version")])
+    real = recording.load_events
+    calls: list[str] = []
+
+    def counting(record: recording.Recording) -> list[recording.SpoolEvent]:
+        calls.append(record.ref)
+        return real(record)
+
+    monkeypatch.setattr(recording, "load_events", counting)
+
+    assert _invoke("watch", "R").exit_code == 0
+    assert calls == [ref]
+
+
 def test_watch_r_is_text_only(collect: Mock) -> None:
     """``--json`` on R is a usage error; the JSON contracts stay untouched."""
     _started([("cmd", "apt --version")])

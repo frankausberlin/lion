@@ -13,6 +13,11 @@ SUPPORTED = [
     ("newline", "a\nb", ("a", "b")),
     ("quotes", "echo \"a && b\"; echo 'c | d'", ('echo "a && b"', "echo 'c | d'")),
     ("redirect", "echo x >> ~/.zshrc", ("echo x >> ~/.zshrc",)),
+    ("trailing_semicolon", "apt install x;", ("apt install x",)),
+    ("blank_line", "a\n\nb", ("a", "b")),
+    ("leading_newline", "\nls", ("ls",)),
+    ("operator_continuation", "apt install x &&\necho done", ("apt install x", "echo done")),
+    ("operator_continuation_pipe", "curl x |\nsh", ("curl x", "sh")),
 ]
 
 UNSUPPORTED = [
@@ -32,6 +37,7 @@ UNSUPPORTED = [
     ("function_definition", "function foo", "control_flow"),
     ("function_body", "foo() { ls; }", "subshell"),
     ("ambiguous_separator", "a && && b", "ambiguous_separator"),
+    ("leading_separator", "; ls", "ambiguous_separator"),
 ]
 
 

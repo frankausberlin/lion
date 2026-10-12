@@ -232,11 +232,13 @@ just audit       # dependency vulnerability scan
   `watch R`/`R-` never collect and never write. Blocks are the non-empty,
   non-silent `cmd` events; unsupported syntax yields no matches (never a
   guess); segment scope anchors after the `sudo`/`NAME=value` strip, block
-  scope searches masked lines; matches deduplicate by `(group, rule_id,
-  fields)` and order deterministically. Rules are data in a closed group
-  vocabulary with a POSIX-ERE subset (ADR 0015); the merged rule list carries
-  a deterministic hash, invalid files fail loudly with their path, the doctor
-  topic `classify` reports `classify.ruleset`, and the
+  scope searches masked lines (a removed quote becomes a separator that can
+  neither join words nor fake a segment start), matches deduplicate by
+  `(group, rule_id, fields)` and order deterministically, and terminal output
+  strips control characters from recorded text. Rules are data in a closed
+  group vocabulary with a POSIX-ERE subset (ADR 0015); the merged rule list
+  carries a deterministic hash, invalid files fail loudly with their path,
+  the doctor topic `classify` reports `classify.ruleset`, and the
   `scan`/`status`/`watch` JSON contracts stay unchanged.
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
   `STRING_LISTS` (package selections) and an `IDENTITY_KEYS` map (`hardware.gpu`

@@ -110,7 +110,7 @@
       "id": "containers.container.rm",
       "group": "containers",
       "scope": "segment",
-      "match": "^(docker|podman)[[:space:]]+(rm|container[[:space:]]+rm)([[:space:]]+-[^[:space:]]+)*[[:space:]]+([^[:space:]]+)",
+      "match": "^(docker|podman)[[:space:]]+(rm|container[[:space:]]+rm)([[:space:]]+-[^[:space:]]+)?[[:space:]]+([^[:space:]]+)",
       "emit": {"engine": "$1", "action": "remove", "target": "$4"},
       "guard": "none"
     },
@@ -118,7 +118,7 @@
       "id": "containers.image.rm",
       "group": "containers",
       "scope": "segment",
-      "match": "^(docker|podman)[[:space:]]+(rmi|image[[:space:]]+rm)([[:space:]]+-[^[:space:]]+)*[[:space:]]+([^[:space:]]+)",
+      "match": "^(docker|podman)[[:space:]]+(rmi|image[[:space:]]+rm)([[:space:]]+-[^[:space:]]+)?[[:space:]]+([^[:space:]]+)",
       "emit": {"engine": "$1", "action": "remove", "target": "$4"},
       "guard": "none"
     },
@@ -126,7 +126,7 @@
       "id": "containers.volume.rm",
       "group": "containers",
       "scope": "segment",
-      "match": "^(docker|podman)[[:space:]]+volume[[:space:]]+rm([[:space:]]+-[^[:space:]]+)*[[:space:]]+([^[:space:]]+)",
+      "match": "^(docker|podman)[[:space:]]+volume[[:space:]]+rm([[:space:]]+-[^[:space:]]+)?[[:space:]]+([^[:space:]]+)",
       "emit": {"engine": "$1", "action": "remove", "target": "$3"},
       "guard": "none"
     },
@@ -166,15 +166,15 @@
       "id": "shell.config.write",
       "group": "shell",
       "scope": "segment",
-      "match": "^(echo|printf|cat)[[:space:]]+([^>\"']|'[^']*'|\"[^\"]*\")*>>?[[:space:]]*[^[:space:]]*(zshrc|zprofile|bashrc|bash_profile|profile)([[:space:]]|$)",
-      "emit": {"target": "$3", "action": "write"},
+      "match": "^(echo|printf|cat)[^>]*>>?[[:space:]]*[^[:space:]]*(zshrc|zprofile|bashrc|bash_profile|profile)([[:space:]]|$)",
+      "emit": {"target": "$2", "action": "write"},
       "guard": "none"
     },
     {
       "id": "shell.config.tee",
       "group": "shell",
       "scope": "segment",
-      "match": "^tee([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]*(zshrc|zprofile|bashrc|bash_profile|profile)([[:space:]]|$)",
+      "match": "^tee([[:space:]]+-[^[:space:]]+)?[[:space:]]+[^[:space:]]*(zshrc|zprofile|bashrc|bash_profile|profile)([[:space:]]|$)",
       "emit": {"target": "$2", "action": "write"},
       "guard": "none"
     },
@@ -182,7 +182,7 @@
       "id": "downloads.curl",
       "group": "downloads",
       "scope": "segment",
-      "match": "^curl([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]-][^[:space:]]*",
+      "match": "^curl([[:space:]]+-[^[:space:]]+)?[[:space:]]+[^[:space:]-][^[:space:]]*",
       "emit": {"source": "curl", "action": "download"},
       "guard": "none"
     },
@@ -190,7 +190,7 @@
       "id": "downloads.wget",
       "group": "downloads",
       "scope": "segment",
-      "match": "^wget([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]-][^[:space:]]*",
+      "match": "^wget([[:space:]]+-[^[:space:]]+)?[[:space:]]+[^[:space:]-][^[:space:]]*",
       "emit": {"source": "wget", "action": "download"},
       "guard": "none"
     },
@@ -254,7 +254,7 @@
       "id": "checks.version",
       "group": "checks",
       "scope": "segment",
-      "match": "^([^[:space:]]+)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(--version|-V)$",
+      "match": "^([^[:space:]]+)([[:space:]]+-[^[:space:]]+)?[[:space:]]+(--version|-V)$",
       "emit": {"subject": "$1", "intent": "version"},
       "guard": "none"
     },

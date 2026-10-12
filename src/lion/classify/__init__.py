@@ -9,7 +9,7 @@ check in :mod:`lion.classify.checks`.
 
 from lion.classify.engine import classify_events, classify_recording, classify_text, is_silent_command
 from lion.classify.model import Block, Classification, Match, RuleSetInfo
-from lion.classify.parser import PARSER_VERSION, ParsedCommand, parse_command, strip_prefixes
+from lion.classify.parser import PARSER_VERSION, ParsedCommand, find_closing_quote, parse_command, strip_prefixes
 from lion.classify.rules import (
     GROUP_FIELDS,
     ClassifierRuleError,
@@ -21,6 +21,7 @@ from lion.classify.rules import (
     load_ruleset,
     user_rules_path,
 )
+from lion.classify.text import sanitize_controls
 
 __all__ = [
     "GROUP_FIELDS",
@@ -38,10 +39,12 @@ __all__ = [
     "classify_text",
     "compile_pattern",
     "default_rules_path",
+    "find_closing_quote",
     "get_config_dir",
     "is_silent_command",
     "load_ruleset",
     "parse_command",
+    "sanitize_controls",
     "strip_prefixes",
     "user_rules_path",
 ]
