@@ -138,6 +138,21 @@ def _prompt_line(screen: str) -> str:
     return lines[-1] if lines else ""
 
 
+def _process_finished(pid: int) -> bool:
+    """Return whether the process is gone or a zombie (it cannot run hooks).
+
+    A parent that never waits (tmux with ``remain-on-exit``, PID 1 in a
+    container) can keep an exited pane's process as a permanent ``/proc``
+    zombie, so waiting for the entry to vanish would always time out.
+    """
+    try:
+        data = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+    except OSError:
+        return True
+    tail = data.rsplit(")", 1)[-1].split()
+    return bool(tail) and tail[0] in ("Z", "X", "x")
+
+
 class Zsh:
     """An interactive zsh inside its own tmux session with a deterministic prompt."""
 
@@ -369,6 +384,11 @@ class Zsh:
         self._log_step("enter")
         self._tmux("send-keys", "-t", self._session, "Enter")
 
+    def interrupt(self) -> None:
+        """Send Ctrl-C to the pane, interrupting the foreground command."""
+        self._log_step("interrupt")
+        self._tmux("send-keys", "-t", self._session, "C-c")
+
     def _fresh_output(self, previous: int, fallback: str) -> str:
         """Return the pane text after the prompt with sequence ``previous``.
 
@@ -484,7 +504,7 @@ class Zsh:
     def close_window(self, grace: float = 5.0) -> None:
         """Close the terminal window, which hangs up the shell (SIGHUP).
 
-        Waits for the shell process to disappear before returning: ``kill-window``
+        Waits for the shell process to finish before returning: ``kill-window``
         destroys the session immediately, so ``alive()`` (session state) is no
         longer a proxy for the process having handled SIGHUP and run ``zshexit``.
         """
@@ -496,17 +516,17 @@ class Zsh:
         _ = self._tmux("kill-window", "-t", self._session, check=False)
         if pid is not None:
             deadline = time.monotonic() + grace
-            while Path(f"/proc/{pid}").exists() and time.monotonic() < deadline:
+            while not _process_finished(pid) and time.monotonic() < deadline:
                 time.sleep(0.05)
 
     def close(self, grace: float = 5.0) -> None:
         """Destroy the shell's session while it is still alive.
 
         tmux reaps a pane's process as it closes a *live* pane; sending ``exit``
-        first (with ``remain-on-exit``) would leave the shell as a zombie that
-        the segment-liveness check still reports as alive. The pane receives
-        SIGHUP, so the integration's ``zshexit`` runs and records the exit event.
-        When this was the last session, the server is stopped too.
+        first (with ``remain-on-exit``) would leave the shell as a process that
+        was never reaped and can still appear in ``/proc`` as a zombie. The pane
+        receives SIGHUP, so the integration's ``zshexit`` runs and records the
+        exit event. When this was the last session, the server is stopped too.
         """
         if self._closed:
             return
@@ -522,7 +542,7 @@ class Zsh:
             _ = self._tmux("kill-server", check=False)
         if pid is not None:
             deadline = time.monotonic() + grace
-            while Path(f"/proc/{pid}").exists() and time.monotonic() < deadline:
+            while not _process_finished(pid) and time.monotonic() < deadline:
                 time.sleep(0.05)
 
     def __enter__(self) -> "Zsh":
