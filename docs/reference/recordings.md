@@ -63,9 +63,13 @@ external process. The line kinds are:
 | `exit` | time, exit status (`zshexit`; a hint, never required) |
 
 `${(q)}` emits backslash-escaped metacharacters and `$'...'` groups for control
-characters (`$'\n'`, `$'\t'`, octal `$'\033'`). A field is capped at 4096
-characters; when the cap cuts into an escape, the reader returns the incomplete
-tail literally instead of failing. Empty input is not recorded.
+and non-ASCII bytes (`$'\n'`, `$'\t'`, octal `$'\303'`). The quoted form
+transports bytes: the reader assembles them and decodes the result as UTF-8, so
+text typed under a non-UTF-8 locale reads back exactly like text typed under a
+UTF-8 locale, and bytes that form no valid UTF-8 become the replacement
+character. A field is capped at 4096 characters; when the cap cuts into an
+escape, the reader returns the incomplete tail literally instead of failing.
+Empty input is not recorded.
 
 Secret masking is best-effort and documented as such (ADR 0011): values of
 assignments whose name contains `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`,

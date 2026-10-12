@@ -74,7 +74,9 @@ Capture happens entirely inside zsh; Python never runs in the input path.
 - The escape uses parameter expansion only (no command substitution). The raw
   text and the escaped field are each capped at 4096 characters via
   `LION_WATCH_CAP`; the decoder (`unquote_zsh`) treats an incomplete escape
-  created by the cap as a literal.
+  created by the cap as a literal. Its `$'...'` octal escapes are bytes, not
+  codepoints: the decoder assembles the bytes and decodes them as UTF-8, so a
+  command typed in a non-UTF-8 locale reads back correctly.
 - The masker runs before the spool write with a local `extended_glob` and
   masks values of assignments whose name contains `TOKEN`, `SECRET`,
   `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY` or `CREDENTIAL` (bare, single- and

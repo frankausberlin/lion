@@ -608,7 +608,11 @@ def test_missing_exit_is_not_success(monkeypatch: pytest.MonkeyPatch) -> None:
         ("a$'\\n'b", "a\nb"),
         ("x$'\\t'y", "x\ty"),
         ("$'\\033'[1m", "\x1b[1m"),
-        ("low$'\\037'$'\\377'", "low\x1f\u00ff"),
+        ("low$'\\037'$'\\377'", "low\x1f\ufffd"),
+        ("gr$'\\303'$'\\274'$'\\303'$'\\237'e", "grüße"),
+        ("$'a\\303\\274b'", "aüb"),
+        ("straße", "straße"),
+        ("$'\\x41\\xc3\\xbc'", "Aü"),
         ("nl\\$\\'quote", "nl$'quote"),
         ("a\\#b\\*c", "a#b*c"),
         ("''", ""),
@@ -620,7 +624,7 @@ def test_missing_exit_is_not_success(monkeypatch: pytest.MonkeyPatch) -> None:
     ],
 )
 def test_unquote_zsh(quoted: str, decoded: str) -> None:
-    """The decoder reverses the zsh ``${(q)}`` forms and tolerates truncation."""
+    """The decoder reverses the zsh ``${(q)}`` byte forms and tolerates truncation."""
     assert unquote_zsh(quoted) == decoded
 
 

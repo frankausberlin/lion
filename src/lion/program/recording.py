@@ -248,10 +248,17 @@ def unquote_zsh(text: str) -> str:
     r"""Decode the ``${(q)}`` quoted form of one zsh value.
 
     zsh emits backslash-escaped characters for shell metacharacters and
-    ``$'...'`` groups for control characters (``$'\\n'``, ``$'\\t'``, octal
-    ``$'\\033'``). A truncated line can end in an incomplete escape; an
-    unterminated backslash or ``$'...'`` group is returned literally, so a
-    hard-capped event never breaks the reader.
+    ``$'...'`` groups for control and non-ASCII bytes (``$'\n'``, ``$'\t'``,
+    octal ``$'\303'``). The quoted form transports *bytes*: ``$'\303\274'`` are
+    the two UTF-8 bytes of ``ü``, so the decoder assembles bytes and decodes
+    the result as UTF-8. A value typed under a non-UTF-8 locale therefore
+    decodes exactly like one typed under a UTF-8 locale; sequences that are
+    not valid UTF-8 (stray bytes, a cap through the middle of a multibyte
+    character) become the replacement character instead of failing the reader.
+
+    A truncated line can end in an incomplete escape; an unterminated
+    backslash or ``$'...'`` group is returned literally, so a hard-capped event
+    never breaks the reader.
 
     Args:
         text: The quoted field as written by the zsh hook.
@@ -261,30 +268,30 @@ def unquote_zsh(text: str) -> str:
     """
     if text == "''":
         return ""
-    result: list[str] = []
+    result = bytearray()
     index = 0
     length = len(text)
     while index < length:
         char = text[index]
         if char == "\\":
             if index + 1 < length:
-                result.append(text[index + 1])
+                result.extend(text[index + 1].encode("utf-8"))
                 index += 2
             else:
-                result.append("\\")
+                result.extend(b"\\")
                 index += 1
         elif char == "$" and index + 1 < length and text[index + 1] == "'":
             end = _closing_quote(text, index + 2)
             if end == -1:
-                result.append(text[index:])
+                result.extend(text[index:].encode("utf-8"))
                 index = length
             else:
-                result.append(_decode_dollar_quote(text[index + 2 : end]))
+                result.extend(_decode_dollar_quote(text[index + 2 : end]))
                 index = end + 1
         else:
-            result.append(char)
+            result.extend(char.encode("utf-8"))
             index += 1
-    return "".join(result)
+    return bytes(result).decode("utf-8", errors="replace")
 
 
 def _closing_quote(text: str, start: int) -> int:
@@ -301,37 +308,37 @@ def _closing_quote(text: str, start: int) -> int:
 
 
 _DOLLAR_ESCAPES = {
-    "n": "\n",
-    "t": "\t",
-    "r": "\r",
-    "a": "\a",
-    "b": "\b",
-    "f": "\f",
-    "v": "\v",
-    "e": "\x1b",
-    "\\": "\\",
-    "'": "'",
-    '"': '"',
+    "n": b"\n",
+    "t": b"\t",
+    "r": b"\r",
+    "a": b"\a",
+    "b": b"\b",
+    "f": b"\f",
+    "v": b"\v",
+    "e": b"\x1b",
+    "\\": b"\\",
+    "'": b"'",
+    '"': b'"',
 }
 
 
-def _decode_dollar_quote(body: str) -> str:
-    """Decode the inner text of one ``$'...'`` group."""
-    result: list[str] = []
+def _decode_dollar_quote(body: str) -> bytes:
+    """Decode the inner text of one ``$'...'`` group into its bytes."""
+    result = bytearray()
     index = 0
     while index < len(body):
         char = body[index]
         if char != "\\":
-            result.append(char)
+            result.extend(char.encode("utf-8"))
             index += 1
             continue
         index += 1
         if index >= len(body):
-            result.append("\\")
+            result.extend(b"\\")
             break
         escaped = body[index]
         if escaped in _DOLLAR_ESCAPES:
-            result.append(_DOLLAR_ESCAPES[escaped])
+            result.extend(_DOLLAR_ESCAPES[escaped])
             index += 1
             continue
         if escaped.isdigit():
@@ -339,21 +346,26 @@ def _decode_dollar_quote(body: str) -> str:
             while index < len(body) and len(digits) < 3 and body[index].isdigit():
                 digits += body[index]
                 index += 1
-            result.append(chr(int(digits, 8)))
+            # zsh truncates an octal escape to one byte: $'\777' is 0xff.
+            result.append(int(digits, 8) & 0xFF)
             continue
         if escaped in "xuU":
             width = {"x": 2, "u": 4, "U": 8}[escaped]
             index += 1
             digits = body[index : index + width]
             if len(digits) == width and all(char in "0123456789abcdefABCDEF" for char in digits):
-                result.append(chr(int(digits, 16)))
+                value = int(digits, 16)
+                if escaped == "x":
+                    result.append(value)
+                else:
+                    result.extend(chr(value).encode("utf-8"))
                 index += width
                 continue
-            result.append("\\" + escaped)
+            result.extend(("\\" + escaped).encode("utf-8"))
             continue
-        result.append(escaped)
+        result.extend(escaped.encode("utf-8"))
         index += 1
-    return "".join(result)
+    return bytes(result)
 
 
 def _event(kind: str, segment: str, line: int, fields: list[str], path: Path) -> SpoolEvent:
