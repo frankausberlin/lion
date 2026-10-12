@@ -91,5 +91,6 @@ uv run lion shell remove
 
 `remove` deletes exactly the recognized artifact; if a foreign file or two
 artifacts are found, it refuses and asks you to reconcile. Removing while a
-recording is active warns on stderr and proceeds — the recording stays readable,
-and each shell stops recording with its next prompt.
+recording is active warns on stderr and proceeds: the record stays readable, new
+shells load no hooks any more, and shells that already loaded the integration
+keep recording until the recording is stopped or they exit.

@@ -89,6 +89,14 @@ wrote its `exit` event but crashed later still ends by liveness. Normal `exit`
 runs `zshexit`, `exec zsh` and SIGKILL do not; the `exit` event is only a
 fast-path hint.
 
+## Pointer lag between shells
+
+A shell applies `start`/`stop` with its next prompt: the hooks refresh the
+pointer in `precmd`. At most the block that is typed in that window can still
+land in a just-stopped record; everything after it is dropped. Starting works
+the same way — an already-open shell joins with its next prompt. A pointer that
+is late, stale or unreadable never breaks the prompt; capture simply stays off.
+
 ## Clock guard and failure behavior
 
 `watch start` and `watch stop` refuse to mutate anything when the system clock
