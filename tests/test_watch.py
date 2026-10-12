@@ -2,14 +2,17 @@
 
 import json
 import os
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import typer
 from typer.testing import CliRunner, Result
 
 from lion.cli import app
+from lion.command import shell as shell_command
 from lion.command import status as status_command
 from lion.command import watch as watch_command
 from lion.program import recording, shell, shlib
@@ -112,6 +115,58 @@ def test_shell_remove_warning_goes_to_stderr(collect: Mock) -> None:
     assert result.exit_code == 0
     assert "removed" in result.stdout
     assert "recording is active" in result.stderr
+
+
+def test_shell_insert_warning_goes_to_stderr(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Insert warnings use the same ``Warning:`` stderr prefix as remove warnings."""
+    report = shell.ShellReport(messages=("Watch integration inserted: rc",), warnings=("recording is active",))
+    monkeypatch.setattr(shell_command.logic, "insert", Mock(return_value=report))
+
+    result = _invoke("shell", "insert")
+
+    assert result.exit_code == 0
+    assert "inserted" in result.stdout
+    assert "Warning: recording is active" in result.stderr
+
+
+def test_shell_status_warning_in_text_output() -> None:
+    """Status warnings print as ``warning: ...`` lines on stdout."""
+    recording.start_recording(dict(HOST_STATE))
+
+    result = _invoke("shell", "status")
+
+    assert result.exit_code == 0
+    assert "warning: " in result.stdout
+    assert "no events are captured" in result.stdout
+
+
+def test_shell_json_guard_rejects_other_actions(capsys: pytest.CaptureFixture[str]) -> None:
+    """The direct-call guard rejects ``--json`` for insert and remove."""
+    with pytest.raises(typer.Exit) as excinfo:
+        shell_command.run(action="insert", json_output=True)
+
+    assert excinfo.value.exit_code == 1
+    assert "--json is supported for shell status only." in capsys.readouterr().err
+
+
+def test_shell_error_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An ``OSError`` becomes a CLI error with exit code 1."""
+    monkeypatch.setattr(shell_command.logic, "get_home", Mock(side_effect=OSError("boom")))
+
+    result = _invoke("shell")
+
+    assert result.exit_code == 1
+    assert "Error: boom" in result.stderr
+
+
+def test_shell_timeout_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A zsh syntax timeout becomes the dedicated CLI error."""
+    monkeypatch.setattr(shell_command.logic, "get_home", Mock(side_effect=subprocess.TimeoutExpired("zsh", 5)))
+
+    result = _invoke("shell")
+
+    assert result.exit_code == 1
+    assert "Zsh syntax validation timed out" in result.stderr
 
 
 # --- lion watch start/stop ---------------------------------------------------

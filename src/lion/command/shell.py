@@ -7,6 +7,7 @@ output and turns business errors into CLI errors.
 
 import json
 import subprocess
+from collections.abc import Mapping
 from typing import cast
 
 import typer
@@ -24,29 +25,33 @@ def run(action: str = "status", json_output: bool = False) -> None:
         if json_output and action != "status":
             raise ValueError("--json is supported for shell status only.")
         if action == "insert":
-            report = logic.insert(home)
-            for message in report.messages:
-                typer.echo(message)
-            for warning in report.warnings:
-                typer.echo(f"Warning: {warning}", err=True)
+            _print_report(logic.insert(home))
         elif action == "remove":
-            report = logic.remove(home)
-            for message in report.messages:
-                typer.echo(message)
-            for warning in report.warnings:
-                typer.echo(f"Warning: {warning}", err=True)
+            _print_report(logic.remove(home))
         else:
-            result = logic.status(home)
-            if json_output:
-                typer.echo(json.dumps(result))
-            else:
-                for key, value in result.items():
-                    if key == "warnings":
-                        for warning in cast("list[object]", value):
-                            typer.echo(f"warning: {warning}")
-                    else:
-                        typer.echo(f"{key}: {value}")
+            _print_status(logic.status(home), json_output=json_output)
     except (OSError, ValueError) as exc:
         fail(exc)
     except subprocess.TimeoutExpired:
         fail(ValueError("Zsh syntax validation timed out; no shell configuration changed."))
+
+
+def _print_report(report: logic.ShellReport) -> None:
+    """Print the report messages to stdout and its warnings to stderr."""
+    for message in report.messages:
+        typer.echo(message)
+    for warning in report.warnings:
+        typer.echo(f"Warning: {warning}", err=True)
+
+
+def _print_status(result: Mapping[str, object], *, json_output: bool) -> None:
+    """Print the status mapping as JSON or as ``key: value`` text lines."""
+    if json_output:
+        typer.echo(json.dumps(result))
+        return
+    for key, value in result.items():
+        if key == "warnings":
+            for warning in cast("list[object]", value):
+                typer.echo(f"warning: {warning}")
+        else:
+            typer.echo(f"{key}: {value}")
