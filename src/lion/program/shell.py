@@ -144,18 +144,27 @@ if (( ${+EPOCHREALTIME} )); then
     return $code
   }
 
-  # Comment and empty lines are recorded here: preexec never sees them while
-  # interactive_comments is on. Return 0 always so history stays untouched.
+  # Pure comment input is recorded here: preexec never sees comments while
+  # interactive_comments is on. Input with any non-comment line is covered by
+  # preexec and skipped here, so a pasted block is never recorded twice. Empty
+  # input is dropped. Return 0 always so history stays untouched.
   _lion_watch_addhistory() {
     setopt local_options extended_glob
     [[ -o interactive_comments ]] || return 0
-    local line=$1 cwd
-    line=${line%$'\n'}
-    [[ -n ${line//[[:space:]]/} ]] || return 0
-    [[ $line == [[:space:]]#\#* ]] || return 0
+    local input=$1 line cwd
+    input=${input%$'\n'}
+    local -a lines
+    lines=(${(f)input})
+    local comments_only=0
+    for line in "${lines[@]}"; do
+      [[ -n ${line//[[:space:]]/} ]] || continue
+      [[ $line == [[:space:]]#\#* ]] || return 0
+      comments_only=1
+    done
+    (( comments_only )) || return 0
     _lion_watch_start_segment || return 0
     _lion_watch_esc "$PWD"; cwd=$LION_WATCH_ESCAPED
-    _lion_watch_mask "$line"
+    _lion_watch_mask "$input"
     _lion_watch_esc "$LION_WATCH_MASKED"
     _lion_watch_rec comment "$EPOCHREALTIME" "$cwd" "$LION_WATCH_ESCAPED"
     return 0

@@ -278,6 +278,7 @@ def test_artifact_contains_hooks_and_segment() -> None:
         "POWERLEVEL9K_RIGHT_PROMPT_ELEMENTS",
         "read -r line < /proc/$$/stat",
         '"segment"$' + "'\\t'",
+        "lines=(${(f)input})",
     ):
         assert needle in text
     segment_start = text.index("function prompt_lion_watch()")

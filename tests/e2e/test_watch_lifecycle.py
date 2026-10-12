@@ -111,6 +111,27 @@ def test_lifecycle_capture_stop_show(runner: Runner, env: dict[str, str], tmp_pa
     assert len(exits) == 1
 
 
+def test_comment_inputs_are_not_doubled(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """A mixed pasted block is one command; comment-only input is one comment."""
+    _install(runner, env)
+    _ = runner("lion", "watch", "start", env=env)
+
+    with Zsh(env, tmp_path / "zdot") as shell:
+        _ = shell.wait_prompt()
+        _ = shell.run("setopt interactive_comments")
+        mixed = "# step info\necho mixed-ran"
+        _ = shell.paste_and_run(mixed)
+        _ = shell.paste_and_run("# alpha\n# beta")
+        _ = shell.run("# standalone")
+
+    events = _events(_show(runner, env, "latest"))
+    commands = [event for event in events if event["kind"] == "cmd"]
+    comments = [event for event in events if event["kind"] == "comment"]
+    assert [event["text"] for event in commands].count(mixed) == 1
+    assert all(mixed not in str(event["text"]) for event in comments)
+    assert {str(event["text"]) for event in comments} == {"# alpha\n# beta", "# standalone"}
+
+
 def test_exec_zsh_keeps_recording_readable(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """``exec zsh`` keeps the PID, starts a second segment and loses no data."""
     _install(runner, env)
