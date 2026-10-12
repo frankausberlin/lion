@@ -80,8 +80,11 @@ Capture happens entirely inside zsh; Python never runs in the input path.
   `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY` or `CREDENTIAL` (bare, single- and
   double-quoted) plus `Authorization:` header values; `LION_WATCH_MASK=0` opts
   out. Masking is best-effort.
-- The hooks read the `active` pointer at load and refresh it in `precmd`, so
-  start/stop from any shell take effect at the next prompt. Segment file and
+- The hooks read the `active` pointer on the first load and refresh it in
+  `precmd`, so start/stop from any shell take effect at the next prompt. A
+  repeated load (`source ~/.zshrc`) keeps the current ref, the open segment
+  and a pending command, so the reload itself still gets its `result` event;
+  the pointer is only read when the ref is still empty. Segment file and
   header are created lazily on the first event; a missing or stale pointer
   makes the hooks a no-op. Loading writes nothing to stdout (instant-prompt
   safe), and the p10k segment `prompt_lion_watch` only reads the pointer file.

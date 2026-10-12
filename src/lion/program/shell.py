@@ -43,9 +43,11 @@ if (( ${+EPOCHREALTIME} )); then
 
   typeset -g LION_WATCH_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/lion/recordings"
   typeset -g LION_WATCH_POINTER="$LION_WATCH_DIR/active"
-  typeset -g LION_WATCH_REF=''
-  typeset -g LION_WATCH_SEG=''
-  typeset -g LION_WATCH_T0=''
+  # Keep an open segment and a pending command across a repeated load
+  # (source ~/.zshrc); only a fresh shell starts with an empty state.
+  typeset -g LION_WATCH_REF=${LION_WATCH_REF-}
+  typeset -g LION_WATCH_SEG=${LION_WATCH_SEG-}
+  typeset -g LION_WATCH_T0=${LION_WATCH_T0-}
   typeset -g LION_WATCH_MASKED=''
   typeset -g LION_WATCH_ESCAPED=''
   typeset -g LION_WATCH_CAP=${LION_WATCH_CAP:-4096}
@@ -56,7 +58,11 @@ if (( ${+EPOCHREALTIME} )); then
   typeset -g LION_WATCH_VALUE='("([^"\\]#|\\?)#"|'"'"'[^'"'"']#'"'"'|[^[:space:];&|]#)'
   typeset -g LION_WATCH_PATTERN="(#bi)($LION_WATCH_NAME)=$LION_WATCH_VALUE"
 
-  [[ -r "$LION_WATCH_POINTER" ]] && read -r LION_WATCH_REF < "$LION_WATCH_POINTER" 2>/dev/null
+  # Read the pointer only on the first load; a reload keeps the current ref and
+  # leaves the switch detection to precmd.
+  if [[ -z $LION_WATCH_REF && -r "$LION_WATCH_POINTER" ]]; then
+    read -r LION_WATCH_REF < "$LION_WATCH_POINTER" 2>/dev/null
+  fi
 
   # Mask likely secrets best-effort and write the result to LION_WATCH_MASKED.
   # LION_WATCH_MASK=0 opts out; masking is not a security boundary.

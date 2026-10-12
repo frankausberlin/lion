@@ -172,6 +172,29 @@ def test_exec_zsh_keeps_recording_readable(runner: Runner, env: dict[str, str], 
     assert any(event["kind"] == "exit" and event["segment"] == second_segment for event in events)
 
 
+def test_resourcing_keeps_segment_and_result(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """A repeated integration load keeps the segment and the pending result."""
+    _install(runner, env)
+    _ = runner("lion", "watch", "start", env=env)
+
+    with Zsh(env, tmp_path / "zdot") as shell:
+        _ = shell.wait_prompt()
+        _ = shell.run("echo first")
+        _ = shell.run('source "$HOME/.zshrc"')
+        _ = shell.run("echo second")
+
+    payload = _show(runner, env, "latest")
+    segments = _segments(_mapping(payload["recording"]))
+    assert len(segments) == 1
+    # The source command itself gets its result: the reload kept the state.
+    assert segments[0]["commands"] == 3
+    assert segments[0]["results"] == 3
+    texts = _command_texts(_events(payload))
+    assert "echo first" in texts
+    assert 'source "$HOME/.zshrc"' in texts
+    assert "echo second" in texts
+
+
 def test_sighup_ends_segment(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
     """A SIGHUP (terminal went away) leaves a readable, ended segment."""
     _install(runner, env)
