@@ -95,12 +95,30 @@ def test_structure_parameters_of_methods(tmp_path: Path) -> None:
     assert entries["Thing.klass"]["parameters"] == 1
 
 
+def test_structure_finds_definitions_in_match_cases(tmp_path: Path) -> None:
+    """Definitions inside match case bodies are measured as separate entries."""
+    source = (
+        "def outer(x):\n"
+        "    match x:\n"
+        "        case 1:\n"
+        "            def inner():\n"
+        "                return 1\n"
+        "\n"
+        "            return inner()\n"
+        "    return 0\n"
+    )
+    _write(tmp_path, "src/demo.py", source)
+    entries = _structure(tmp_path)
+    assert entries["outer"]["max_depth"] == 1
+    assert entries["outer.<locals>.inner"]["statements"] == 1
+
+
 def test_import_metrics_fan_in_cycles_and_violations(tmp_path: Path) -> None:
     """Fan-in/out, eager cycles, type-only and deferred edges are distinguished."""
     for relative, text in IMPORT_TREE.items():
         _write(tmp_path, relative, text)
     files = design_report.collect_python_files(tmp_path)
-    imports = design_report.imports_metrics(files, tmp_path, {}, {})
+    imports = design_report.imports_metrics(files, tmp_path)
     modules = {entry["module"]: entry for entry in imports["modules"]}
     assert modules["lion.pkg.a"]["fan_in"] == 3
     assert modules["lion.pkg.c"]["fan_in"] == 2
@@ -115,6 +133,17 @@ def test_import_metrics_fan_in_cycles_and_violations(tmp_path: Path) -> None:
     assert ("no-core-command-imports", "lion.program.bad", "lion.command") in rules
     assert "typing" in imports["external_roots"]
     assert "typer" in imports["external_roots"]
+
+
+def test_import_metrics_foreign_lion_prefixed_packages(tmp_path: Path) -> None:
+    """Packages whose name merely starts with ``lion`` stay external."""
+    _write(tmp_path, "src/lion/__init__.py", "")
+    _write(tmp_path, "src/lion/mod.py", "from lionfoo import x\nimport lionbar\n")
+    files = design_report.collect_python_files(tmp_path)
+    imports = design_report.imports_metrics(files, tmp_path)
+    assert imports["external_roots"] == ["lionbar", "lionfoo"]
+    modules = {entry["module"]: entry for entry in imports["modules"]}
+    assert modules["lion.mod"]["fan_out"] == 0
 
 
 def test_cc_entries_deduplicates_class_methods() -> None:

@@ -100,7 +100,6 @@ class _ComplexityEntry(TypedDict):
     path: str
     symbol: str
     lineno: int
-    endline: int
     complexity: int
     rank: str
 
@@ -155,11 +154,6 @@ class _VultureEntry(TypedDict):
 
 class _ModuleEntry(TypedDict):
     module: str
-    path: str
-    sloc: int
-    loc: int
-    mi: float | None
-    mi_rank: str | None
     fan_in: int
     fan_out: int
 
@@ -332,10 +326,6 @@ def _int_field(block: Mapping[str, object], key: str, where: str) -> int:
     return value
 
 
-def _optional_int(value: object, fallback: int) -> int:
-    return value if isinstance(value, int) else fallback
-
-
 def _cc_block(path: str, block: Mapping[str, object], prefix: str) -> list[_ComplexityEntry]:
     block_type = block.get("type")
     if block_type == "class":
@@ -358,7 +348,6 @@ def _cc_block(path: str, block: Mapping[str, object], prefix: str) -> list[_Comp
             "path": path,
             "symbol": symbol,
             "lineno": lineno,
-            "endline": _optional_int(block.get("endline"), lineno),
             "complexity": _int_field(block, "complexity", f"{path}:{symbol}"),
             "rank": _str_field(block, "rank", f"{path}:{symbol}"),
         }
@@ -565,7 +554,7 @@ def _visit_block(body: Sequence[ast.stmt], path: str, prefix: str, kind: str, en
             for child in ast.iter_child_nodes(stmt):
                 if isinstance(child, ast.stmt):
                     _visit_block([child], path, prefix, kind, entries)
-                elif isinstance(child, ast.ExceptHandler):
+                elif isinstance(child, (ast.ExceptHandler, ast.match_case)):
                     _visit_block(child.body, path, prefix, kind, entries)
 
 
@@ -607,8 +596,7 @@ def _longest_known(module_name: str, known: set[str]) -> str | None:
 
 
 def _record_import(graph: _ModuleGraph, module_name: str, type_only: bool, deferred: bool, known: set[str]) -> None:
-    root_name = module_name.split(".", 1)[0]
-    if root_name == "lion":
+    if module_name.split(".", 1)[0] == "lion":
         target = _longest_known(module_name, known)
         if target is None or target == graph.name:
             return
@@ -619,6 +607,11 @@ def _record_import(graph: _ModuleGraph, module_name: str, type_only: bool, defer
         else:
             graph.internal.add(target)
         return
+    _record_external_import(graph, module_name)
+
+
+def _record_external_import(graph: _ModuleGraph, module_name: str) -> None:
+    root_name = module_name.split(".", 1)[0]
     if root_name == "typer":
         graph.imports_typer = True
     if root_name not in {"__future__", ""}:
@@ -630,12 +623,8 @@ def _record_import_from(
 ) -> None:
     if node.level == 0:
         module = node.module or ""
-        if not module.startswith("lion"):
-            root_name = module.split(".", 1)[0]
-            if root_name == "typer":
-                graph.imports_typer = True
-            if root_name not in {"__future__", ""}:
-                graph.external_roots.add(root_name)
+        if module != "lion" and not module.startswith("lion."):
+            _record_external_import(graph, module)
             return
         base = _longest_known(module, known)
     else:
@@ -797,12 +786,7 @@ def _architecture_findings(graphs: Sequence[_ModuleGraph]) -> list[_Violation]:
     return violations
 
 
-def imports_metrics(
-    files: Sequence[Path],
-    root: Path,
-    sizes: Mapping[str, _SizeEntry],
-    maintainability: Mapping[str, _MiEntry],
-) -> _Imports:
+def imports_metrics(files: Sequence[Path], root: Path) -> _Imports:
     """Build the internal module graph, eager cycles and architecture findings."""
     graphs: list[_ModuleGraph] = []
     for file in files:
@@ -826,16 +810,9 @@ def imports_metrics(
     external = sorted({root_name for graph in graphs for root_name in graph.external_roots})
     modules: list[_ModuleEntry] = []
     for graph in graphs:
-        size = sizes.get(graph.path)
-        mi_info = maintainability.get(graph.path)
         modules.append(
             {
                 "module": graph.name,
-                "path": graph.path,
-                "sloc": size["sloc"] if size else 0,
-                "loc": size["loc"] if size else 0,
-                "mi": mi_info["mi"] if mi_info else None,
-                "mi_rank": mi_info["rank"] if mi_info else None,
                 "fan_in": fan_in.get(graph.name, 0),
                 "fan_out": len(graph.internal | graph.deferred | graph.type_only),
             }
@@ -930,9 +907,7 @@ def analyze(root: Path) -> tuple[_Report, dict[str, str]]:
     size_entries = _size_entries(raw_text)
     mi_entries = _mi_entries(mi_text)
     structure = structure_entries(files, root)
-    sizes_by_path = {entry["path"]: entry for entry in size_entries}
-    mi_by_path = {entry["path"]: entry for entry in mi_entries}
-    imports = imports_metrics(files, root, sizes_by_path, mi_by_path)
+    imports = imports_metrics(files, root)
     report: _Report = {
         "schema_version": SCHEMA_VERSION,
         "generated_at": _now_iso(),
