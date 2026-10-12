@@ -1,0 +1,294 @@
+{
+  "schema_version": 1,
+  "version": "1",
+  "rules": [
+    {
+      "id": "packages.apt",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^(apt|apt-get|nala)[[:space:]]+(install|remove|purge|autoremove|update|upgrade|dist-upgrade|full-upgrade)([[:space:]]|$)",
+      "emit": {"manager": "$1", "action": "$2"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.brew",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^brew[[:space:]]+(install|uninstall|remove|reinstall|update|upgrade)([[:space:]]|$)",
+      "emit": {"manager": "brew", "action": "$1"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.pip",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^(pip|pip3)[[:space:]]+(install|uninstall|download)([[:space:]]|$)",
+      "emit": {"manager": "$1", "action": "$2"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.uv",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^uv([[:space:]]+pip)?[[:space:]]+(install|add|remove|sync|lock)([[:space:]]|$)",
+      "emit": {"manager": "uv", "action": "$2"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.mamba",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^(mamba|conda)[[:space:]]+(install|remove|update|upgrade|create)([[:space:]]|$)",
+      "emit": {"manager": "$1", "action": "$2"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.node",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^(pnpm|npm|yarn|bun)[[:space:]]+(install|add|remove|uninstall|update|upgrade)([[:space:]]|$)",
+      "emit": {"manager": "$1", "action": "$2"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.snap",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^snap[[:space:]]+(install|remove|refresh|revert)([[:space:]]|$)",
+      "emit": {"manager": "snap", "action": "$1"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.flatpak",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^flatpak[[:space:]]+(install|uninstall|update|remove|repair)([[:space:]]|$)",
+      "emit": {"manager": "flatpak", "action": "$1"},
+      "guard": "none"
+    },
+    {
+      "id": "packages.dpkg",
+      "group": "packages",
+      "scope": "segment",
+      "match": "^dpkg[[:space:]]+(-i|--install|-r|--remove|-P|--purge)([[:space:]]|$)",
+      "emit": {"manager": "dpkg", "action": "$1"},
+      "guard": "none"
+    },
+    {
+      "id": "services.systemctl",
+      "group": "services",
+      "scope": "segment",
+      "match": "^systemctl[[:space:]]+(start|stop|restart|reload|enable|disable|mask|unmask)[[:space:]]+([^[:space:]]+)",
+      "emit": {"unit": "$2", "action": "$1", "scope": "system"},
+      "guard": "none"
+    },
+    {
+      "id": "services.systemctl.user",
+      "group": "services",
+      "scope": "segment",
+      "match": "^systemctl[[:space:]]+--user[[:space:]]+(start|stop|restart|reload|enable|disable|mask|unmask)[[:space:]]+([^[:space:]]+)",
+      "emit": {"unit": "$2", "action": "$1", "scope": "user"},
+      "guard": "none"
+    },
+    {
+      "id": "services.service",
+      "group": "services",
+      "scope": "segment",
+      "match": "^service[[:space:]]+([^[:space:]]+)[[:space:]]+(start|stop|restart|reload)([[:space:]]|$)",
+      "emit": {"unit": "$1", "action": "$2", "scope": "system"},
+      "guard": "none"
+    },
+    {
+      "id": "containers.compose",
+      "group": "containers",
+      "scope": "segment",
+      "match": "^(docker|podman)[[:space:]]+compose[[:space:]]+(up|down|start|stop|restart|build|pull|run)([[:space:]]|$)",
+      "emit": {"engine": "$1", "action": "$2", "target": "compose"},
+      "guard": "none"
+    },
+    {
+      "id": "containers.container.rm",
+      "group": "containers",
+      "scope": "segment",
+      "match": "^(docker|podman)[[:space:]]+(rm|container[[:space:]]+rm)([[:space:]]+-[^[:space:]]+)*[[:space:]]+([^[:space:]]+)",
+      "emit": {"engine": "$1", "action": "remove", "target": "$4"},
+      "guard": "none"
+    },
+    {
+      "id": "containers.image.rm",
+      "group": "containers",
+      "scope": "segment",
+      "match": "^(docker|podman)[[:space:]]+(rmi|image[[:space:]]+rm)([[:space:]]+-[^[:space:]]+)*[[:space:]]+([^[:space:]]+)",
+      "emit": {"engine": "$1", "action": "remove", "target": "$4"},
+      "guard": "none"
+    },
+    {
+      "id": "containers.volume.rm",
+      "group": "containers",
+      "scope": "segment",
+      "match": "^(docker|podman)[[:space:]]+volume[[:space:]]+rm([[:space:]]+-[^[:space:]]+)*[[:space:]]+([^[:space:]]+)",
+      "emit": {"engine": "$1", "action": "remove", "target": "$3"},
+      "guard": "none"
+    },
+    {
+      "id": "containers.volume.prune",
+      "group": "containers",
+      "scope": "segment",
+      "match": "^(docker|podman)[[:space:]]+volume[[:space:]]+prune([[:space:]]|$)",
+      "emit": {"engine": "$1", "action": "prune", "target": "volumes"},
+      "guard": "none"
+    },
+    {
+      "id": "shell.source",
+      "group": "shell",
+      "scope": "segment",
+      "match": "^source[[:space:]]+([^[:space:]]+)",
+      "emit": {"target": "$1", "action": "source"},
+      "guard": "none"
+    },
+    {
+      "id": "shell.exec",
+      "group": "shell",
+      "scope": "segment",
+      "match": "^exec[[:space:]]+(zsh|bash)([[:space:]]|$)",
+      "emit": {"target": "$1", "action": "exec"},
+      "guard": "none"
+    },
+    {
+      "id": "shell.chsh",
+      "group": "shell",
+      "scope": "segment",
+      "match": "^chsh([[:space:]]|$)",
+      "emit": {"target": "login-shell", "action": "chsh"},
+      "guard": "none"
+    },
+    {
+      "id": "shell.config.write",
+      "group": "shell",
+      "scope": "segment",
+      "match": "^(echo|printf|cat)[[:space:]]+([^>\"']|'[^']*'|\"[^\"]*\")*>>?[[:space:]]*[^[:space:]]*(zshrc|zprofile|bashrc|bash_profile|profile)([[:space:]]|$)",
+      "emit": {"target": "$3", "action": "write"},
+      "guard": "none"
+    },
+    {
+      "id": "shell.config.tee",
+      "group": "shell",
+      "scope": "segment",
+      "match": "^tee([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]]*(zshrc|zprofile|bashrc|bash_profile|profile)([[:space:]]|$)",
+      "emit": {"target": "$2", "action": "write"},
+      "guard": "none"
+    },
+    {
+      "id": "downloads.curl",
+      "group": "downloads",
+      "scope": "segment",
+      "match": "^curl([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]-][^[:space:]]*",
+      "emit": {"source": "curl", "action": "download"},
+      "guard": "none"
+    },
+    {
+      "id": "downloads.wget",
+      "group": "downloads",
+      "scope": "segment",
+      "match": "^wget([[:space:]]+-[^[:space:]]+)*[[:space:]]+[^[:space:]-][^[:space:]]*",
+      "emit": {"source": "wget", "action": "download"},
+      "guard": "none"
+    },
+    {
+      "id": "downloads.git.clone",
+      "group": "downloads",
+      "scope": "segment",
+      "match": "^git[[:space:]]+clone([[:space:]]|$)",
+      "emit": {"source": "git", "action": "clone"},
+      "guard": "none"
+    },
+    {
+      "id": "downloads.curl.pipe",
+      "group": "downloads",
+      "scope": "block",
+      "match": "(^|[|;&])[[:space:]]*(sudo[[:space:]]+)?curl[^|]*[|][[:space:]]*(sudo[[:space:]]+)?(sh|bash|zsh)([[:space:]]|$)",
+      "emit": {"source": "curl", "action": "pipe-to-shell"},
+      "guard": "none"
+    },
+    {
+      "id": "downloads.wget.pipe",
+      "group": "downloads",
+      "scope": "block",
+      "match": "(^|[|;&])[[:space:]]*(sudo[[:space:]]+)?wget[^|]*[|][[:space:]]*(sudo[[:space:]]+)?(sh|bash|zsh)([[:space:]]|$)",
+      "emit": {"source": "wget", "action": "pipe-to-shell"},
+      "guard": "none"
+    },
+    {
+      "id": "interruptions.reboot",
+      "group": "interruptions",
+      "scope": "segment",
+      "match": "^(reboot|systemctl[[:space:]]+reboot)([[:space:]]|$)",
+      "emit": {"action": "reboot"},
+      "guard": "none"
+    },
+    {
+      "id": "interruptions.shutdown",
+      "group": "interruptions",
+      "scope": "segment",
+      "match": "^(shutdown|poweroff|halt)([[:space:]]|$)",
+      "emit": {"action": "shutdown"},
+      "guard": "none"
+    },
+    {
+      "id": "interruptions.suspend",
+      "group": "interruptions",
+      "scope": "segment",
+      "match": "^systemctl[[:space:]]+(suspend|hibernate)([[:space:]]|$)",
+      "emit": {"action": "$1"},
+      "guard": "none"
+    },
+    {
+      "id": "interruptions.logout",
+      "group": "interruptions",
+      "scope": "segment",
+      "match": "^(logout|exit)([[:space:]]|$)",
+      "emit": {"action": "logout"},
+      "guard": "none"
+    },
+    {
+      "id": "checks.version",
+      "group": "checks",
+      "scope": "segment",
+      "match": "^([^[:space:]]+)([[:space:]]+-[^[:space:]]+)*[[:space:]]+(--version|-V)$",
+      "emit": {"subject": "$1", "intent": "version"},
+      "guard": "none"
+    },
+    {
+      "id": "checks.systemctl",
+      "group": "checks",
+      "scope": "segment",
+      "match": "^systemctl[[:space:]]+(status|is-active|is-enabled|is-failed|show|list-units)([[:space:]]|$)",
+      "emit": {"subject": "systemctl", "intent": "status"},
+      "guard": "none"
+    },
+    {
+      "id": "checks.service",
+      "group": "checks",
+      "scope": "segment",
+      "match": "^service[[:space:]]+[^[:space:]]+[[:space:]]+status([[:space:]]|$)",
+      "emit": {"subject": "service", "intent": "status"},
+      "guard": "none"
+    },
+    {
+      "id": "checks.git",
+      "group": "checks",
+      "scope": "segment",
+      "match": "^git[[:space:]]+(status|log|diff|show)([[:space:]]|$)",
+      "emit": {"subject": "git", "intent": "status"},
+      "guard": "none"
+    },
+    {
+      "id": "checks.container",
+      "group": "checks",
+      "scope": "segment",
+      "match": "^(docker|podman)[[:space:]]+(ps|images|inspect|version|info|logs|stats)([[:space:]]|$)",
+      "emit": {"subject": "$1", "intent": "status"},
+      "guard": "none"
+    }
+  ]
+}
