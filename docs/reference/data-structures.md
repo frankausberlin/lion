@@ -149,7 +149,7 @@ leading `Structure changed.` line in text output.
 ```json
 {
   "status": "error",
-  "checked": ["collectors", "tools", "history", "storage", "shlib"],
+  "checked": ["collectors", "tools", "history", "storage", "shlib", "shell", "watch"],
   "findings": [
     {"topic": "tools", "name": "tools.nvidia_smi", "status": "warn",
      "message": "…", "hint": "…", "commands": ["sudo …"]}
@@ -164,6 +164,77 @@ has a stable `name`, its `topic`, one of the four statuses, a `message`, an
 optional `hint` and any `commands` that would be executable. `reco_path` is
 `null` when nothing was written (a clean run). See
 [Diagnose with doctor](../how-to/diagnose-with-doctor.md).
+
+## `shell status --json`
+
+```jsonc
+{
+  "mode": "zshrc",     // "zshrc" (marked block) or "shlib" (~/.shlib/shlibs script)
+  "path": "/home/user/.zshrc",
+  "inserted": false,   // whether the recognized artifact is present
+  "modified": false,   // true when the artifact differs from the delivered integration
+  "warnings": []       // e.g. shlib installed but the script is missing
+}
+```
+
+The command never writes; see [Record a shell session](../how-to/record-shell.md).
+
+## `watch status --json`
+
+```jsonc
+{
+  "active": true,
+  "recording": {
+    "ref": "2026-10-12T09-30-00.123456Z",
+    "path": "/home/user/.local/share/lion/recordings/2026-10-12T09-30-00.123456Z",
+    "status": "open",              // "open" | "stopped"
+    "started_at": "2026-10-12T09:30:00.123456+00:00",
+    "stopped_at": "",
+    "note": "",
+    "integration_version": "0.1.0",
+    "segments": [
+      {"name": "100-452123-4096.log", "pid": 452123, "started_at": "…",
+       "alive": true, "end_reason": "", "commands": 3, "results": 3,
+       "comments": 1, "exits": 1, "executed_seconds": 0.014, "size_bytes": 512}
+    ]
+  },
+  "changes": {},                   // diff_collectors(state_start, current)
+  "structure_changed": false
+}
+```
+
+An inactive recording reports just `{"active": false}`. The `changes` shape is
+the same as in `status --json` above.
+
+## `watch list --json`
+
+```json
+{"recordings": [{"ref": "…", "status": "stopped", "segments": [], "…": "…"}]}
+```
+
+Each entry carries the same recording shape as `watch status` plus its `path`.
+An empty space reports `{"recordings": []}`.
+
+## `watch show --json`
+
+```jsonc
+{
+  "recording": { "…": "…" },       // same recording shape as above
+  "events": [
+    {"kind": "segment", "segment": "100-452123-4096.log", "time": "…", "boot_id": "…", "pid": 452123, "start_ticks": 100},
+    {"kind": "cmd", "segment": "…", "time": "…", "cwd": "/tmp", "text": "echo hi"},
+    {"kind": "result", "segment": "…", "time": "…", "status": 0, "duration_ms": 1.5},
+    {"kind": "comment", "segment": "…", "time": "…", "cwd": "/tmp", "text": "# note"},
+    {"kind": "exit", "segment": "…", "time": "…", "status": 0}
+  ]
+}
+```
+
+Events are ordered by segment start, then time and file line. `time` is ISO 8601
+with a UTC offset; the raw spool format is documented in
+[Recordings](recordings.md). Without a reference, `show` prefers the active
+recording and otherwise the latest; an empty space is `{"recording": null,
+"events": []}`.
 
 ## Config (planned)
 

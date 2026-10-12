@@ -2,17 +2,18 @@
 
 ``doctor`` aggregates checks owned by the modules that own the data: the
 collector/tool checks live in :mod:`lion.state.diagnosis`, the history/storage
-checks in :mod:`lion.program.storage` and the shlib check in
-:mod:`lion.program.shlib`. This module only runs them, catches a crashing check,
-orders the findings deterministically and renders text, JSON and the
-human-executed ``reco.sh``.
+checks in :mod:`lion.program.storage`, the shlib check in
+:mod:`lion.program.shlib`, the shell-integration check in :mod:`lion.program.shell`
+and the recording check in :mod:`lion.program.recording`. This module only runs
+them, catches a crashing check, orders the findings deterministically and
+renders text, JSON and the human-executed ``reco.sh``.
 """
 
 import json
 from datetime import UTC, datetime
 from pathlib import Path
 
-from lion.program import shlib, storage
+from lion.program import recording, shell, shlib, storage
 from lion.program.checks import Check, CheckStatus, DoctorContext, Finding
 from lion.state import diagnosis
 
@@ -33,7 +34,7 @@ __all__ = [
 ]
 
 #: Semantic topic order used for output; kept aligned with :data:`CHECKS`.
-TOPIC_ORDER: tuple[str, ...] = ("collectors", "tools", "history", "storage", "shlib")
+TOPIC_ORDER: tuple[str, ...] = ("collectors", "tools", "history", "storage", "shlib", "shell", "watch")
 
 #: The ordered checks ``doctor`` runs, one per entry of :data:`TOPIC_ORDER`.
 CHECKS: tuple[Check, ...] = (
@@ -42,6 +43,8 @@ CHECKS: tuple[Check, ...] = (
     storage.history_checks,
     storage.storage_checks,
     shlib.shlib_checks,
+    shell.shell_checks,
+    recording.watch_checks,
 )
 
 _TOPIC_INDEX = {topic: index for index, topic in enumerate(TOPIC_ORDER)}

@@ -1,6 +1,6 @@
 # 0012 — Recording layout and shell-segment liveness
 
-- **Status:** proposed (E1 draft; to be finalized with the E2 implementation)
+- **Status:** accepted (E2 implementation complete; see the implementation notes below)
 - **Date:** 2026-10-12
 
 ## Context
@@ -51,6 +51,28 @@ Recordings live in their own data space, separate from the scan history.
   liveness is still true as open.
 - Parallel shells are ordered by segment start time and the shared `boot_id`, so
   their events interleave deterministically on read.
+
+## E2 implementation notes
+
+- Implemented in `src/lion/program/recording.py`. Layout:
+  `$XDG_DATA_HOME/lion/recordings/<ref>/` with `meta.toml` (schema version 1:
+  `ref`, `status` `open`/`stopped`, `started_at`, `stopped_at`, `note`,
+  `integration_version`), `state-start.toml`, `state-end.toml` and `events/`;
+  the reused `Snapshot` model stores both states. Record directories use mode
+  `700`, files `600`, and same-instant collisions get a `~NNNN` suffix.
+- The `active` pointer is published with `os.link` (never overwritten) and
+  removed last during `stop`; a stale pointer is loud on `start`/`stop` and a
+  `warn` in `doctor`. `state-end.toml` is published before `meta.toml` is
+  updated; both are never overwritten.
+- Segment files are named `<startticks>-<pid>-<random>.log`. Liveness checks
+  the kernel `boot_id`, the PID and `/proc/<pid>/stat` field 22 (start ticks):
+  mismatches yield `reboot`, `gone`, `reused` or `unknown` (unreadable boot
+  id), and an alive segment is shown as open.
+- Readers validate strictly and order events by segment start, then time and
+  file line. `stop` guards against the last event of its own record, and both
+  mutations use the shared clock guard over meta, states and segment starts.
+- `read_events` decodes the documented event grammar and fails loudly with the
+  segment path and line number on damage; no read function writes.
 
 ## Alternatives
 

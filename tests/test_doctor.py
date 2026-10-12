@@ -16,7 +16,7 @@ from typer.testing import CliRunner
 
 from lion.cli import app
 from lion.command import doctor as command_doctor
-from lion.program import doctor, storage
+from lion.program import doctor, recording, storage
 from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
@@ -127,7 +127,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 14 ok, 0 warn, 0 error, 7 skip" in result.stdout
+    assert "Result: 14 ok, 0 warn, 0 error, 9 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -182,7 +182,7 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
     assert result.stderr == ""
     payload = json.loads(result.stdout)
     assert payload["status"] == "warn"
-    assert payload["checked"] == ["collectors", "tools", "history", "storage", "shlib"]
+    assert payload["checked"] == ["collectors", "tools", "history", "storage", "shlib", "shell", "watch"]
     assert payload["summary"]["warn"] == 1
     assert payload["reco_path"] is not None
     assert payload["reco_path"].endswith(".sh")
@@ -579,3 +579,47 @@ def test_reco_sanitizes_finding_name_newlines(monkeypatch: pytest.MonkeyPatch) -
     allowed = {"", "#!/usr/bin/env bash", "set -euo pipefail"}
     for line in scripts[0].read_text().splitlines():
         assert line in allowed or line.startswith("#"), f"unexpected executable line: {line!r}"
+
+
+def test_shell_and_watch_topics_checked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A clean env reports the shell and watch topics as neutral skips."""
+    _use_state(monkeypatch, _state())
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    payload = json.loads(result.stdout)
+    assert payload["checked"] == ["collectors", "tools", "history", "storage", "shlib", "shell", "watch"]
+    findings = {item["name"]: item for item in payload["findings"]}
+    assert findings["shell.inserted"]["status"] == "skip"
+    assert findings["watch.records"]["status"] == "skip"
+    assert payload["status"] == "ok"
+
+
+def test_damaged_recording_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A damaged recording is an error naming its path and publishes a reco."""
+    _use_state(monkeypatch, _state())
+    record_dir = recording.get_recordings_dir() / "2026-10-05T20-00-00.000000Z"
+    record_dir.mkdir(parents=True)
+    (record_dir / "meta.toml").write_text("broken = [")
+
+    result = _invoke()
+
+    assert result.exit_code == 1
+    assert "watch.record" in result.stdout
+    assert str(record_dir) in result.stdout
+    assert len(_reco_files()) == 1
+
+
+def test_active_recording_without_integration_warns(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An active recording without the shell integration warns once."""
+    _use_state(monkeypatch, _state())
+    recording.start_recording({"host": {"status": "ok", "error": "", "hostname": "lion"}})
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
+    assert findings["watch.active"]["status"] == "ok"
+    assert findings["shell.warning"]["status"] == "warn"
+    assert "no events are captured" in findings["shell.warning"]["message"]

@@ -1,6 +1,6 @@
 # 0011 — Watch capture architecture: a zsh-side spool
 
-- **Status:** proposed (E1 draft; to be finalized with the E2 implementation)
+- **Status:** accepted (E2 implementation complete; see the implementation notes below)
 - **Date:** 2026-10-12
 
 ## Context
@@ -56,6 +56,33 @@ Capture happens entirely inside zsh; Python never runs in the input path.
   hatch for workflows the masker cannot cover.
 - Because `zshaddhistory` is also the path for comments, the annotation grammar
   (ADR 0013) has to define how it treats lines that `preexec` never sees.
+
+## E2 implementation notes
+
+- The delivered integration lives in `src/lion/program/shell.py` and is inserted
+  by `lion shell insert`, either as `~/.shlib/shlibs/90-lion-watch.sh` (shlib
+  mode) or as a marked block in `~/.zshrc`.
+- Event grammar (one TAB-separated line per event, every field `${(q)}`-escaped):
+  `segment`, `cmd`, `result`, `comment`, `exit`. The command text is `preexec`'s
+  `$1` with `$3` as fallback; comments are captured through `zshaddhistory`
+  (guarded by `interactive_comments`, empty lines dropped). The exit status is
+  captured in `precmd`, the shell exit in `zshexit` as a hint.
+- The escape uses parameter expansion only (no command substitution). The raw
+  text and the escaped field are each capped at 4096 characters via
+  `LION_WATCH_CAP`; the decoder (`unquote_zsh`) treats an incomplete escape
+  created by the cap as a literal.
+- The masker runs before the spool write with a local `extended_glob` and
+  masks values of assignments whose name contains `TOKEN`, `SECRET`,
+  `PASSWORD`, `PASSWD`, `API_KEY`, `APIKEY` or `CREDENTIAL` (bare, single- and
+  double-quoted) plus `Authorization:` header values; `LION_WATCH_MASK=0` opts
+  out. Masking is best-effort.
+- The hooks read the `active` pointer at load and refresh it in `precmd`, so
+  start/stop from any shell take effect at the next prompt. Segment file and
+  header are created lazily on the first event; a missing or stale pointer
+  makes the hooks a no-op. Loading writes nothing to stdout (instant-prompt
+  safe), and the p10k segment `prompt_lion_watch` only reads the pointer file.
+- `zsh -n` validation and a timestamped `~/.zshrc` backup guard `insert`;
+  exactly one artifact may exist and `remove` requires the marker line.
 
 ## Alternatives
 

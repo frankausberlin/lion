@@ -47,7 +47,7 @@
 > * No initialization step is needed. `scan` creates its data directory automatically.
 > * LION serve is only used in the agent harness
 > * tools, resources, prompts are not subcommands, just the description of the MCP functions used
-> * `shlib`, `scan`, `status`, `history`, `diff` and `doctor` exist today; `shell`, `watch`, `wiki` and `serve` are planned.
+> * `shlib`, `shell`, `scan`, `status`, `history`, `diff`, `doctor` and `watch` exist today; `wiki` and `serve` are planned.
 
 ## Collectors
 

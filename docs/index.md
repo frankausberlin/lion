@@ -18,6 +18,8 @@ reference reproduces it, and the other pages explain, guide and link.
 
 - [Manage the shell configuration](how-to/manage-shell-config.md) — install,
   use and remove the Zsh shell library.
+- [Record a shell session](how-to/record-shell.md) — insert the watch
+  integration, record, stop and read the events.
 - [Compare stored states](how-to/compare-states.md) — list the history and diff
   two states.
 - [Diagnose with doctor](how-to/diagnose-with-doctor.md) — run the read-only
@@ -30,6 +32,8 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Data structures](reference/data-structures.md) — the stored snapshot, the
   shlib status and the JSON output shapes.
 - [Storage](reference/storage.md) — paths, files, locks and compatibility.
+- [Recordings](reference/recordings.md) — the watch data space, event grammar,
+  masking and segment liveness.
 - [Collectors](reference/collectors.md) — the fields each collector records.
 
 ## Explanation
@@ -56,3 +60,7 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0008 — A reinstall after uninstall fails loudly](decisions/0008-shlib-reinstall-fail-loud.md)
 - [0009 — Config file location and format conventions](decisions/0009-config-file-conventions.md)
 - [0010 — English identifiers and messages](decisions/0010-english-identifiers-and-messages.md)
+- [0011 — Watch capture architecture: a zsh-side spool](decisions/0011-watch-capture-zsh-spool.md)
+- [0012 — Recording layout and shell-segment liveness](decisions/0012-watch-recording-layout-liveness.md)
+- [0013 — Annotation grammar v0](decisions/0013-watch-annotation-grammar-v0.md)
+- [0014 — Watch dog: an `accept-line` guard widget](decisions/0014-watch-dog-accept-line.md)
