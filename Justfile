@@ -27,16 +27,19 @@ fix:
     uv run ruff check --fix .
     uv run ruff format .
 
-# Remove local caches and generated artifacts (keeps .venv, sources and docs)
+# Remove local caches and generated artifacts (keeps .venv, sources, docs and .refactor/baselines)
 clean:
     #!/usr/bin/env bash
     set -euo pipefail
-    rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov .refactor site
+    rm -rf .pytest_cache .ruff_cache .mypy_cache .coverage htmlcov site
+    if [ -d .refactor ]; then
+        find .refactor -mindepth 1 -maxdepth 1 ! -name baselines -exec rm -rf {} +
+    fi
     rm -rf build dist ./*.egg-info
     rm -rf e2e-artifacts.*
     find . -path ./.venv -prune -o -path ./.git -prune -o -type d -name __pycache__ -print -exec rm -rf {} +
     find . -path ./.venv -prune -o -path ./.git -prune -o -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -exec rm -f {} +
-    echo "Cleaned caches and generated artifacts (kept .venv, SESSION.md and JOURNAL.md)."
+    echo "Cleaned caches and generated artifacts (kept .venv, sources, .refactor/baselines, SESSION.md and JOURNAL.md)."
 
 # Regenerate docs/reference/cli.md from the Typer app
 docs:
@@ -71,34 +74,9 @@ test-e2e:
 test-e2e-attach:
     bash scripts/test-e2e.sh --attach
 
-# Write design metrics to .refactor/ (report only; never fails on findings)
-rate-design:
-    #!/usr/bin/env bash
-    set -uo pipefail
-    mkdir -p .refactor
-    uv run radon cc  src --json > .refactor/radon-cc.json  || { echo "radon cc failed"  >&2; exit 2; }
-    uv run radon mi  src --json > .refactor/radon-mi.json  || { echo "radon mi failed"  >&2; exit 2; }
-    uv run radon raw src --json > .refactor/radon-raw.json || { echo "radon raw failed" >&2; exit 2; }
-    vrc=0
-    uv run vulture src tests --min-confidence 60 > .refactor/vulture.txt || vrc=$?
-    # vulture exit code 3 == findings (expected); 1/2 == error
-    if [ "$vrc" -ne 0 ] && [ "$vrc" -ne 3 ]; then echo "vulture failed ($vrc)" >&2; exit 2; fi
-    {
-        echo "# Design report"
-        echo
-        echo "- revision: $(git rev-parse --short HEAD 2>/dev/null || echo n/a)"
-        echo "- date: $(date -u +%FT%TZ)"
-        echo "- python: $(uv run python -V 2>/dev/null)"
-        echo
-        echo "## Vulture (advisory – NOT proof of dead code)"
-        echo '```'
-        cat .refactor/vulture.txt
-        echo '```'
-        echo
-        echo "## Radon cc / mi / raw"
-        echo "Raw JSON: .refactor/radon-cc.json, radon-mi.json, radon-raw.json"
-    } > .refactor/report.md
-    echo "Report: .refactor/report.md"
+# Design report to .refactor/ (run | save <name> | compare <name>; advisory, never fails on findings)
+rate-design *args:
+    uv run python scripts/design_report.py {{args}}
 
 # Prepare a refactoring session: preflight, baseline report, new branch. Changes no code.
 refactor name="":
@@ -109,12 +87,17 @@ refactor name="":
         exit 1
     fi
     just check
-    just rate-design
     slug="{{name}}"
     slug="${slug:-$(date -u +%Y%m%d-%H%M%S)}"
     branch="refactor/${slug}"
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+        echo "Error: branch '$branch' already exists." >&2
+        exit 1
+    fi
+    just rate-design save "$slug"
     git switch -c "$branch"
-    echo "Branch '$branch' created. Baseline in .refactor/."
+    echo "Branch '$branch' created. Baseline '$slug' saved under .refactor/baselines/ (survives 'just clean')."
+    echo "After edits: just rate-design compare $slug"
     echo "Proceed with the 'refactoring' skill; this recipe does not refactor."
 
 # Fast-forward main to <branch> (auto-detected when omitted), then clean up its worktree and branch

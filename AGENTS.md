@@ -301,13 +301,25 @@ just audit       # dependency vulnerability scan
 
 ### Refactoring
 
-- `just rate-design` writes advisory radon/vulture reports to `.refactor/`
-  (gitignored) and never fails on findings. `just refactor [name]` prepares a
-  session (refuses a dirty tree, runs `just check`, writes a baseline, creates
-  a `refactor/<slug>` branch) and changes no code.
+- `just rate-design` writes the advisory design report to `.refactor/`
+  (gitignored): `report.md` plus the versioned `report.json` and the raw
+  radon/vulture output, with ranked complexity and function-structure metrics,
+  the internal import graph (fan-in/out, eager cycles, TYPE_CHECKING/deferred
+  edges) and advisory architecture hints. Findings never fail the run; tool or
+  baseline errors exit non-zero.
+- Named baselines live in `.refactor/baselines/<name>/` and are never
+  overwritten: `just rate-design save <name>` snapshots the current report and
+  `just rate-design compare <name>` diffs a fresh run against it by
+  repository-relative path plus qualified symbol (line shifts are not symbol
+  changes). `just clean` preserves the baselines directory; an interrupted run
+  leaves `.refactor/incomplete` behind.
+- `just refactor [name]` prepares a session (refuses a dirty tree, runs
+  `just check`, saves the baseline named after the slug, creates a
+  `refactor/<slug>` branch) and changes no code.
 - Follow the `refactoring` skill: measure first, one recipe per step, `just
   check` green before and after every change, no test weakening, no destructive
-  git. `radon`/`vulture` are locked dev dependencies.
+  git. `radon`/`vulture` are locked dev dependencies; the report script is
+  `scripts/design_report.py` with tests in `tests/test_design_report.py`.
 
 ### Git Workflow (Agents)
 
