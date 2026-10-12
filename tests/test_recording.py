@@ -1,6 +1,8 @@
 """Tests for the recording data space, lifecycle and segment liveness."""
 
 import os
+import subprocess
+import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -94,6 +96,20 @@ def _current_boot_id() -> str:
 def _current_start_ticks(pid: int) -> int:
     data = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
     return int(data.rsplit(")", 1)[-1].split()[19])
+
+
+def _wait_zombie(pid: int, timeout: float = 5.0) -> None:
+    """Wait until ``pid`` is a zombie; its parent is this test, so it stays one."""
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            state = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8").rsplit(")", 1)[-1].split()[0]
+        except OSError:
+            pytest.fail("the child disappeared instead of turning into a zombie")
+        if state == "Z":
+            return
+        time.sleep(0.01)
+    pytest.fail("the child did not become a zombie in time")
 
 
 def _header(
@@ -509,6 +525,29 @@ def test_liveness_alive_gone_reused_reboot(monkeypatch: pytest.MonkeyPatch) -> N
     assert infos["102-1-1.log"].end_reason == "gone"
     assert infos["103-1-1.log"].alive is False
     assert infos["103-1-1.log"].end_reason == "reused"
+
+
+def test_liveness_treats_zombies_as_gone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A zombie can never write another event; it is gone, not alive.
+
+    tmux with ``remain-on-exit`` and PID 1 in a container may never reap an
+    exited process, so the ``/proc`` entry can outlive the shell forever.
+    """
+    _freeze(monkeypatch, T0)
+    start_recording(_state())
+    ref = next(entry.ref for entry in list_recordings())
+    child = subprocess.Popen(["/bin/true"])
+    try:
+        ticks = _current_start_ticks(child.pid)
+        _wait_zombie(child.pid)
+        _append_segment(ref, "100-1-1.log", [_header(pid=child.pid, ticks=ticks)])
+
+        segment = load_recording(ref).segments[0]
+
+        assert segment.alive is False
+        assert segment.end_reason == "gone"
+    finally:
+        child.wait()
 
 
 def test_superseded_takeover_chain(monkeypatch: pytest.MonkeyPatch) -> None:

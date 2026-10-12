@@ -96,6 +96,14 @@ Recordings live in their own data space, separate from the scan history.
 - Overlay fields replace the event-derived field set completely; the raw
   events are never modified (see ADR 0013).
 
+## Addendum — zombies count as gone
+
+A zombie (`/proc/<pid>` state `Z`) can never write another event, but a parent
+that never waits for it (tmux with `remain-on-exit`, PID 1 in a container) would
+keep the `PID exists + start ticks match` check reading it as alive forever.
+Liveness therefore reports `gone` for a zombie as well; the E2E exit scenario
+covers the tmux case.
+
 ## Alternatives
 
 - **Store recordings in the scan history / one ledger.** Deferred, not chosen:

@@ -472,13 +472,20 @@ def _read_boot_id() -> str | None:
 
 
 def _process_start_ticks(pid: int) -> int | None:
-    """Return field 22 (starttime) of ``/proc/<pid>/stat``, or ``None``."""
+    """Return field 22 (starttime) of ``/proc/<pid>/stat``, or ``None``.
+
+    ``None`` also covers a zombie: it can never write another event, and a
+    parent that never waits for it (tmux with ``remain-on-exit``, PID 1 in a
+    container) would otherwise keep its segment "alive" forever.
+    """
     try:
         data = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
     except OSError:
         return None
     tail = data.rsplit(")", 1)[-1].split()
     if len(tail) < 20:
+        return None
+    if tail[0] in ("Z", "X", "x"):
         return None
     try:
         return int(tail[19])
