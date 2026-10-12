@@ -86,6 +86,42 @@ Rule id, schema version and ruleset version are stored with every
 classification; invalid rules are reported loudly. `lion watch dog` reuses the
 same rule format for confirmations before execution.
 
+## Watch mode
+
+While a recording is active, annotation lines in the recorded shell input
+attach metadata to it — currently one **ADR** (architecture decision record)
+per recording. The syntax is comment-based:
+
+| Syntax | Meaning |
+|-|-|
+| `#-LION: adr.<field> <value>` | the annotation belongs to the **previous** block |
+| `#+LION: adr.<field> <value>` | the annotation belongs to the **following** block |
+| `#.LION: <value>` | continues the most recently referenced field |
+
+A marker counts only as a full comment line outside strings and here-documents.
+All annotation lines of a recording fold into one ADR: `adr.<field> <value>`
+sets a field, `adr.<field>` without a value deletes it again, and `adr.title`
+plus `adr.decision` together make the ADR complete. `lion records` reads the
+ADRs and `lion records edit` maintains them. The full grammar, the field
+catalog, the parser limits and the `Unresolved:` findings live in
+[Records and ADRs](docs/reference/records-and-adrs.md).
+
+### Examples
+
+These two recordings produce the same ADR:
+
+```shell
+lion watch start
+sudo apt install some-complex-stuff
+#-LION: adr.title complex-stuff-decision
+```
+
+```shell
+lion watch start
+#+LION: adr.title complex-stuff-decision
+sudo apt install some-complex-stuff
+```
+
 ## Quickstart
 
 ```bash
