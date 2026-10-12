@@ -11,7 +11,7 @@ import stat
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast
+from typing import NamedTuple, cast
 
 #: Default timeout in seconds for one subprocess invocation.
 DEFAULT_TIMEOUT = 60
@@ -27,6 +27,18 @@ class CommandResult:
     stdout: str
     stderr: str
     returncode: int
+
+
+class UserTmux(NamedTuple):
+    """How to reach the unprivileged tmux server of the ``user_tmux`` fixture.
+
+    ``prefix`` runs the tmux client as ``lion-e2e`` (so the server it talks to
+    belongs to that user), ``env`` carries the private ``TMUX_TMPDIR`` socket
+    directory. Both are passed to ``watchutil.Zsh``.
+    """
+
+    prefix: tuple[str, ...]
+    env: dict[str, str]
 
 
 def doctor_findings(payload: dict[str, object]) -> dict[str, dict[str, object]]:

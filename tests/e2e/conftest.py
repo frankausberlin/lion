@@ -13,7 +13,7 @@ from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pytest
-from e2eutil import Runner
+from e2eutil import Runner, UserTmux
 from watchutil import TMUX_CONFIG, dump_diagnostics, reset_diagnostics
 
 
@@ -109,6 +109,36 @@ def user_runner(tmp_path: Path, env: dict[str, str]) -> Runner:
     os.chown(tmp_path, account.pw_uid, account.pw_gid)
     os.chown(env["HOME"], account.pw_uid, account.pw_gid)
     return Runner(tmp_path / "user-commands.log", ("runuser", "--preserve-environment", "-u", "lion-e2e", "--"))
+
+
+@pytest.fixture
+def user_tmux(tmp_path: Path, user_runner: Runner) -> Iterator[UserTmux]:
+    """Run a tmux server as ``lion-e2e`` with its own socket directory.
+
+    The interactive shell has to run as the unprivileged user so the recording
+    and integration files belong to that user, and a non-root tmux cannot use
+    the root server's default socket. ``TMUX_TMPDIR`` therefore lives below the
+    user-owned ``tmp_path``, and both the server and every client run through
+    ``runuser`` so the server belongs to the user.
+    """
+    _ = user_runner  # ordering: chowns tmp_path and HOME for lion-e2e
+    account = pwd.getpwnam("lion-e2e")
+    socket_dir = tmp_path / "tmux"
+    socket_dir.mkdir()
+    os.chown(socket_dir, account.pw_uid, account.pw_gid)
+    prefix = ("runuser", "--preserve-environment", "-u", "lion-e2e", "--")
+    server_env = {**os.environ, "TMUX_TMPDIR": str(socket_dir)}
+    started = subprocess.run(
+        [*prefix, "tmux", "-f", str(TMUX_CONFIG), "start-server"],
+        capture_output=True,
+        check=False,
+        env=server_env,
+    )
+    assert started.returncode == 0, started.stderr
+    try:
+        yield UserTmux(prefix=prefix, env={"TMUX_TMPDIR": str(socket_dir)})
+    finally:
+        _ = subprocess.run([*prefix, "tmux", "kill-server"], capture_output=True, check=False, env=server_env)
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
