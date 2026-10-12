@@ -354,28 +354,76 @@ def _parse_heredoc(line: str, start: int) -> tuple[int, tuple[str, bool] | None]
         index += 1
     if index >= len(line):
         return None
-    char = line[index]
-    if char in ("'", '"'):
-        end = _find_closing(line, index + 1, char, escapes=char == '"')
-        if end < 0:
-            return None
-        return end + 1, (line[index + 1 : end], strip_tabs)
-    if char in ";&|<>()#$`":
+    if line[index] in ";&|<>()#":
         return None
-    end = index
-    delimiter_parts: list[str] = []
-    while end < len(line) and not line[end].isspace() and line[end] not in ";&|<>()`'\"$":
-        if line[end] == "\\":
-            if end + 1 >= len(line):
+    parsed = _read_delimiter_word(line, index)
+    if parsed is None:
+        return None
+    end, delimiter = parsed
+    if not delimiter:
+        return None
+    return end, (delimiter, strip_tabs)
+
+
+def _read_delimiter_word(line: str, start: int) -> tuple[int, str] | None:
+    """Read a here-document delimiter word with full quote removal.
+
+    The delimiter word undergoes quote removal but no expansion: quotes
+    concatenate into one word (``<<'EO'F`` closes on ``EOF``, not ``EO``),
+    backslashes escape the next character, and an unquoted ``$`` or backtick
+    stays literal. Returns ``(index_after_word, word)``, or ``None`` when a
+    quote or a trailing backslash is left open on the line.
+    """
+    index = start
+    parts: list[str] = []
+    while index < len(line):
+        char = line[index]
+        if char.isspace() or char in ";&|<>()":
+            break
+        if char == "'":
+            end = _find_closing(line, index + 1, "'", escapes=False)
+            if end < 0:
                 return None
-            delimiter_parts.append(line[end + 1])
-            end += 2
+            parts.append(line[index + 1 : end])
+            index = end + 1
             continue
-        delimiter_parts.append(line[end])
-        end += 1
-    if not delimiter_parts:
+        if char == '"':
+            end = _find_closing(line, index + 1, '"', escapes=True)
+            if end < 0:
+                return None
+            parts.append(_unquote_double(line[index + 1 : end]))
+            index = end + 1
+            continue
+        if char == "\\":
+            if index + 1 >= len(line):
+                return None
+            parts.append(line[index + 1])
+            index += 2
+            continue
+        parts.append(char)
+        index += 1
+    if index == start:
         return None
-    return end, ("".join(delimiter_parts), strip_tabs)
+    return index, "".join(parts)
+
+
+def _unquote_double(content: str) -> str:
+    r"""Apply double-quote removal to the text between the quotes.
+
+    Inside double quotes a backslash only escapes ``"``, ``\``, ``$`` and a
+    backtick; before any other character it stays literal.
+    """
+    parts: list[str] = []
+    index = 0
+    while index < len(content):
+        char = content[index]
+        if char == "\\" and index + 1 < len(content) and content[index + 1] in '"\\$`':
+            parts.append(content[index + 1])
+            index += 2
+            continue
+        parts.append(char)
+        index += 1
+    return "".join(parts)
 
 
 @dataclass
@@ -817,17 +865,20 @@ def parse_overlay_document(raw: bytes, source: Path) -> AdrOverlay:
 def load_overlay(record_dir: Path) -> AdrOverlay | None:
     """Return the record's overlay, or ``None`` when there is none.
 
-    A present but unreadable or invalid overlay fails loudly with its path; it
-    is never skipped.
+    Only a genuinely missing path means "no overlay". A present but unreadable
+    or invalid overlay fails loudly with its path; a directory or a broken
+    symlink named ``adr.toml`` is such a defect and is never skipped.
     """
     path = record_dir / OVERLAY_FILENAME
-    if not path.is_file():
-        return None
-    try:
-        raw = path.read_bytes()
-    except OSError as exc:
-        raise AnnotationError(f"Cannot read ADR overlay: {path}: {exc}") from exc
-    return parse_overlay_document(raw, path)
+    if path.is_symlink() or path.exists():
+        if not path.is_file():
+            raise AnnotationError(f"ADR overlay is not a regular file: {path}")
+        try:
+            raw = path.read_bytes()
+        except OSError as exc:
+            raise AnnotationError(f"Cannot read ADR overlay: {path}: {exc}") from exc
+        return parse_overlay_document(raw, path)
+    return None
 
 
 def write_overlay(record_dir: Path, fields: Mapping[str, str]) -> Path:

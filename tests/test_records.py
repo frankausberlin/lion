@@ -7,6 +7,7 @@ tests stay deterministic and never touch the developer's machine.
 
 import json
 import os
+import re
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -44,6 +45,18 @@ def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
 def _invoke(*args: str) -> Result:
     return runner.invoke(app, list(args))
+
+
+_ANSI_PATTERN = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
+
+
+def _plain(text: str) -> str:
+    """Normalize help text: strip ANSI escapes and collapse hard wrapping.
+
+    Rich wraps to the detected width and colours help output, so a literal
+    substring can be split by escapes or a line break depending on the viewer.
+    """
+    return " ".join(_ANSI_PATTERN.sub("", text).split())
 
 
 def _quote(text: str) -> str:
@@ -355,9 +368,12 @@ def test_records_help_documents_grammar() -> None:
     result = _invoke("records", "--help")
 
     assert result.exit_code == 0
-    assert "#-LION:" in result.stdout
-    assert "#.LION:" in result.stdout
-    assert "#+LION:" in result.stdout
+    # Rich colours and hard-wraps help text, so normalize before asserting:
+    # the highlighter splits ``#-LION:`` when colour is forced.
+    help_text = _plain(result.stdout)
+    assert "#-LION:" in help_text
+    assert "#.LION:" in help_text
+    assert "#+LION:" in help_text
 
 
 # --- overlay and edit --------------------------------------------------------
@@ -443,6 +459,26 @@ def test_invalid_overlay_fails_loudly() -> None:
             assert result.exit_code == 1, (content, args)
             assert annotations.OVERLAY_FILENAME in result.stderr, (content, args)
     path.unlink()
+
+
+def test_non_regular_overlay_fails_loudly(tmp_path: Path) -> None:
+    """A directory or broken symlink named adr.toml is a defect, not 'no overlay'."""
+    ref = _record(COMPLETE_ADR)
+    path = _overlay_path(ref)
+
+    path.mkdir()
+    result = _invoke("records", "list")
+    assert result.exit_code == 1
+    assert annotations.OVERLAY_FILENAME in result.stderr
+    path.rmdir()
+
+    path.symlink_to(tmp_path / "missing-overlay-target")
+    result = _invoke("records", "list")
+    assert result.exit_code == 1
+    assert annotations.OVERLAY_FILENAME in result.stderr
+    path.unlink()
+
+    assert _invoke("records", "list").exit_code == 0
 
 
 def test_edit_writes_overlay_and_cleans_the_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

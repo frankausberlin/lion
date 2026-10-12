@@ -645,3 +645,12 @@ def test_annotations_check_reports_invalid_overlay(doctor_env: SimpleNamespace) 
 
     _ = annotations.write_overlay(record.path, {"title": "T"})
     assert annotations.annotations_checks(ctx) == []
+
+    path.unlink()
+    path.mkdir()
+    findings = annotations.annotations_checks(ctx)
+
+    assert len(findings) == 1
+    assert findings[0].status == CheckStatus.ERROR
+    assert annotations.OVERLAY_FILENAME in findings[0].message
+    path.rmdir()

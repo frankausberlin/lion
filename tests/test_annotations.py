@@ -286,6 +286,31 @@ def test_backslashed_here_document_delimiter_matches_the_word() -> None:
     assert _issues([_event(text, kind="cmd")]) == []
 
 
+def test_partially_quoted_here_document_delimiter_is_one_word() -> None:
+    r"""``<<'EO'F`` closes on ``EOF``, so a marker after ``EO`` stays text."""
+    text = "cat <<'EO'F\nEO\n#-LION: adr.title FAKE\nEOF"
+    assert _actions([_event(text, kind="cmd")]) == []
+    assert _issues([_event(text, kind="cmd")]) == []
+
+    tail = "cat <<'EO'F\nEO\n#-LION: adr.title FAKE\nEOF\n#-LION: adr.title Real"
+    assert [action.value for action in _actions([_event(tail, kind="cmd")])] == ["Real"]
+
+
+def test_mixed_quote_styles_in_a_delimiter_word() -> None:
+    """Quote removal concatenates single, double and escaped word segments."""
+    for opener in ("EO'F'", 'E"OF"', "E\\OF"):
+        text = f"cat <<{opener}\nEO\n#-LION: adr.title FAKE\nEOF"
+        assert _actions([_event(text, kind="cmd")]) == [], opener
+        assert _issues([_event(text, kind="cmd")]) == [], opener
+
+
+def test_unquoted_dollar_in_delimiter_stays_literal() -> None:
+    """``<<a$x`` closes on the literal ``a$x``; ``$`` is not expanded."""
+    text = "cat <<a$x\n#-LION: adr.title FAKE\na\n#-LION: adr.title Real\na$x"
+    assert _actions([_event(text, kind="cmd")]) == []
+    assert _issues([_event(text, kind="cmd")]) == []
+
+
 def test_anchor_fixed_by_the_first_marker_without_neighbour() -> None:
     """A later ``#+`` cannot attach an anchor the first marker left without."""
     events = [
