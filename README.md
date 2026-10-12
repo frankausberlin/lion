@@ -5,7 +5,7 @@
 *(🚧 WIP)* The project is in an early stage of development.
 
 
-**LION (Linux Operator Nerd)** is your Linux assistant. It tracks the machine status with collectors, enables structured system individualization with the shell library (shlib), optimizes agentic work on the system with an MCP server, enables the storage and management of shell recordings, offers a monitoring mechanism for commands with regex-based qualification and creates an OKF v0.2 compliant wiki about the system.
+**LION (Linux Operator Nerd)** is your Linux assistant. It tracks the machine status with collectors, enables structured system individualization with the shell library (shlib), optimizes agentic work on the system with an MCP server, enables the storage and management of shell recordings, offers a monitoring mechanism for commands with declarative qualification rules and creates an OKF v0.2 compliant wiki about the system.
 
 ***Lion requires no root and modifies no system files. Its writes are confined to Lion's own directories and the shell startup files it manages.***
 
@@ -15,7 +15,8 @@
 * The **scan creates** a current **system status** with its **collectors** and adds it to the **history**.
 * **Status** shows a **summary of the current** status and the **difference from the previous** one.
 * The **Shlib system** monitors changes to the **.zshrc** and **organizes** its contents into individual files.
-* The **Shell** command integrates an **optional recording** and **description mechanism** with a **warning function**.
+* The **Watch** mechanism records shell input blocks persistently: a recording survives shell restarts and system reboots, while active the prompt carries one red dot, and `#_LION:` annotations attach decisions and steps to it.
+* The **watch dog** mode asks for confirmation before critical input runs (guardrail, not a security boundary).
 * With **Wiki**, an **OKF v0.2** (Open Knowledge Format) compliant wiki is created from the **current state**.
 * The **Serve** command starts an **MCP server** with **tools, resources and prompts**, it is used **exclusively by harnesses**.
 
@@ -39,7 +40,7 @@
 |command|sub|params|description|
 |-|-|-|-|
 |**shell**<br><br><br>|[*status*]<br>*insert*<br>*remove*||<li>Shows whether the watch hook is inserted in zsh<br><li>Inserts the watch hook into zsh<br><li>Removes the watch hook from zsh|
-|**watch**<br><br><br><br>|[*status*]<br>*start*<br>*stop*<br>*dog*||<li>Shows the status of lion watch<br><li>start watching<br><li>stop watching and offer the option to enter a description of the recording<br><li>Start in watch-dog-mode (requires confirmation of critical orders)|
+|**watch**<br><br><br><br>|[*status*]<br>*start*<br>*stop*<br>*dog on\|off\|status*||<li>Shows whether a recording is active<br><li>Starts a persistent recording and captures a fresh state<br><li>Stops and finalizes the recording<br><li>Confirms critical input before execution (guardrail)|
 |**wiki**<br><br>|[*status*]<br>*sync*||<li>Shows the status of the wiki<br><li>Rebuild the wiki with the current status and recording list|
 |**serve**<br><br><br>|*tools*<br>*resources*<br>*prompts*||<li>Tools for agents to access LION functions<br><li>The LION states and the recordings<br><li>Short recipes for agents to work optimally|
 
@@ -60,6 +61,29 @@
 |`containers`|Docker or Podman configuration: engine, images, volumes, networks, containers.|
 |`tools`|External tools visible on `PATH` (lspci, nvidia-smi, systemctl, docker, podman, zsh, ...).|
 |`dash`|Monitors (hash) all files linked in `~/.shlib/dash` that start with `LIONSTATE_` (only links to files).|
+
+## Classifiers (planned)
+
+`watch` turns recorded input blocks into metadata with declarative JSON rules.
+Several rules may contribute to one block; there is no first-match-wins. All
+rules share one bounded parsing of the shell input, so command text that is
+merely printed (for example `echo "sudo nala install"`) is never classified as
+an execution. A match is metadata only; it never claims that an action
+succeeded.
+
+|Group|Example triggers|Emitted information|
+|-|-|-|
+|packages|apt/nala, brew, uv, pip, mamba, pnpm: install, remove, update|manager, action|
+|services|systemctl: start, stop, restart, enable/disable; user/system context|unit, action, scope|
+|containers|compose calls; removing containers and volumes|engine, action, target|
+|shell/config|source, exec zsh, chsh, detectable config writes|target, action|
+|downloads/installers|downloads, git clone, curl piped into a shell|source, action|
+|interruptions|reboot, shutdown, logout|action|
+|checks|version and known status queries as possible verification|subject, intent|
+
+Rule id, schema version and ruleset version are stored with every
+classification; invalid rules are reported loudly. `lion watch dog` reuses the
+same rule format for confirmations before execution.
 
 ## Quickstart
 

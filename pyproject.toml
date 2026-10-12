@@ -47,6 +47,7 @@ pythonVersion = "3.12"
 typeCheckingMode = "strict"
 venvPath = "."
 venv = ".venv"
+exclude = ["**/node_modules", "**/__pycache__", "**/.*", "ignore"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
