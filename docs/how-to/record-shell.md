@@ -76,6 +76,37 @@ results with exit status and duration, comments and exits. When parallel shells
 interleave, a continuation line marks the segment of the following events.
 `status`, `list` and `show` are read-only.
 
+## Attach an ADR
+
+While recording, `#` comment lines can carry the decision behind what you run:
+
+```zsh
+#+LION: adr.title Antidote and Powerlevel10k for the interactive shell
+#+LION: adr.component shell
+git clone --depth=1 https://github.com/mattmc3/antidote.git ~/.antidote
+#-LION: adr.decision Load plugins through Antidote and use Powerlevel10k.
+#.LION: adr.status accepted
+```
+
+Read them back with `lion records`:
+
+```bash
+uv run lion records                 # counters over the recording space
+uv run lion records list            # recordings with their ADR state
+uv run lion records adrs            # all ADRs, oldest first
+uv run lion records adrs latest     # one ADR in detail
+uv run lion records adrs latest --json
+```
+
+The markers: `#-LION:` refers to the previous command block, `#+LION:` to the
+next, `#.LION:` to the last referenced one. `adr.<name> <value>` sets a field,
+`adr.<name>` deletes it, `adr` clears the entry, and prose after `#.LION:`
+continues the last set field (see the example sequence in
+[Records and ADRs](../reference/records-and-adrs.md)). Only full comment lines
+count — a marker inside a string or a here-document body is text. `title` and
+`decision` make an ADR `complete`; the ADR stays inside the recording and
+never enters the scan history.
+
 ## Comments as captured input
 
 Comments are information here, not noise: pasted setup guides with `#` lines are

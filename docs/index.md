@@ -34,6 +34,8 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Storage](reference/storage.md) — paths, files, locks and compatibility.
 - [Recordings](reference/recordings.md) — the watch data space, event grammar,
   masking and segment liveness.
+- [Records and ADRs](reference/records-and-adrs.md) — the `#-LION:` annotation
+  grammar, the fold into one ADR per record and the `lion records` views.
 - [Collectors](reference/collectors.md) — the fields each collector records.
 
 ## Explanation
@@ -62,5 +64,5 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0010 — English identifiers and messages](decisions/0010-english-identifiers-and-messages.md)
 - [0011 — Watch capture architecture: a zsh-side spool](decisions/0011-watch-capture-zsh-spool.md)
 - [0012 — Recording layout and shell-segment liveness](decisions/0012-watch-recording-layout-liveness.md)
-- [0013 — Annotation grammar v0](decisions/0013-watch-annotation-grammar-v0.md)
+- [0013 — ADRs as flat annotation lines](decisions/0013-watch-adr-annotations.md)
 - [0014 — Watch dog: an `accept-line` guard widget](decisions/0014-watch-dog-accept-line.md)

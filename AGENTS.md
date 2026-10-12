@@ -146,6 +146,15 @@ just audit       # dependency vulnerability scan
   standalone comment becomes one `comment` event and a mixed pasted block stays
   one `cmd`; `zshaddhistory` records only comment-only input, so nothing is
   captured twice.
+- `program/annotations.py` owns the ADR layer over recordings: the flat
+  `#-LION:`/`#+LION:`/`#.LION:` grammar, the bounded zsh mini-parser, the fold
+  over `recording.load_events` (last-wins; at most one ADR per record and the
+  record ref is the ADR id; `title` + `decision` ⇒ `complete`) and the
+  `uses`/`supersedes` resolution at read time. `command/records.py` implements
+  `lion records` (`status`/`list`/`adrs`; `records` is a Typer sub-app whose
+  bare invocation runs `status`); the read commands never collect and never
+  write, and the `scan`/`status`/`watch` JSON contracts stay unchanged.
+  `watch list`/`watch show` remain untouched.
 - `doctor` is a read-only check framework: `program/checks.py` holds the shared
   `CheckStatus`/`Finding`/`DoctorContext`/`Check` types (a leaf module, so the
   owning check modules never import the aggregator and create a cycle); the
@@ -190,7 +199,17 @@ just audit       # dependency vulnerability scan
   the marker line, `status` is read-only, and the zsh side loads silently
   (instant-prompt safe) with no process and no scan in the input path. Masking
   is best-effort (`LION_WATCH_MASK=0` opts out) and documented as such; the
-  `#_LION:` annotation grammar and the dog guard are not part of E2.
+  dog guard is not part of E2.
+- ADRs live inside their recording and are derived from the raw events on every
+  read (no new event writer): marker lines count only as full comment lines
+  outside strings and here-documents; unreadable annotation input is a visible
+  `Unresolved:` finding, never a guess; a record without a field has no ADR;
+  unknown `uses`/`supersedes` refs display `(unknown)` and are never errors.
+  `records status/list/adrs` are read-only and never collect; a damaged record
+  fails loudly with its path. `records edit` is the only ADR writer: it writes
+  exactly one overlay file `<record>/adr.toml` (atomic `os.replace`, mode
+  `600`) for stopped records and never touches the raw events; overlay fields
+  replace the event-derived field set and set the `edited` flag.
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
   `STRING_LISTS` (package selections) and an `IDENTITY_KEYS` map (`hardware.gpu`
   by `pci_id`; `network.interfaces`, `services.units`, `containers.containers`,

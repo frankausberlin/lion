@@ -30,6 +30,7 @@ Common commands:
   lion shlib           manage the Zsh shell library (~/.shlib)
   lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
   lion watch           record shell sessions and read the recordings
+  lion records         read and edit the ADRs attached to recordings
   lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
@@ -45,6 +46,7 @@ Run 'lion <command> --help' for details on a command.
 * `shlib`: Manage the Zsh shell library (~/.shlib).
 * `shell`: Manage the watch shell integration (~/.zshrc, ~/.shlib).
 * `watch`: Record shell sessions and read the recordings.
+* `records`: Read and edit the ADRs attached to recordings.
 
 ## `lion scan`
 
@@ -481,4 +483,96 @@ $ lion watch show [OPTIONS] [reference]
 **Options**:
 
 * `--json`: Output the recording as JSON.
+* `--help`: Show this message and exit.
+
+## `lion records`
+
+Read the decisions (ADRs) attached to recordings as flat ``#-LION:``,
+``#+LION:`` and ``#.LION:`` annotation lines:
+
+  status   overview of the recording space and the ADR counters (read-only)
+  list     recordings like &#x27;lion watch list&#x27; plus an ADR column (read-only)
+  adrs     list all ADRs; with REF show one ADR in detail (read-only)
+
+Annotations stay inside the recording; &#x27;lion records&#x27; only reads them.
+
+**Usage**:
+
+```console
+$ lion records [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+Running 'lion records' without an operation shows the status. Read commands never
+collect a state and never write.
+
+The markers '#-LION:' (previous block), '#+LION:' (next block) and '#.LION:'
+(ditto) count only as full comment lines outside strings and here-documents.
+Fields are 'adr.<name> <value>', 'adr.<name>' deletes a field and 'adr' clears
+the entry; '#.LION:' text without an 'adr' token continues the last field.
+
+Examples:
+
+  lion records                 recording space and ADR counters
+  lion records list            recordings with event counts and ADR state
+  lion records adrs            all ADRs, oldest first
+  lion records adrs latest     the newest recording's ADR in detail
+
+
+**Commands**:
+
+* `status`: Show the recording space and the ADR...
+* `list`: List stored recordings with their ADR...
+* `adrs`: List all ADRs, or show one ADR in detail...
+
+### `lion records status`
+
+Show the recording space and the ADR counters (read-only).
+
+**Usage**:
+
+```console
+$ lion records status [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output status as JSON.
+* `--help`: Show this message and exit.
+
+### `lion records list`
+
+List stored recordings with their ADR state (read-only).
+
+**Usage**:
+
+```console
+$ lion records list [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output the list as JSON.
+* `--help`: Show this message and exit.
+
+### `lion records adrs`
+
+List all ADRs, or show one ADR in detail when REF is given.
+
+**Usage**:
+
+```console
+$ lion records adrs [OPTIONS] [reference]
+```
+
+**Arguments**:
+
+* `reference`: Recording reference for the detail view; without it all ADRs are listed.
+
+**Options**:
+
+* `--json`: Output the ADR(s) as JSON.
 * `--help`: Show this message and exit.

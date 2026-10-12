@@ -6,7 +6,9 @@
 `lion watch` records shell input blocks in their own data space, separate from
 the scan history. This page documents the paths, the on-disk formats and the
 liveness rules. Command usage lives in `lion watch --help` and
-[Record a shell session](../how-to/record-shell.md).
+[Record a shell session](../how-to/record-shell.md). Annotation comment lines
+(`#-LION:` / `#+LION:` / `#.LION:`) are read back as ADRs — see
+[Records and ADRs](records-and-adrs.md).
 
 ## Paths
 

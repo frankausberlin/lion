@@ -22,7 +22,7 @@ from lion.state.registry import COLLECTORS
 __all__ = ["run"]
 
 
-def _segment_json(segment: recording.SegmentInfo) -> dict[str, object]:
+def segment_json(segment: recording.SegmentInfo) -> dict[str, object]:
     """Return the shared JSON representation of one segment."""
     return {
         "name": segment.name,
@@ -40,7 +40,7 @@ def _segment_json(segment: recording.SegmentInfo) -> dict[str, object]:
     }
 
 
-def _recording_json(record: recording.Recording) -> dict[str, object]:
+def recording_json(record: recording.Recording) -> dict[str, object]:
     """Return the shared JSON representation of one recording."""
     return {
         "ref": record.ref,
@@ -50,7 +50,7 @@ def _recording_json(record: recording.Recording) -> dict[str, object]:
         "stopped_at": record.meta.stopped_at,
         "note": record.meta.note,
         "integration_version": record.meta.integration_version,
-        "segments": [_segment_json(segment) for segment in record.segments],
+        "segments": [segment_json(segment) for segment in record.segments],
     }
 
 
@@ -108,7 +108,7 @@ def _indent(text: str) -> str:
     return text.replace("\n", "\n      ")
 
 
-def _format_size(size_bytes: int) -> str:
+def format_size(size_bytes: int) -> str:
     if size_bytes < 1024:
         return f"{size_bytes} B"
     return f"{size_bytes / 1024:.1f} KiB"
@@ -133,7 +133,7 @@ def _run_status(json_output: bool) -> None:
     if json_output:
         payload: dict[str, object] = {
             "active": True,
-            "recording": _recording_json(record),
+            "recording": recording_json(record),
             "changes": diff,
             "structure_changed": has_structural_change(diff),
         }
@@ -176,7 +176,7 @@ def _run_stop(note: str) -> None:
 def _run_list(json_output: bool) -> None:
     records = recording.list_recordings()
     if json_output:
-        payload = [{"ref": record.ref, **_recording_json(record)} for record in records]
+        payload = [{"ref": record.ref, **recording_json(record)} for record in records]
         typer.echo(json.dumps({"recordings": payload}))
         return
     if not records:
@@ -190,7 +190,7 @@ def _run_list(json_output: bool) -> None:
         size = sum(segment.size_bytes for segment in record.segments)
         typer.echo(
             f"{index:>3}  {record.ref:<30}  {record.meta.status:<7}  {record.meta.started_at:<32}  "
-            f"{events:>6}  {_format_size(size)}"
+            f"{events:>6}  {format_size(size)}"
         )
 
 
@@ -211,7 +211,7 @@ def _run_show(reference: str | None, json_output: bool) -> None:
     events = recording.load_events(record)
     if json_output:
         payload = {
-            "recording": _recording_json(record),
+            "recording": recording_json(record),
             "events": [_event_json(event) for event in events],
         }
         typer.echo(json.dumps(payload))

@@ -17,6 +17,7 @@ Common commands:
   lion shlib           manage the Zsh shell library (~/.shlib)
   lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
   lion watch           record shell sessions and read the recordings
+  lion records         read and edit the ADRs attached to recordings
   lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
@@ -157,6 +158,32 @@ Examples:
   lion watch stop --note "done"
 
 Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
+"""
+
+RECORDS_HELP = """Read the decisions (ADRs) attached to recordings as flat ``#-LION:``,
+``#+LION:`` and ``#.LION:`` annotation lines:
+
+  status   overview of the recording space and the ADR counters (read-only)
+  list     recordings like 'lion watch list' plus an ADR column (read-only)
+  adrs     list all ADRs; with REF show one ADR in detail (read-only)
+
+Annotations stay inside the recording; 'lion records' only reads them.
+"""
+
+RECORDS_EPILOG = """Running 'lion records' without an operation shows the status. Read commands never
+collect a state and never write.
+
+The markers '#-LION:' (previous block), '#+LION:' (next block) and '#.LION:'
+(ditto) count only as full comment lines outside strings and here-documents.
+Fields are 'adr.<name> <value>', 'adr.<name>' deletes a field and 'adr' clears
+the entry; '#.LION:' text without an 'adr' token continues the last field.
+
+Examples:
+
+  lion records                 recording space and ADR counters
+  lion records list            recordings with event counts and ADR state
+  lion records adrs            all ADRs, oldest first
+  lion records adrs latest     the newest recording's ADR in detail
 """
 
 

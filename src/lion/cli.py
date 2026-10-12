@@ -19,6 +19,7 @@ from lion import __version__
 from lion.command.diff import run as run_diff
 from lion.command.doctor import run as run_doctor
 from lion.command.history import run as run_history
+from lion.command.records import run as run_records
 from lion.command.scan import run as run_scan
 from lion.command.shell import run as run_shell
 from lion.command.shlib import Action
@@ -29,6 +30,8 @@ from lion.main import (
     DIFF_EPILOG,
     DOCTOR_EPILOG,
     HISTORY_EPILOG,
+    RECORDS_EPILOG,
+    RECORDS_HELP,
     ROOT_EPILOG,
     SCAN_EPILOG,
     SHELL_EPILOG,
@@ -251,3 +254,46 @@ def watch_show(
 
 app.add_typer(shell_app)
 app.add_typer(watch_app)
+
+records_app = typer.Typer(
+    name="records",
+    help=RECORDS_HELP,
+    short_help="Read and edit the ADRs attached to recordings.",
+    epilog=RECORDS_EPILOG,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@records_app.callback()
+def records_root(ctx: typer.Context) -> None:
+    """Run ``lion records status`` when no operation is given."""
+    if ctx.invoked_subcommand is None:
+        run_records("status", None, False)
+
+
+@records_app.command("status")
+def records_status(json_output: Annotated[bool, typer.Option("--json", help="Output status as JSON.")] = False) -> None:
+    """Show the recording space and the ADR counters (read-only)."""
+    run_records("status", None, json_output)
+
+
+@records_app.command("list")
+def records_list(json_output: Annotated[bool, typer.Option("--json", help="Output the list as JSON.")] = False) -> None:
+    """List stored recordings with their ADR state (read-only)."""
+    run_records("list", None, json_output)
+
+
+@records_app.command("adrs")
+def records_adrs(
+    reference: Annotated[
+        str | None,
+        typer.Argument(help="Recording reference for the detail view; without it all ADRs are listed."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output the ADR(s) as JSON.")] = False,
+) -> None:
+    """List all ADRs, or show one ADR in detail when REF is given."""
+    run_records("adrs", reference, json_output)
+
+
+app.add_typer(records_app)
