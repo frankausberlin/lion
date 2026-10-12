@@ -148,7 +148,10 @@ def test_exec_zsh_keeps_recording_readable(runner: Runner, env: dict[str, str], 
         segments = _segments(_active(runner, env))
         assert len(segments) == 2
         assert {segment["pid"] for segment in segments} == {pid}
-        assert all(segment["alive"] is True for segment in segments)
+        # The takeover ended the first segment; only the newest one is alive.
+        assert segments[0]["alive"] is False
+        assert segments[0]["end_reason"] == "superseded"
+        assert segments[1]["alive"] is True
 
     payload = _show(runner, env, "latest")
     texts = _command_texts(_events(payload))
@@ -157,7 +160,10 @@ def test_exec_zsh_keeps_recording_readable(runner: Runner, env: dict[str, str], 
     segments = _segments(_mapping(payload["recording"]))
     assert len(segments) == 2
     assert all(segment["alive"] is False for segment in segments)
-    assert all(segment["end_reason"] == "gone" for segment in segments)
+    # The takeover date is stable: the older segment keeps 'superseded' after
+    # the process ended; only the newest segment ends by liveness.
+    assert segments[0]["end_reason"] == "superseded"
+    assert segments[1]["end_reason"] == "gone"
     # The first segment has no exit event at all: a missing end is never success.
     events = _events(payload)
     first_segment = str(segments[0]["name"])

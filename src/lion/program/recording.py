@@ -487,7 +487,12 @@ def _process_start_ticks(pid: int) -> int | None:
 
 
 def _liveness(boot_id: str, pid: int, start_ticks: int, boot_now: str | None) -> tuple[bool, str]:
-    """Return whether a stamped segment is still alive, and the end reason."""
+    """Return whether a stamped segment is still alive, and the end reason.
+
+    This judges a single process stamp only; takeover chains (``exec zsh``,
+    a reloaded integration) keep the stamp and are resolved by
+    :func:`segments_for`.
+    """
     if boot_now is None:
         return False, "unknown"
     if boot_id != boot_now:
@@ -551,11 +556,25 @@ def _read_segment(path: Path, boot_now: str | None) -> SegmentInfo:
 
 
 def segments_for(record_dir: Path, boot_now: str | None = None) -> tuple[SegmentInfo, ...]:
-    """Return the segment infos of one record, ordered by segment start."""
+    """Return the segment infos of one record, ordered by segment start.
+
+    Segments that share one process stamp ``(boot_id, pid, start_ticks)`` form a
+    takeover chain: ``exec zsh`` (or a reloaded integration) keeps the process,
+    so only the newest segment of such a chain can still receive events. Every
+    older segment of the chain is marked ``alive=False`` with the end reason
+    ``superseded`` — unconditionally, so the takeover instant stays the stable
+    segment end even after the process itself ends.
+    """
     if boot_now is None:
         boot_now = _read_boot_id()
     infos = [_read_segment(path, boot_now) for path in _segment_paths(record_dir)]
     infos.sort(key=lambda info: (info.epoch_start, info.name))
+    newest: dict[tuple[str, int, int], int] = {}
+    for index, info in enumerate(infos):
+        newest[(info.boot_id, info.pid, info.start_ticks)] = index
+    for index, info in enumerate(infos):
+        if newest[(info.boot_id, info.pid, info.start_ticks)] != index:
+            infos[index] = replace(info, alive=False, end_reason="superseded")
     return tuple(infos)
 
 

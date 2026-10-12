@@ -495,6 +495,39 @@ def test_liveness_alive_gone_reused_reboot(monkeypatch: pytest.MonkeyPatch) -> N
     assert infos["103-1-1.log"].end_reason == "reused"
 
 
+def test_superseded_takeover_chain(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An older segment with the same process stamp is superseded, not alive."""
+    _freeze(monkeypatch, T0)
+    start_recording(_state())
+    ref = next(entry.ref for entry in list_recordings())
+    ticks = _current_start_ticks(os.getpid())
+    _append_segment(ref, "100-1-1.log", [_header(pid=os.getpid(), ticks=ticks, epoch=T0.timestamp())])
+    _append_segment(ref, "101-1-1.log", [_header(pid=os.getpid(), ticks=ticks, epoch=T1.timestamp())])
+
+    infos = {info.name: info for info in load_recording(ref).segments}
+
+    assert infos["100-1-1.log"].alive is False
+    assert infos["100-1-1.log"].end_reason == "superseded"
+    assert infos["101-1-1.log"].alive is True
+    assert infos["101-1-1.log"].end_reason == ""
+
+
+def test_superseded_stays_after_process_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A takeover chain keeps ``superseded`` stable after the process ends."""
+    _freeze(monkeypatch, T0)
+    start_recording(_state())
+    ref = next(entry.ref for entry in list_recordings())
+    _append_segment(ref, "100-1-1.log", [_header(pid=999999999, ticks=1, epoch=T0.timestamp())])
+    _append_segment(ref, "101-1-1.log", [_header(pid=999999999, ticks=1, epoch=T1.timestamp())])
+
+    infos = {info.name: info for info in load_recording(ref).segments}
+
+    assert infos["100-1-1.log"].alive is False
+    assert infos["100-1-1.log"].end_reason == "superseded"
+    assert infos["101-1-1.log"].alive is False
+    assert infos["101-1-1.log"].end_reason == "gone"
+
+
 def test_missing_exit_is_not_success(monkeypatch: pytest.MonkeyPatch) -> None:
     """A segment without exit stays open while alive and ends by liveness otherwise."""
     _freeze(monkeypatch, T0)

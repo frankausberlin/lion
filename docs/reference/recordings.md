@@ -100,13 +100,17 @@ A recording can outlive its shell (`exec zsh`, SIGHUP, crash, reboot), so a
 segment is not closed by an event but derived when reading. Each segment is
 stamped with the kernel `boot_id` plus the writing process's PID and start ticks
 (`/proc/<pid>/stat`, field 22). While reading, the segment is `alive` only when
-all three still match; otherwise it is ended with a reason:
+all three still match; otherwise it is ended with a reason. Segments that share
+one stamp form a takeover chain (`exec zsh`, a reloaded integration): only the
+newest of the chain can receive events, every older one ends as `superseded` —
+even after the process itself ended, so the takeover instant stays stable.
 
 | Reason | Meaning |
 | --- | --- |
 | `reboot` | The boot id differs from the current one. |
 | `gone` | The PID no longer exists. |
 | `reused` | The PID exists but belongs to a different process (start ticks differ). |
+| `superseded` | An older segment with the identical process stamp was taken over (`exec zsh`, a reloaded integration) and can receive no further events. |
 | `unknown` | The boot id cannot be read. |
 
 A missing `exit` event is therefore never treated as success, and a segment that

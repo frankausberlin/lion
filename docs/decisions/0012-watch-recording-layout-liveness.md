@@ -48,7 +48,9 @@ Recordings live in their own data space, separate from the scan history.
   run it, it may be used as a *fast-path* hint, but correctness never depends on
   it. This keeps the design honest about `exec` and crashes.
 - A recording can be read while still active; the reader shows segments whose
-  liveness is still true as open.
+  liveness is still true as open. An older segment whose process was taken
+  over (`exec zsh`, a reloaded integration) can receive no further events and
+  is reported as ended (`superseded`) instead.
 - Parallel shells are ordered by segment start time and the shared `boot_id`, so
   their events interleave deterministically on read.
 
@@ -67,7 +69,11 @@ Recordings live in their own data space, separate from the scan history.
 - Segment files are named `<startticks>-<pid>-<random>.log`. Liveness checks
   the kernel `boot_id`, the PID and `/proc/<pid>/stat` field 22 (start ticks):
   mismatches yield `reboot`, `gone`, `reused` or `unknown` (unreadable boot
-  id), and an alive segment is shown as open.
+  id), and an alive segment is shown as open. Segments that share one stamp
+  are a takeover chain (`exec zsh`, a reloaded integration): only the newest
+  of the chain keeps its liveness verdict, every older one ends as
+  `superseded` — unconditionally, so the takeover date stays stable after the
+  process ends.
 - Readers validate strictly and order events by segment start, then time and
   file line. `stop` guards against the last event of its own record, and both
   mutations use the shared clock guard over meta, states and segment starts.
