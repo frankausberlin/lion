@@ -65,6 +65,13 @@ External tools (`lspci`, `nvidia-smi`, `apt-mark`, `systemctl`, `docker`,
 without them. Keep `just check` green, which includes
 coverage of at least 90%.
 
+`just check` is the fast gate. For changes to package detection, the collector
+set, persisted CLI lifecycles, shlib, the watch integration, the `doctor` checks
+or the E2E runner, also run the opt-in `just test-e2e` container suite. The
+[testing strategy](docs/explanation/testing-strategy.md) explains the levels,
+and the [E2E guide](tests/e2e/README.md) covers the container, the live-attach
+recipe (`just test-e2e-attach`) and the manual alpha-testing checklists.
+
 ## Documentation
 
 Public documentation lives in [`docs/`](docs/index.md) and follows

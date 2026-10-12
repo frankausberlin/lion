@@ -20,7 +20,7 @@ COPY --from=uv /uv /usr/local/bin/uv
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
     apt-get update \
-    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates zsh
+    && apt-get install -y --no-install-recommends python3 python3-venv ca-certificates zsh tmux ncurses-term
 COPY --from=p10k /opt/powerlevel10k /opt/powerlevel10k
 WORKDIR /app
 ENV UV_LINK_MODE=copy

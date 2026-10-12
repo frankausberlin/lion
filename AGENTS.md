@@ -283,12 +283,14 @@ just audit       # dependency vulnerability scan
   package detection, the collector set, persisted CLI lifecycles, shlib, the
   watch capture/recordings/shell integration, the `doctor` checks or the reco
   paths, or the E2E runner, also run `just test-e2e`. The watch E2E scenarios
-  drive a real interactive zsh behind a pty inside the disposable container
+  drive a real interactive zsh inside tmux in the disposable container
   (`tests/e2e/watchutil.py`) and read results only from spool/record files,
-  never from the pty text. Never run the real package lifecycle on a
+  never from the terminal text. Never run the real package lifecycle on a
   workstation.
 - Read [tests/e2e/README.md](tests/e2e/README.md) before running or extending
-  the E2E suite. It owns setup, isolation, diagnostics and scenario guidance.
+  the E2E suite. It owns setup, isolation, diagnostics, the alpha-testing
+  checklists and scenario guidance; [docs/explanation/testing-strategy.md](docs/explanation/testing-strategy.md)
+  explains the test levels and why the container cannot replace a real machine.
 - Report the checks actually run and their results; name any unavailable
   prerequisites or skipped checks explicitly.
 

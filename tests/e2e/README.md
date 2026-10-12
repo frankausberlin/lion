@@ -43,6 +43,28 @@ No separate manual image setup is needed. Each invocation runs
 The image remains available for subsequent builds. Re-run `just test-e2e`
 after changing code or tests so the image contains the current files.
 
+### Watching a run live
+
+The interactive scenarios drive zsh inside tmux (see [tmux.conf](tmux.conf) and
+[watchutil.py](watchutil.py)). To watch a run as it happens, use the attach
+variant:
+
+```bash
+just test-e2e-attach
+```
+
+It runs the same suite but keeps the container afterwards and prints how to
+reach the running tmux session:
+
+```bash
+docker exec -it lion-e2e-attach tmux ls
+docker exec -it lion-e2e-attach tmux attach -t <session>
+```
+
+A session exists only while a watch scenario is running, so retry the commands
+if the list is empty. This mode is for observation only; the default
+`just test-e2e` stays headless and removes the container, so it is the CI path.
+
 ## Isolation
 
 Package installation and removal happen only in the container's package
@@ -79,7 +101,7 @@ skip the suite to prevent accidental system mutations.
 | [Doctor environment](test_doctor_environment.py) | Runs `doctor` over a real filesystem: the deterministic bare profile, pure JSON, read-only preservation, reco permissions/content, hostile-filename safety, no-overwrite on a second run, damaged history and legacy `scans/`, and an unusable data path. |
 | [Doctor permissions](test_doctor_permissions.py) | Runs scan, shlib installation and doctor as the unprivileged `lion-e2e` user. Checks preservation of existing history, shell files, exports and permissions; denied reco publication returns JSON/exit 1 without partial files. |
 | [Runner diagnostics](test_runner.py) | A real subprocess timeout retains the command and partial stdout/stderr; an expected non-zero exit returns both streams separately without raising. |
-| [Watch lifecycle](test_watch_lifecycle.py) | Drives real interactive zsh sessions behind a pty (`watchutil.py`) with an isolated `HOME`/`ZDOTDIR` and reads results only from recording files. Checks the full lifecycle (commands, comment input, failure status, duration, secret masking, multiline paste), that a mixed pasted block stays one `cmd` and comment-only input one `comment` (never doubled), `exec zsh` continuity (same PID, new segment, a missing exit is never success), SIGHUP, two interleaved shells without mixing, the silent load and the p10k pointer segment, the loud failure paths, read-only preservation of home and data, and the `shell`/`watch` doctor findings. |
+| [Watch lifecycle](test_watch_lifecycle.py) | Drives real interactive zsh sessions inside tmux (`watchutil.py`) with an isolated `HOME`/`ZDOTDIR` and reads results only from recording files. Checks the full lifecycle (commands, comment input, failure status, duration, secret masking, multiline paste), that a mixed pasted block stays one `cmd` and comment-only input one `comment` (never doubled), `exec zsh` continuity (same PID, new segment, a missing exit is never success), a closed terminal window, two interleaved shells without mixing, the silent load and the p10k pointer segment, the loud failure paths, read-only preservation of home and data, and the `shell`/`watch` doctor findings. |
 | [Watch p10k](test_watch_p10k.py) | Loads the pinned Powerlevel10k and the committed minimal config before the user dotfiles, then asserts on the prompt itself: the `●` segment appears while a recording is active (with no instant-prompt startup warning), vanishes at the prompt after `stop`, and reappears in an `exec`'d shell because the pointer is read at load. |
 | [Records ADR](test_records_adr.py) | Drives real interactive zsh sessions, annotates them with typed `#-LION:`/`#+LION:`/`#.LION:` comment lines plus a mixed paste whose here-document body holds a decoy marker, and reads results only from recording files via `lion records`. Checks the folded ADR (title/component/decision/status, anchor, `uses` unknown), that the decoy never becomes an annotation, the `records` JSON views, read-only preservation of the data directory, and a scripted-`$EDITOR` `records edit` roundtrip whose overlay `doctor` accepts. |
 | [Doctor shlib](test_doctor_shlib.py) | Installs the real shell library and inspects the resulting `shlib.*` findings: clean install, missing reference copy, drifted `.zshrc`, missing directory, `dash/` defects, ambiguous markers and a foreign `ZDOTDIR`. |
@@ -137,16 +159,26 @@ GitHub Actions runs this suite in a separate job on pull requests and pushes to
 `main`, and uploads `e2e-artifacts.*` on failure. Locally, diagnostics are
 gitignored and can be deleted after inspection.
 
-## Test scenarios for humans
+## Alpha testing
 
-The container now exercises the p10k segment, the instant-prompt silence, the
+An **alpha test** is a guided, manual pass on a real machine with the
+maintainer's own shell, prompt and hardware — the environment the container
+deliberately cannot reproduce (see the
+[testing strategy](../../docs/explanation/testing-strategy.md) for why). It has
+two parts: the **guided scenarios** below, which are repeatable checklists, and
+**exploratory scenarios**, free probing beyond them. An alpha test is not a
+smoke test, and the word is not used for this phase.
+
+The container already exercises the p10k segment, the instant-prompt silence, the
 silent load and the `exec zsh` continuity automatically (see
 [Watch p10k](test_watch_p10k.py)); those properties are no longer manual. What
-remains is a short smoke on a real terminal: look at the dot once, `exec zsh`,
-close a window, re-check `doctor`. Run it after watch-related changes; it
+remains is the real journey: look at the dot once, `exec zsh`, close a window,
+re-check `doctor`. Run the alpha test after watch-related changes; it
 complements, not replaces, `just test-e2e`.
 
-### Before you start
+### Guided scenarios
+
+#### Before you start
 
 Run this in the zsh you actually use and keep the answers for the report:
 
@@ -177,7 +209,7 @@ Notes:
   records stay under `~/.local/share/lion/recordings/<ref>` until removed by
   hand.
 
-### 1-minute smoke
+#### 1-minute guided scenario
 
 * copy / paste line after line and execute in zsh
 * After the run, copy the complete shell output and analyze it (have it analyzed)
@@ -185,7 +217,7 @@ Notes:
 ```bash
 lion shell insert
 lion shell status --json
-lion watch start --note "manual 1-minute smoke"
+lion watch start --note "manual 1-minute alpha"
 exec zsh
 lion watch status
 lion watch stop
@@ -196,14 +228,14 @@ lion watch list
 ls ~/.local/share/lion/recordings
 ```
 
-### 10-minute smoke
+#### 10-minute guided scenario
 
 Use one installed integration and `--note` so the test recording is
 recognizable. In a **new** terminal:
 
 ```bash
 lion shell status --json
-lion watch start --note "manual 10-minutes smoke"
+lion watch start --note "manual 10-minutes alpha"
 exec zsh
 lion watch status
 ```
@@ -242,11 +274,32 @@ Finally remove the test recording by hand (there is no delete command in E2):
 ```bash
 lion watch list
 ls ~/.local/share/lion/recordings
-rm -rf ~/.local/share/lion/recordings/<ref-of-the-manual-smoke>
+rm -rf ~/.local/share/lion/recordings/<ref-of-the-alpha-record>
 ```
 
 Do not blanket-delete the directory if it contains real recordings. If you used
 an isolated `XDG_DATA_HOME`, remove the whole directory instead.
+
+### Exploratory scenarios
+
+Beyond the checklists, probe the integration freely on your real configuration.
+The point is to find what the scripted scenarios did not anticipate; note
+anything surprising with its exact output.
+
+- **The annotation grammar.** Try the `#-LION:`, `#+LION:` and `#.LION:` forms
+  in unusual places and shapes: mixed with commands in one paste, inside a
+  here-document body, split across a continuation line, with unknown field
+  names or values, or with a marker that is not a full comment line. Check what
+  `lion records adrs` reports and whether `doctor` flags an unresolved input.
+- **Paste and comment workflows.** Paste real snippets (multi-line commands,
+  comment blocks, a mix of both) and confirm the events in `lion watch show`.
+  Exercise your own `interactive_comments` and paste settings.
+- **The real prompt.** Confirm the `●` appears and disappears in *your* p10k
+  (or other prompt) setup, survives `exec zsh`, and never prints before the
+  first prompt. Note your terminal, multiplexer and font.
+- **Your own configuration.** Repeat the journey with the shlib installed and
+  with the inline `~/.zshrc` block, and with any `XDG_DATA_HOME` override you
+  actually use.
 
 ### Reporting back
 
@@ -268,7 +321,10 @@ especially anything printed before the first prompt.
 - Add a `test_*.py` file here with `pytestmark = pytest.mark.e2e`. The shared
   [conftest.py](conftest.py) guards every test with the container check and
   provides the `runner` (logged subprocess) and `env` (isolated child
-  environment) fixtures; no extra imports are needed. The shared
+  environment) fixtures; no extra imports are needed. An interactive-zsh
+  scenario additionally opts into the shared tmux server with
+  `pytest.mark.usefixtures("tmux_server")` and drives the shell through
+  [watchutil.py](watchutil.py). The shared
   [e2eutil.py](e2eutil.py) provides `Runner` (use `runner.invoke(...)` to get a
   typed `CommandResult` with separate `stdout`, `stderr` and `returncode` and an
   optional `cwd`), `manifest(root, exclude=...)` for `lstat`-based filesystem

@@ -12,9 +12,9 @@ from pathlib import Path
 
 import pytest
 from e2eutil import Runner
-from watchutil import P10K_THEME, Zsh, strip_ansi
+from watchutil import P10K_THEME, Zsh
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.usefixtures("tmux_server")]
 
 #: The prompt segment the integration renders while a recording is active.
 DOT = "●"
@@ -42,29 +42,32 @@ def test_p10k_dot_follows_pointer(runner: Runner, env: dict[str, str], tmp_path:
         # Cold cache: the first real prompt renders the active segment. No
         # instant prompt exists yet, so no warning can appear — this step
         # asserts the segment and acts as a sanity net for load errors.
-        first = strip_ansi(shell.wait_for(DOT, present=True, timeout=15.0))
+        first = shell.wait_for(DOT, present=True, timeout=15.0)
         assert DOT in first, repr(first)
-        assert INSTANT_PROMPT_WARNING not in first, first
-        assert "warning" not in first.lower(), first
+        startup = shell.screen(scrollback=True)
+        assert INSTANT_PROMPT_WARNING not in startup, startup
+        assert "warning" not in startup.lower(), startup
 
         # After stop the next prompt must drop the segment. A no-op Enter forces
         # the redraw; absence is observed over a bounded window.
         _ = runner("lion", "watch", "stop", env=env)
         shell.send(":\r")
-        gone = strip_ansi(shell.wait_for(DOT, present=False, timeout=3.0))
+        gone = shell.wait_for(DOT, present=False, timeout=3.0)
         assert DOT not in gone, repr(gone)
 
         # A fresh recording plus ``exec zsh``: the pointer is read when the
         # shell loads, so the segment reappears. This second zsh runs with a
         # warm instant-prompt cache, so Powerlevel10k now *would* print its
         # warning if any LION code performed console I/O during
-        # initialization. Read the whole startup window and assert both.
+        # initialization. Wait for the segment and then read the whole screen
+        # (including scrollback) to assert both.
         _ = runner("lion", "watch", "start", "--note", "p10k exec", env=env)
         shell.send("exec zsh\r")
-        warm = strip_ansi(shell.wait_for(DOT, present=False, timeout=4.0))
+        warm = shell.wait_for(DOT, present=True, timeout=10.0)
         assert DOT in warm, repr(warm)
-        assert INSTANT_PROMPT_WARNING not in warm, warm
-        assert "warning" not in warm.lower(), warm
+        warm_startup = shell.screen(scrollback=True)
+        assert INSTANT_PROMPT_WARNING not in warm_startup, warm_startup
+        assert "warning" not in warm_startup.lower(), warm_startup
     finally:
         _ = runner.invoke("lion", "watch", "stop", env=env, expected=None)
         shell.close()

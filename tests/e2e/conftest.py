@@ -8,10 +8,13 @@ and :func:`runner` executes commands while recording their diagnostics.
 
 import os
 import pwd
+import subprocess
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 from e2eutil import Runner
+from watchutil import TMUX_CONFIG
 
 
 def require_container() -> None:
@@ -26,6 +29,25 @@ def require_container() -> None:
 def container() -> None:
     """Guard every test in this suite: only the disposable container may run it."""
     require_container()
+
+
+@pytest.fixture(scope="session")
+def tmux_server() -> Iterator[None]:
+    """Start a tmux server for the interactive scenarios and tear it down.
+
+    The server is started with the committed configuration and serves every
+    ``Zsh`` (one session each). ``exit-empty off`` keeps it alive between
+    sessions, so the configuration and the default socket persist for the run;
+    the driver stops the server again when the last session closes, which is also
+    when tmux reaps the exited shell. This fixture guarantees a clean start and
+    that no server is ever left behind.
+    """
+    _ = subprocess.run(["tmux", "kill-server"], capture_output=True, check=False)
+    _ = subprocess.run(["tmux", "-f", str(TMUX_CONFIG), "start-server"], capture_output=True, check=True)
+    try:
+        yield
+    finally:
+        _ = subprocess.run(["tmux", "kill-server"], capture_output=True, check=False)
 
 
 @pytest.fixture

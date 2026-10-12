@@ -67,6 +67,10 @@ run:
 test-e2e:
     bash scripts/test-e2e.sh
 
+# Run the E2E suite and keep the container so a live tmux session can be watched
+test-e2e-attach:
+    bash scripts/test-e2e.sh --attach
+
 # Write design metrics to .refactor/ (report only; never fails on findings)
 rate-design:
     #!/usr/bin/env bash

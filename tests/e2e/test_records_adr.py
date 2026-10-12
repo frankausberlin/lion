@@ -1,9 +1,9 @@
-"""End-to-end ADR annotation scenarios with a real interactive zsh behind a pty.
+"""End-to-end ADR annotation scenarios with a real interactive zsh inside tmux.
 
 Every test runs inside the disposable container (see ``conftest.py``), installs
 the real shlib and watch integration into a temporary home, drives a real shell
 and reads the results from the recording files via ``lion records`` — never
-from the pty text. The scenarios assert that markers fold into exactly the
+from the terminal text. The scenarios assert that markers fold into exactly the
 intended ADR, that a marker inside a here-document body stays text, and that
 the read commands and the edit flow behave as documented.
 """
@@ -16,7 +16,7 @@ import pytest
 from e2eutil import CommandResult, Runner, doctor_findings, manifest
 from watchutil import Zsh
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.usefixtures("tmux_server")]
 
 
 def _mapping(value: object) -> dict[str, object]:

@@ -117,16 +117,19 @@ Options are documented canonically in `lion <cmd> --help`.
 ## Development
 
 ```bash
-just test       # tests and coverage; minimum 90%
-just lint       # lint, formatting and type check
-just fix        # auto-fix lint issues
-just check      # full quality gate
-just clean      # remove caches and generated artifacts
-just test-e2e   # opt-in Docker suite, excluded from just check
+just test             # tests and coverage; minimum 90%
+just lint             # lint, formatting and type check
+just fix              # auto-fix lint issues
+just check            # full quality gate
+just clean            # remove caches and generated artifacts
+just test-e2e         # opt-in Docker suite, excluded from just check
+just test-e2e-attach  # same suite, but keep the container to watch a live tmux session
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow and conventions, and
-the [E2E guide](tests/e2e/README.md) for the Docker suite.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow and conventions, the
+[testing strategy](docs/explanation/testing-strategy.md) for the levels and the
+role of alpha testing, and the [E2E guide](tests/e2e/README.md) for the Docker
+suite, the live-attach recipe and the alpha-testing checklists.
 
 ## License
 

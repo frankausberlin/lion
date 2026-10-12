@@ -1,12 +1,14 @@
-"""End-to-end watch scenarios with a real interactive zsh behind a pty.
+"""End-to-end watch scenarios with a real interactive zsh inside tmux.
 
 Every test runs inside the disposable container (see ``conftest.py``), installs
 the real shlib and watch integration into a temporary home, drives one or more
 interactive shells and reads the results from the recording files — never from
-the pty text. The pty is only used to detect prompts and to send input.
+the terminal text. The tmux screen is only used to detect prompts and to send
+input.
 """
 
 import json
+import re
 import shutil
 import time
 from pathlib import Path
@@ -14,9 +16,9 @@ from typing import cast
 
 import pytest
 from e2eutil import CommandResult, Runner, doctor_findings, manifest
-from watchutil import PROMPT, PROMPT2, Zsh
+from watchutil import Zsh
 
-pytestmark = pytest.mark.e2e
+pytestmark = [pytest.mark.e2e, pytest.mark.usefixtures("tmux_server")]
 
 
 def _mapping(value: object) -> dict[str, object]:
@@ -198,15 +200,15 @@ def test_resourcing_keeps_segment_and_result(runner: Runner, env: dict[str, str]
     assert "echo second" in texts
 
 
-def test_sighup_ends_segment(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
-    """A SIGHUP (terminal went away) leaves a readable, ended segment."""
+def test_window_close_ends_segment(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """Closing the terminal window (SIGHUP) leaves a readable, ended segment."""
     _install(runner, env)
     _ = runner("lion", "watch", "start", env=env)
 
     shell = Zsh(env, tmp_path / "zdot")
     _ = shell.wait_prompt()
     _ = shell.run("echo hup-me")
-    shell.signal()
+    shell.close_window()
     deadline = time.time() + 5
     while shell.alive() and time.time() < deadline:
         time.sleep(0.05)
@@ -272,10 +274,10 @@ def test_prompt_path_reads_pointer_and_loads_silently(runner: Runner, env: dict[
 
     shell = Zsh(env, tmp_path / "zdot")
     first = shell.wait_prompt()
-    cleaned = first.replace(PROMPT, "").replace(PROMPT2, "").replace("\x1b[?2004h", "").replace("\x1b[?2004l", "")
-    residue = cleaned.replace("\r", "").replace(" ", "").strip()
-    # Only zsh's own end-of-output marker ("#" for root, "%" otherwise) remains.
-    assert residue in ("", "#", "%"), repr(first)
+    # Only the sentinel prompt may be on the freshly rendered screen: the load
+    # itself must print nothing (and no instant-prompt warning).
+    residue = re.sub(r"<<LIONP:\d+>>", "", first).replace(" ", "").strip()
+    assert residue == "", repr(first)
     assert "warning" not in first.lower()
 
     _ = shell.run('p10k() { print -r -- "P10K:$*" }')

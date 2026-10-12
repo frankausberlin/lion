@@ -49,6 +49,8 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Comparison model](explanation/comparison-model.md) — `created`, `confirmed`,
   `appended` and the RAM tolerance.
 - [Write boundary](explanation/write-boundary.md) — no root, no foreign files.
+- [Testing strategy](explanation/testing-strategy.md) — the unit, E2E container
+  and alpha-test levels, and why the container cannot replace a real machine.
 
 ## Decisions
 
