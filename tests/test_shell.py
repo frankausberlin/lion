@@ -132,6 +132,39 @@ def test_remove_zshrc_restores_original(home: Path) -> None:
     assert shell.remove(home).messages == ("Watch integration is not inserted; no files changed.",)
 
 
+def test_insert_refuses_symlinked_zshrc(home: Path) -> None:
+    """A symlinked ~/.zshrc is never replaced by insert."""
+    target = home / "real-rc"
+    target.write_text(ORIGINAL_RC)
+    _rc(home).symlink_to(target)
+
+    with pytest.raises(ShellError, match="Refusing to replace non-regular file"):
+        shell.insert(home)
+
+    assert _rc(home).is_symlink()
+    assert target.read_text() == ORIGINAL_RC
+    assert not (home / ".zshrc.before-lion-watch").exists()
+
+
+def test_remove_refuses_symlinked_zshrc(home: Path) -> None:
+    """A symlinked ~/.zshrc with a block is never replaced by remove."""
+    _rc(home).write_text(ORIGINAL_RC)
+    shell.insert(home)
+    block = _rc(home).read_text()
+    target = home / "real-rc"
+    target.write_text(block)
+    _rc(home).unlink()
+    _rc(home).symlink_to(target)
+
+    with pytest.raises(ShellError, match="Refusing to replace non-regular file"):
+        shell.remove(home)
+
+    assert _rc(home).is_symlink()
+    assert _rc(home).resolve() == target
+    assert target.read_text() == block
+    assert not (home / ".zshrc.before-lion-watch-remove").exists()
+
+
 def test_shlib_mode_lifecycle(home: Path) -> None:
     """With shlib installed the integration is a numbered script."""
     _install_shlib(home)

@@ -392,6 +392,7 @@ def remove(home: Path) -> ShellReport:
     if script_present:
         report = _remove_shlib(target)
     elif parts is not None:
+        _regular_target(rc)
         before, _block, after = parts
         new_text = before + after
         validate_zsh(new_text)
