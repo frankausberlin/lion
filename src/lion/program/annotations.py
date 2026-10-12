@@ -616,6 +616,38 @@ def _anchor_for(
     )
 
 
+@dataclass
+class _FoldMeta:
+    """The metadata derived while folding: times, cwd, segments and anchor."""
+
+    first_at: str = ""
+    last_at: str = ""
+    cwd: str = ""
+    segments: list[str] = field(default_factory=list)
+    anchor: AdrAnchor | None = None
+    anchor_seen: bool = False
+
+    def observe(
+        self,
+        item: AdrAction | AdrIssue,
+        *,
+        event: SpoolEvent,
+        index: int,
+        events: Sequence[SpoolEvent],
+        cmd_indices: Sequence[int],
+    ) -> None:
+        """Track the first/last marker time, the touched segments and the anchor."""
+        if not self.first_at:
+            self.first_at = item.time
+            self.cwd = event.cwd
+        self.last_at = item.time
+        if event.segment not in self.segments:
+            self.segments.append(event.segment)
+        if not self.anchor_seen and item.marker in ("-", "+"):
+            self.anchor_seen = True
+            self.anchor = _anchor_for(events, cmd_indices, index, item.marker)
+
+
 def fold_events(
     events: Sequence[SpoolEvent],
     *,
@@ -643,59 +675,59 @@ def fold_events(
     fields: dict[str, str] = {}
     last_set: str | None = None
     issues: list[AdrIssue] = []
-    anchor: AdrAnchor | None = None
-    anchor_seen = False
-    first_at = ""
-    last_at = ""
-    cwd = ""
-    segments: list[str] = []
+    meta = _FoldMeta()
     for index, event in enumerate(events):
         parsed = parse_event_text(event)
         items: list[AdrAction | AdrIssue] = [*parsed.actions, *parsed.issues]
         items.sort(key=lambda item: item.line)
         for item in items:
-            if not first_at:
-                first_at = item.time
-                cwd = event.cwd
-            last_at = item.time
-            if event.segment not in segments:
-                segments.append(event.segment)
-            if not anchor_seen and item.marker in ("-", "+"):
-                anchor_seen = True
-                anchor = _anchor_for(events, cmd_indices, index, item.marker)
+            meta.observe(item, event=event, index=index, events=events, cmd_indices=cmd_indices)
             if isinstance(item, AdrIssue):
                 issues.append(item)
                 continue
-            if item.kind == "set":
-                fields[item.name] = item.value
-                last_set = item.name
-                if item.name == "status" and not _known_status(item.value):
-                    issues.append(_issue(REASON_UNKNOWN_STATUS, item.marker, item.text, item.line, event))
-            elif item.kind == "delete":
-                _ = fields.pop(item.name, None)
-                if last_set == item.name:
-                    last_set = None
-            elif item.kind == "clear":
-                fields.clear()
-                last_set = None
-            elif item.kind == "continue":
-                if last_set is None:
-                    issues.append(_issue(REASON_NO_TARGET, item.marker, item.text, item.line, event))
-                else:
-                    fields[last_set] = fields[last_set] + "\n" + item.value
+            last_set = _apply_item(item, fields=fields, last_set=last_set, issues=issues, event=event)
     return _make_adr(
         ref,
         fields,
-        anchor=anchor,
+        anchor=meta.anchor,
         issues=issues,
-        first_at=first_at,
-        last_at=last_at,
+        first_at=meta.first_at,
+        last_at=meta.last_at,
         user=reader,
         host=host,
-        cwd=cwd,
-        segments=tuple(segments),
+        cwd=meta.cwd,
+        segments=tuple(meta.segments),
         edited=False,
     )
+
+
+def _apply_item(
+    item: AdrAction,
+    *,
+    fields: dict[str, str],
+    last_set: str | None,
+    issues: list[AdrIssue],
+    event: SpoolEvent,
+) -> str | None:
+    """Apply one resolved action to the folded fields; return the new ``last_set``."""
+    if item.kind == "set":
+        fields[item.name] = item.value
+        last_set = item.name
+        if item.name == "status" and not _known_status(item.value):
+            issues.append(_issue(REASON_UNKNOWN_STATUS, item.marker, item.text, item.line, event))
+    elif item.kind == "delete":
+        _ = fields.pop(item.name, None)
+        if last_set == item.name:
+            last_set = None
+    elif item.kind == "clear":
+        fields.clear()
+        last_set = None
+    elif item.kind == "continue":
+        if last_set is None:
+            issues.append(_issue(REASON_NO_TARGET, item.marker, item.text, item.line, event))
+        else:
+            fields[last_set] = fields[last_set] + "\n" + item.value
+    return last_set
 
 
 def _known_status(value: str) -> bool:
