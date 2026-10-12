@@ -366,3 +366,107 @@ def test_doctor_reports_shell_and_watch(runner: Runner, env: dict[str, str], tmp
     assert findings["shell.inserted"]["status"] == "skip"
     # The integration warning is gone with the artifact; the record stays active.
     assert findings["watch.active"]["status"] == "ok"
+
+
+def test_zshrc_block_path_without_shlib(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """Without shlib the integration lives as a marked block in ``~/.zshrc``."""
+    home = Path(env["HOME"])
+    original = "# user shell configuration\nalias ll='ls -l'\n"
+    (home / ".zshrc").write_text(original)
+
+    insert = runner.invoke("lion", "shell", "insert", env=env, expected=0)
+    assert "Watch integration inserted" in insert.stdout
+    payload = _json(runner.invoke("lion", "shell", "status", "--json", env=env, expected=0))
+    assert payload["mode"] == "zshrc"
+    assert payload["inserted"] is True
+    assert payload["modified"] is False
+    assert payload["warnings"] == []
+    text = (home / ".zshrc").read_text()
+    assert text.startswith(original)
+    assert ">>>>>> LION watch" in text
+
+    _ = runner("lion", "watch", "start", "--note", "zshrc block", env=env)
+    with Zsh(env, tmp_path / "zdot") as shell:
+        _ = shell.wait_prompt()
+        _ = shell.run("echo block-path-command")
+    _ = runner("lion", "watch", "stop", env=env)
+    assert "echo block-path-command" in _command_texts(_events(_show(runner, env, "latest")))
+
+    remove = runner.invoke("lion", "shell", "remove", env=env, expected=0)
+    assert "Watch integration removed" in remove.stdout
+    assert (home / ".zshrc").read_text() == original
+    payload = _json(runner.invoke("lion", "shell", "status", "--json", env=env, expected=0))
+    assert payload["inserted"] is False
+
+
+def test_adoption_in_a_running_shell(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """A shell that was open before ``start`` joins with its next prompt.
+
+    This pins the documented pointer lag (``docs/reference/recordings.md``):
+    the hooks refresh the pointer in ``precmd``, so the command typed in the
+    window between ``start`` and the next prompt is dropped and the following
+    command is captured.
+    """
+    _install(runner, env)
+    with Zsh(env, tmp_path / "zdot") as shell:
+        _ = shell.wait_prompt()
+        _ = shell.run("echo before-start")
+        assert _json(runner.invoke("lion", "watch", "status", "--json", env=env, expected=0)) == {"active": False}
+
+        _ = runner("lion", "watch", "start", "--note", "adoption", env=env)
+        _ = shell.run(":")  # the join command inside the lag window is dropped
+        _ = shell.run("echo after-start")
+
+        segments = _segments(_active(runner, env))
+        assert len(segments) == 1
+        assert segments[0]["commands"] == 1
+
+    _ = runner("lion", "watch", "stop", env=env)
+    texts = _command_texts(_events(_show(runner, env, "latest")))
+    assert "echo before-start" not in texts
+    assert ":" not in texts
+    assert "echo after-start" in texts
+
+
+def test_record_switch_and_resume_across_shells(runner: Runner, env: dict[str, str], tmp_path: Path) -> None:
+    """A new shell resumes an open record; a running shell switches records."""
+    _install(runner, env)
+    _ = runner("lion", "watch", "start", "--note", "first record", env=env)
+    first_ref = str(_active(runner, env)["ref"])
+
+    first = Zsh(env, tmp_path / "zdot-a")
+    _ = first.wait_prompt()
+    _ = first.run("echo in-first-record")
+    first.close_window()
+    deadline = time.monotonic() + 5
+    while first.alive() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not first.alive()
+
+    with Zsh(env, tmp_path / "zdot-b") as second:
+        _ = second.wait_prompt()
+        _ = second.run("echo resumed-in-first")
+        # The switch applies at the next prompt (same pointer lag); the join
+        # command is never attributed to the new record.
+        _ = runner("lion", "watch", "stop", env=env)
+        _ = runner("lion", "watch", "start", "--note", "second record", env=env)
+        second_ref = str(_active(runner, env)["ref"])
+        assert second_ref != first_ref
+        _ = second.run(":")
+        _ = second.run("echo switched-to-second")
+
+    _ = runner("lion", "watch", "stop", env=env)
+    first.close()
+
+    first_payload = _show(runner, env, first_ref)
+    first_texts = _command_texts(_events(first_payload))
+    assert "echo in-first-record" in first_texts
+    assert "echo resumed-in-first" in first_texts
+    assert "echo switched-to-second" not in first_texts
+    first_segments = _segments(_mapping(first_payload["recording"]))
+    assert len(first_segments) == 2
+
+    second_payload = _show(runner, env, second_ref)
+    second_texts = _command_texts(_events(second_payload))
+    assert "echo switched-to-second" in second_texts
+    assert "echo resumed-in-first" not in second_texts
