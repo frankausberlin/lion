@@ -63,7 +63,10 @@ def test_p10k_dot_follows_pointer(runner: Runner, env: dict[str, str], tmp_path:
         # initialization. Wait for the definitive post-init marker (not just a
         # settled screen, which a static instant prompt could fake) and then
         # read the whole screen (including scrollback) to assert both.
+        cache = sorted((Path(env["HOME"]) / ".cache").glob("p10k-instant-prompt-*.zsh"))
+        assert cache, "the cold p10k start must have generated the instant-prompt cache"
         _ = runner("lion", "watch", "start", "--note", "p10k exec", env=env)
+        shell.reset_ready()
         shell.send("exec zsh\r")
         assert shell.wait_ready(timeout=15.0)
         warm = shell.wait_settle(timeout=10.0, quiet=0.5)

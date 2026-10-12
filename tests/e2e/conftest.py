@@ -9,12 +9,12 @@ and :func:`runner` executes commands while recording their diagnostics.
 import os
 import pwd
 import subprocess
-from collections.abc import Iterator
+from collections.abc import Generator, Iterator
 from pathlib import Path
 
 import pytest
 from e2eutil import Runner
-from watchutil import TMUX_CONFIG
+from watchutil import TMUX_CONFIG, dump_diagnostics, reset_diagnostics
 
 
 def require_container() -> None:
@@ -29,6 +29,28 @@ def require_container() -> None:
 def container() -> None:
     """Guard every test in this suite: only the disposable container may run it."""
     require_container()
+
+
+@pytest.fixture(autouse=True)
+def shell_diagnostics() -> Iterator[None]:
+    """Start every scenario with an empty driver registry for failure dumps."""
+    reset_diagnostics()
+    yield
+
+
+@pytest.hookimpl(wrapper=True)
+def pytest_runtest_makereport(
+    item: pytest.Item, call: pytest.CallInfo[None]
+) -> Generator[None, pytest.TestReport, pytest.TestReport]:
+    """Persist per-shell diagnostics when an interactive scenario fails.
+
+    The dump lands below the scenario's ``tmp_path`` (inside ``/artifacts/work``
+    in the container) and is copied out with the other artifacts.
+    """
+    report = yield
+    if report.when == "call" and report.failed:
+        _ = dump_diagnostics()
+    return report
 
 
 @pytest.fixture(scope="session")
