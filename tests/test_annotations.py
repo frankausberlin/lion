@@ -342,6 +342,14 @@ def test_unterminated_double_quote_continues_across_lines() -> None:
     assert _issues([_event(text, kind="cmd")]) == []
 
 
+def test_double_quote_escapes_on_the_resume_line() -> None:
+    """An escaped quote on the closing line does not end the open quote early."""
+    text = 'echo "open\n#-LION: adr.title Hidden\nstill \\" open"\n#-LION: adr.title Real'
+
+    assert [action.value for action in _actions([_event(text, kind="cmd")])] == ["Real"]
+    assert _issues([_event(text, kind="cmd")]) == []
+
+
 def test_closed_backtick_hides_its_body() -> None:
     """A backtick pair is skipped as text and scanning continues after it."""
     text = "echo `date` # trailing\n#-LION: adr.title Real"

@@ -107,6 +107,13 @@ _MODE_DOUBLE = "double"
 _MODE_DOLLAR = "dollar"
 _MODE_UNKNOWN = "unknown"
 
+#: The opening quote and escape rule of every open-quote mode.
+_QUOTE_MODES: dict[str, tuple[str, bool]] = {
+    _MODE_SINGLE: ("'", False),
+    _MODE_DOUBLE: ('"', True),
+    _MODE_DOLLAR: ("'", True),
+}
+
 
 class AnnotationError(ValueError):
     """Annotations cannot be read, validated or mutated."""
@@ -459,9 +466,7 @@ class _ScanState:
 
     def _advance_quote(self, line: str) -> None:
         """Leave an open quote when it closes on this line."""
-        quote = "'" if self.mode in (_MODE_SINGLE, _MODE_DOLLAR) else '"'
-        escapes = self.mode != _MODE_SINGLE
-        index = self._skip_quote(line, 0, quote, escapes=escapes, mode=self.mode)
+        index = self._skip_quote(line, 0, self.mode)
         if index < 0:
             return
         self.mode = _MODE_NORMAL
@@ -488,9 +493,9 @@ class _ScanState:
         """Consume the construct at ``index``; ``-1`` marks an unresolved one."""
         char = line[index]
         if char == "'":
-            return self._skip_quote(line, index + 1, "'", escapes=False, mode=_MODE_SINGLE)
+            return self._skip_quote(line, index + 1, _MODE_SINGLE)
         if char == '"':
-            return self._skip_quote(line, index + 1, '"', escapes=True, mode=_MODE_DOUBLE)
+            return self._skip_quote(line, index + 1, _MODE_DOUBLE)
         if char == "$":
             return self._skip_dollar(line, index)
         if char == "`":
@@ -502,13 +507,14 @@ class _ScanState:
     def _skip_dollar(self, line: str, index: int) -> int:
         """Consume a ``$'...'`` or ``$(...)`` construct, or an ordinary ``$``."""
         if index + 1 < len(line) and line[index + 1] == "'":
-            return self._skip_quote(line, index + 2, "'", escapes=True, mode=_MODE_DOLLAR)
+            return self._skip_quote(line, index + 2, _MODE_DOLLAR)
         if index + 1 < len(line) and line[index + 1] == "(":
             return self._skip_substitution(line, index + 2)
         return index + 1
 
-    def _skip_quote(self, line: str, start: int, quote: str, *, escapes: bool, mode: str) -> int:
+    def _skip_quote(self, line: str, start: int, mode: str) -> int:
         """Return the index after the closing quote, or set ``mode`` and return ``-1``."""
+        quote, escapes = _QUOTE_MODES[mode]
         end = _find_closing(line, start, quote, escapes=escapes)
         if end < 0:
             self.mode = mode
