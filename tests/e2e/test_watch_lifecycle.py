@@ -8,7 +8,6 @@ input.
 """
 
 import json
-import re
 import shutil
 import time
 from pathlib import Path
@@ -16,7 +15,7 @@ from typing import cast
 
 import pytest
 from e2eutil import CommandResult, Runner, doctor_findings, manifest
-from watchutil import Zsh
+from watchutil import Zsh, strip_prompt
 
 pytestmark = [pytest.mark.e2e, pytest.mark.usefixtures("tmux_server")]
 
@@ -276,7 +275,7 @@ def test_prompt_path_reads_pointer_and_loads_silently(runner: Runner, env: dict[
     first = shell.wait_prompt()
     # Only the sentinel prompt may be on the freshly rendered screen: the load
     # itself must print nothing (and no instant-prompt warning).
-    residue = re.sub(r"<<LIONP:\d+>>", "", first).replace(" ", "").strip()
+    residue = strip_prompt(first).replace(" ", "").strip()
     assert residue == "", repr(first)
     assert "warning" not in first.lower()
 

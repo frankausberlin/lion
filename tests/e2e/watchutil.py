@@ -7,7 +7,7 @@ Every scenario must run inside the disposable container started by
 Two prompt modes exist:
 
 * the default mode appends a monotonically increasing sequence number to a
-  sentinel ``PROMPT`` so the shell's readiness is detected exactly — even across
+  sentinel prompt so the shell's readiness is detected exactly — even across
   ``exec zsh``, because the counter lives in a file (see :meth:`Zsh.wait_prompt`);
 * the ``p10k`` mode loads the real Powerlevel10k from the image. Powerlevel10k
   manages the prompt itself, so no sentinel may be set; the driver waits for
@@ -26,8 +26,9 @@ import subprocess
 import time
 from pathlib import Path
 
-#: Sentinel for the primary prompt; the sequence number is appended at runtime.
-PROMPT = "<<LIONP>>"
+#: Sentinel prefix for the primary prompt; the per-prompt sequence number and a
+#: closing ``>>`` are appended at runtime, e.g. ``<<LIONP:3>>``.
+PROMPT_PREFIX = "<<LIONP:"
 #: Sentinel for the continuation prompt.
 PROMPT2 = "<<LIONP2>>"
 
@@ -41,7 +42,7 @@ TMUX_CONFIG = (Path(__file__).resolve().parent / "tmux.conf").as_posix()
 #: Matches ANSI escape sequences: CSI, OSC (hyperlinks) and single-char escapes.
 _ANSI_RE = re.compile(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-Z\\-_])")
 #: Matches the sentinel prompt with its sequence number, e.g. ``<<LIONP:3>>``.
-_SEQ_RE = re.compile(r"<<LIONP:(\d+)>>")
+_SEQ_RE = re.compile(re.escape(PROMPT_PREFIX) + r"(\d+)>>")
 
 #: Monotonic counter so every session gets a unique, tmux-safe name.
 _session_counter = 0
@@ -54,6 +55,11 @@ def strip_ansi(text: str) -> str:
     such as ``●`` survives while colour and hyperlink codes do not.
     """
     return _ANSI_RE.sub("", text).replace("\r", "")
+
+
+def strip_prompt(text: str) -> str:
+    """Remove sentinel prompt markers (``<<LIONP:N>>``) from ``text``."""
+    return _SEQ_RE.sub("", text)
 
 
 def _tmux(*args: str, stdin: str | None = None, timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
@@ -126,7 +132,7 @@ class Zsh:
                 "  [[ -r $_lion_prompt_seq_file ]] && read -r n < $_lion_prompt_seq_file\n"
                 "  (( n = n + 1 ))\n"
                 "  print -r -- $n > $_lion_prompt_seq_file\n"
-                '  PROMPT="<<LIONP:${n}>>"\n'
+                '  PROMPT="' + PROMPT_PREFIX + '${n}>>"\n'
                 "  return 0\n"
                 "}\n"
                 "add-zsh-hook precmd _lion_prompt_seq\n"
@@ -246,17 +252,18 @@ class Zsh:
         """
         if previous < 0:
             return fallback
-        marker = f"<<LIONP:{previous}>>"
+        marker = f"{PROMPT_PREFIX}{previous}>>"
         full = self._capture(scrollback=True)
         index = full.rfind(marker)
         if index < 0:
             return fallback
         return full[index + len(marker) :]
 
-    def _wait_settle(self, timeout: float = 8.0, quiet: float = 0.3) -> str:
+    def wait_settle(self, timeout: float = 8.0, quiet: float = 0.3) -> str:
         """Poll the pane until its text stops changing for ``quiet`` seconds.
 
-        Used in p10k mode, where no sentinel prompt is available.
+        Used in p10k mode, where no sentinel prompt is available, to wait until
+        Powerlevel10k finished initialization before the screen is read.
         """
         deadline = time.time() + timeout
         last = self._capture()
@@ -285,7 +292,7 @@ class Zsh:
         """
         if self._p10k:
             self.send(command)
-            return self._wait_settle(timeout)
+            return self.wait_settle(timeout)
         previous = self._prompt_seq
         self.send(command)
         screen = self.wait_prompt(timeout)
@@ -302,9 +309,22 @@ class Zsh:
         screen = self.wait_prompt(timeout)
         return self._fresh_output(previous, screen)
 
-    def close_window(self) -> None:
-        """Close the terminal window, which hangs up the shell (SIGHUP)."""
+    def close_window(self, grace: float = 5.0) -> None:
+        """Close the terminal window, which hangs up the shell (SIGHUP).
+
+        Waits for the shell process to disappear before returning: ``kill-window``
+        destroys the session immediately, so ``alive()`` (session state) is no
+        longer a proxy for the process having handled SIGHUP and run ``zshexit``.
+        """
+        try:
+            pid = self.pid
+        except RuntimeError:
+            pid = None
         _tmux("kill-window", "-t", self._session)
+        if pid is not None:
+            deadline = time.time() + grace
+            while Path(f"/proc/{pid}").exists() and time.time() < deadline:
+                time.sleep(0.05)
 
     def close(self, grace: float = 5.0) -> None:
         """Destroy the shell's session while it is still alive.

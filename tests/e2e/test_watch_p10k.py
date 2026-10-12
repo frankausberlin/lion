@@ -63,7 +63,10 @@ def test_p10k_dot_follows_pointer(runner: Runner, env: dict[str, str], tmp_path:
         # (including scrollback) to assert both.
         _ = runner("lion", "watch", "start", "--note", "p10k exec", env=env)
         shell.send("exec zsh\r")
-        warm = shell.wait_for(DOT, present=True, timeout=10.0)
+        # Wait for Powerlevel10k to finish initializing (the screen settles)
+        # before reading: waiting only for the `●` could return on the cached
+        # instant prompt, before any initialization warning would be emitted.
+        warm = shell.wait_settle(timeout=10.0, quiet=0.5)
         assert DOT in warm, repr(warm)
         warm_startup = shell.screen(scrollback=True)
         assert INSTANT_PROMPT_WARNING not in warm_startup, warm_startup
