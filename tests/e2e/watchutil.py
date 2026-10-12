@@ -113,7 +113,15 @@ class Zsh:
         zdotdir.mkdir(parents=True, exist_ok=True)
         (zdotdir / ".zshenv").write_text('[[ -r "$HOME/.zshenv" ]] && source "$HOME/.zshenv"\n')
         seq_file = zdotdir / ".lion-prompt-seq"
+        ready_file = zdotdir / ".lion-p10k-ready"
+        self._ready_file: Path | None = ready_file if p10k else None
         if p10k:
+            # A definitive readiness signal: the precmd hook runs after every
+            # dotfile and after Powerlevel10k initialized, right before the real
+            # prompt. Writing a file (not the console) cannot itself trigger the
+            # instant-prompt warning, so it does not disturb what the scenario
+            # asserts; a settled screen, by contrast, can be a static instant
+            # prompt while initialization is still running.
             (zdotdir / ".zshrc").write_text(
                 'if [[ -r "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh" ]]; then\n'
                 '  source "${XDG_CACHE_HOME:-$HOME/.cache}/p10k-instant-prompt-${(%):-%n}.zsh"\n'
@@ -121,6 +129,10 @@ class Zsh:
                 f"source {P10K_THEME}\n"
                 f"source {P10K_CONFIG}\n"
                 '[[ -r "$HOME/.zshrc" ]] && source "$HOME/.zshrc"\n'
+                "autoload -Uz add-zsh-hook\n"
+                f"_lion_p10k_ready_file={shlex.quote(str(ready_file))}\n"
+                "_lion_p10k_ready() { : > $_lion_p10k_ready_file }\n"
+                "add-zsh-hook precmd _lion_p10k_ready\n"
             )
         else:
             (zdotdir / ".zshrc").write_text(
@@ -233,6 +245,21 @@ class Zsh:
             if time.time() >= deadline:
                 return line
             time.sleep(0.05)
+
+    def wait_ready(self, timeout: float = 15.0) -> bool:
+        """Wait until a p10k shell finished initialization, and report success.
+
+        The marker is written by the wrapper's ``precmd`` hook, which runs after
+        every dotfile and after Powerlevel10k initialized. Unlike a settled
+        screen this cannot be satisfied by a static instant prompt while
+        initialization is still running. Returns ``True`` for non-p10k shells.
+        """
+        if self._ready_file is None:
+            return True
+        deadline = time.time() + timeout
+        while not self._ready_file.exists() and time.time() < deadline:
+            time.sleep(0.05)
+        return self._ready_file.exists()
 
     def _send_literal(self, text: str) -> None:
         """Send literal text to the pane without pressing Enter."""
