@@ -65,8 +65,12 @@ Capture happens entirely inside zsh; Python never runs in the input path.
 - Event grammar (one TAB-separated line per event, every field `${(q)}`-escaped):
   `segment`, `cmd`, `result`, `comment`, `exit`. The command text is `preexec`'s
   `$1` with `$3` as fallback; comments are captured through `zshaddhistory`
-  (guarded by `interactive_comments`, empty lines dropped). The exit status is
-  captured in `precmd`, the shell exit in `zshexit` as a hint.
+  (guarded by `interactive_comments`, empty input dropped). A `comment` event
+  requires every non-blank line of the input to be a comment, so a pasted block
+  that mixes comments and commands stays a single `cmd` and is never recorded
+  twice; a comment-only multi-line paste is one `comment` event with embedded
+  newlines. The exit status is captured in `precmd`, the shell exit in `zshexit`
+  as a hint.
 - The escape uses parameter expansion only (no command substitution). The raw
   text and the escaped field are each capped at 4096 characters via
   `LION_WATCH_CAP`; the decoder (`unquote_zsh`) treats an incomplete escape

@@ -141,7 +141,11 @@ just audit       # dependency vulnerability scan
   `state-end.toml` reuse the `Snapshot` model; events live in per-shell segment
   files. Segment liveness is derived at read time from the kernel `boot_id`
   plus the PID and start ticks; a missing `exit` event is never success
-  (`reboot`/`gone`/`reused`/`unknown` end reasons).
+  (`reboot`/`gone`/`reused`/`unknown` end reasons). Comment lines are input,
+  not noise: with `interactive_comments` set (the Deen Lupysta precondition) a
+  standalone comment becomes one `comment` event and a mixed pasted block stays
+  one `cmd`; `zshaddhistory` records only comment-only input, so nothing is
+  captured twice.
 - `doctor` is a read-only check framework: `program/checks.py` holds the shared
   `CheckStatus`/`Finding`/`DoctorContext`/`Check` types (a leaf module, so the
   owning check modules never import the aggregator and create a cycle); the

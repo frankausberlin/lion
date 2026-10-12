@@ -59,8 +59,7 @@ external process. The line kinds are:
 `${(q)}` emits backslash-escaped metacharacters and `$'...'` groups for control
 characters (`$'\n'`, `$'\t'`, octal `$'\033'`). A field is capped at 4096
 characters; when the cap cuts into an escape, the reader returns the incomplete
-tail literally instead of failing. Empty lines and non-comment history lines are
-not recorded.
+tail literally instead of failing. Empty input is not recorded.
 
 Secret masking is best-effort and documented as such (ADR 0011): values of
 assignments whose name contains `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`,
@@ -68,6 +67,32 @@ assignments whose name contains `TOKEN`, `SECRET`, `PASSWORD`, `PASSWD`,
 values. Set `LION_WATCH_MASK=0` to opt out. The masker can be fooled (for
 example by concatenated quoted strings); it is a convenience, not a security
 boundary.
+
+## Comment lines as input
+
+Comments are a deliberate input to LION: setup guides are pasted with `#` lines
+that carry information ("info typing"), and the recording keeps them. The zsh
+option `interactive_comments` decides how the shell reads such a line, so it is
+a documented precondition of the recording workflow (the Deen Lupysta setup sets
+it early):
+
+- **With `interactive_comments` set**, a `#` line is never executed. The
+  integration captures it through `zshaddhistory`:
+  - a standalone comment line (typed or pasted alone) becomes one `comment`
+    event;
+  - a comment-only multi-line paste becomes one `comment` event whose text
+    contains the embedded newlines;
+  - a pasted block that mixes comments and commands is executed, `preexec`
+    captures the whole buffer, and it stays **one `cmd` event** whose text
+    contains the comment lines. It is never recorded twice: `zshaddhistory`
+    only records input whose every non-blank line is a comment.
+- **Without the option** (a bare zsh, some foreign setups), `#` lines are
+  executed as commands; they are recorded honestly as `cmd` events (usually with
+  a failing status) and `zshaddhistory` stays silent for them.
+
+`lion watch show` therefore displays the same input as `cmd` or `comment`
+depending on the shell option. Check the option with
+`[[ -o interactive_comments ]]`.
 
 ## Segment liveness
 

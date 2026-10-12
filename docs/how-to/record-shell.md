@@ -75,6 +75,23 @@ uv run lion watch show 2026-10-12T09  # any unique prefix
 with exit status and duration, comments and exits. `status`, `list` and `show`
 are read-only.
 
+## Comments as captured input
+
+Comments are information here, not noise: pasted setup guides with `#` lines are
+part of what a recording keeps. That relies on zsh's
+`interactive_comments` option being set (the Deen Lupysta setup does this
+early; check with `[[ -o interactive_comments ]]`):
+
+- a standalone comment line becomes one `comment` event and is never executed;
+- a comment-only multi-line paste becomes one `comment` event (embedded
+  newlines included);
+- a pasted block that mixes comments and commands stays **one `cmd` event** with
+  the comment lines in its text — the integration never records such a block
+  twice.
+
+Without the option, `#` lines are executed and therefore show up as (usually
+failing) commands; see [Recordings](../reference/recordings.md).
+
 ## Secrets
 
 Masking is best-effort: assignments whose name looks sensitive (`TOKEN`,
