@@ -334,6 +334,30 @@ def test_comment_events_do_not_carry_quote_state() -> None:
     assert _actions([unterminated]) == []
 
 
+def test_unterminated_double_quote_continues_across_lines() -> None:
+    """An open double quote keeps later marker-like lines as text until it closes."""
+    text = 'echo "open \\" still open\n#-LION: adr.title Hidden\nclosed"\n#-LION: adr.title Real'
+
+    assert [action.value for action in _actions([_event(text, kind="cmd")])] == ["Real"]
+    assert _issues([_event(text, kind="cmd")]) == []
+
+
+def test_closed_backtick_hides_its_body() -> None:
+    """A backtick pair is skipped as text and scanning continues after it."""
+    text = "echo `date` # trailing\n#-LION: adr.title Real"
+
+    assert [action.value for action in _actions([_event(text, kind="cmd")])] == ["Real"]
+    assert _issues([_event(text, kind="cmd")]) == []
+
+
+def test_unparsable_here_document_operator_is_unresolved() -> None:
+    """A ``<<`` without a delimiter cannot be resolved and hides markers."""
+    text = "echo <<\n#-LION: adr.title Hidden"
+
+    assert _actions([_event(text, kind="cmd")]) == []
+    assert [issue.reason for issue in _issues([_event(text, kind="cmd")])] == [annotations.REASON_UNRESOLVED]
+
+
 # --- fold metadata -----------------------------------------------------------
 
 

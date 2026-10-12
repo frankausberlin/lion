@@ -461,11 +461,11 @@ class _ScanState:
         """Leave an open quote when it closes on this line."""
         quote = "'" if self.mode in (_MODE_SINGLE, _MODE_DOLLAR) else '"'
         escapes = self.mode != _MODE_SINGLE
-        end = _find_closing(line, 0, quote, escapes=escapes)
-        if end < 0:
+        index = self._skip_quote(line, 0, quote, escapes=escapes, mode=self.mode)
+        if index < 0:
             return
         self.mode = _MODE_NORMAL
-        self._scan_normal(line, end + 1)
+        self._scan_normal(line, index)
 
     def _scan_normal(self, line: str, start: int = 0) -> None:
         """Scan a line outside quotes and update the scanner state."""
@@ -477,51 +477,70 @@ class _ScanState:
                 continue
             if char == "#" and (index == 0 or line[index - 1].isspace() or line[index - 1] in ";|&()<>"):
                 return
-            if char == "'":
-                end = _find_closing(line, index + 1, "'", escapes=False)
-                if end < 0:
-                    self.mode = _MODE_SINGLE
+            if char in ("'", '"', "`", "$", "<"):
+                index = self._consume_construct(line, index)
+                if index < 0:
                     return
-                index = end + 1
-                continue
-            if char == '"':
-                end = _find_closing(line, index + 1, '"', escapes=True)
-                if end < 0:
-                    self.mode = _MODE_DOUBLE
-                    return
-                index = end + 1
-                continue
-            if char == "$" and index + 1 < len(line) and line[index + 1] == "'":
-                end = _find_closing(line, index + 2, "'", escapes=True)
-                if end < 0:
-                    self.mode = _MODE_DOLLAR
-                    return
-                index = end + 1
-                continue
-            if char == "$" and index + 1 < len(line) and line[index + 1] == "(":
-                end = _find_substitution_end(line, index + 2)
-                if end < 0:
-                    self.mode = _MODE_UNKNOWN
-                    return
-                index = end + 1
-                continue
-            if char == "`":
-                end = line.find("`", index + 1)
-                if end < 0:
-                    self.mode = _MODE_UNKNOWN
-                    return
-                index = end + 1
-                continue
-            if line.startswith("<<", index):
-                parsed = _parse_heredoc(line, index)
-                if parsed is None:
-                    self.mode = _MODE_UNKNOWN
-                    return
-                index, pending = parsed
-                if pending is not None:
-                    self.heredocs.append(pending)
                 continue
             index += 1
+
+    def _consume_construct(self, line: str, index: int) -> int:
+        """Consume the construct at ``index``; ``-1`` marks an unresolved one."""
+        char = line[index]
+        if char == "'":
+            return self._skip_quote(line, index + 1, "'", escapes=False, mode=_MODE_SINGLE)
+        if char == '"':
+            return self._skip_quote(line, index + 1, '"', escapes=True, mode=_MODE_DOUBLE)
+        if char == "$":
+            return self._skip_dollar(line, index)
+        if char == "`":
+            return self._skip_backtick(line, index + 1)
+        if line.startswith("<<", index):
+            return self._consume_heredoc(line, index)
+        return index + 1
+
+    def _skip_dollar(self, line: str, index: int) -> int:
+        """Consume a ``$'...'`` or ``$(...)`` construct, or an ordinary ``$``."""
+        if index + 1 < len(line) and line[index + 1] == "'":
+            return self._skip_quote(line, index + 2, "'", escapes=True, mode=_MODE_DOLLAR)
+        if index + 1 < len(line) and line[index + 1] == "(":
+            return self._skip_substitution(line, index + 2)
+        return index + 1
+
+    def _skip_quote(self, line: str, start: int, quote: str, *, escapes: bool, mode: str) -> int:
+        """Return the index after the closing quote, or set ``mode`` and return ``-1``."""
+        end = _find_closing(line, start, quote, escapes=escapes)
+        if end < 0:
+            self.mode = mode
+            return -1
+        return end + 1
+
+    def _skip_substitution(self, line: str, start: int) -> int:
+        """Return the index after a closed ``$(...)``, or mark the state unknown."""
+        end = _find_substitution_end(line, start)
+        if end < 0:
+            self.mode = _MODE_UNKNOWN
+            return -1
+        return end + 1
+
+    def _skip_backtick(self, line: str, start: int) -> int:
+        """Return the index after a closing backtick on this line, or mark unknown."""
+        end = line.find("`", start)
+        if end < 0:
+            self.mode = _MODE_UNKNOWN
+            return -1
+        return end + 1
+
+    def _consume_heredoc(self, line: str, index: int) -> int:
+        """Consume a ``<<`` operator; ``-1`` when it cannot be resolved statically."""
+        parsed = _parse_heredoc(line, index)
+        if parsed is None:
+            self.mode = _MODE_UNKNOWN
+            return -1
+        end, pending = parsed
+        if pending is not None:
+            self.heredocs.append(pending)
+        return end
 
 
 def parse_event_text(event: SpoolEvent) -> ParsedEvent:
