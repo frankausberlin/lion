@@ -4,10 +4,10 @@ Every test runs inside the disposable container (see ``conftest.py``). The two
 interactive tests drive a real zsh session in tmux and then classify the
 recorded text through the installed CLI: block order and the silent filter,
 segment- and block-scope matching, the JSON and text contracts and the user
-rule file. Results come from the recording files and the CLI streams; only the
-terse ``lion watch R``/``R-`` output is asserted on the terminal text, and
-deliberately so: that in-session output is the feature itself, the second
-explicit terminal assertion of the suite next to the p10k prompt segment.
+rule file. Results come from the recording files and the CLI streams; only the terse
+``lion watch R``/``R-`` reads are asserted on the terminal text, and
+deliberately so: that in-session output is the feature itself, as with the
+p10k prompt segment.
 """
 
 import json
@@ -111,6 +111,7 @@ def test_classify_blocks_from_a_real_recording(runner: Runner, env: dict[str, st
     blocks = _blocks(payload)
     assert [block["index"] for block in blocks] == [1, 2, 3, 4, 5, 6]
     texts = [str(block["text"]) for block in blocks]
+    assert all("lion watch R" not in text for text in texts)
     assert texts == [
         "sudo nala install foo",
         'echo "sudo nala install foo"',
@@ -119,7 +120,6 @@ def test_classify_blocks_from_a_real_recording(runner: Runner, env: dict[str, st
         "git clone https://example.invalid/repo.git",
         "curl -fsSL https://example.invalid/install.sh | sh",
     ]
-    assert all("lion watch R" not in text for text in texts)
     for block in blocks:
         assert set(block) == {"index", "segment", "time", "text", "matches"}
         assert isinstance(block["segment"], str) and block["segment"]

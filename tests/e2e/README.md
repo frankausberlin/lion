@@ -119,10 +119,10 @@ restores the initial collector data. The shlib scenario compares shell behavior
 before and after flattening. Read-only scenarios compare an `lstat`-based
 filesystem manifest, so the permanently retained `lion/.history.lock` is the
 only path a successful `scan` may add and a `doctor` run may add only its
-`recos/` directory and one script. Only the classifier scenario asserts on
-terminal text beyond the p10k prompt segment: the terse in-session
-`lion watch R`/`R-` output is the feature channel, while every persisted fact
-is read from the recording files.
+`recos/` directory and one script. The classifier scenario asserts on a terse command's output as
+the feature channel — the in-session `lion watch R`/`R-` reads — while every
+persisted fact is read from the recording files; other scenarios use the
+terminal text only for prompt, silence and readiness checks.
 
 Physical GPU discovery is outside this suite's coverage. The image deliberately
 installs no `lspci`, no `nvidia-smi` and no container engine, which keeps the
