@@ -161,6 +161,7 @@ class Zsh:
         env: dict[str, str],
         zdotdir: Path,
         p10k: bool = False,
+        locale: str = "C",
         tmux_prefix: tuple[str, ...] = (),
         tmux_env: dict[str, str] | None = None,
     ) -> None:
@@ -174,9 +175,12 @@ class Zsh:
         ``.zshrc``: it sources the instant-prompt preamble, then the real
         Powerlevel10k theme and the committed p10k config, and only then the user
         dotfiles. No prompt is set, because Powerlevel10k owns the prompt and the
-        sentinel would break its rendering. ``tmux_prefix``/``tmux_env`` drive an
-        unprivileged tmux server (see :func:`_tmux`). The caller's environment is
-        never modified.
+        sentinel would break its rendering. ``locale`` is set for the pane
+        (``LC_ALL``/``LANG``); tmux transliterates non-ASCII input to ``?`` when
+        the pane locale is not UTF-8, so a scenario about UTF-8 fidelity passes
+        ``locale="C.UTF-8"``. ``tmux_prefix``/``tmux_env`` drive an unprivileged
+        tmux server (see :func:`_tmux`). The caller's environment is never
+        modified.
         """
         global _session_counter
         _session_counter += 1
@@ -246,9 +250,9 @@ class Zsh:
             "-e",
             f"ZDOTDIR={zdotdir}",
             "-e",
-            "LC_ALL=C",
+            f"LC_ALL={locale}",
             "-e",
-            "LANG=C",
+            f"LANG={locale}",
         ]
         if "XDG_DATA_HOME" in env:
             session_args += ["-e", f"XDG_DATA_HOME={env['XDG_DATA_HOME']}"]
