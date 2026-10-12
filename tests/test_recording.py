@@ -669,6 +669,18 @@ def test_unquote_zsh_dollar_escapes() -> None:
     assert unquote_zsh("$'\\x41\\u0042'") == "AB"
 
 
+def test_unquote_zsh_dollar_escape_fallbacks() -> None:
+    """Unknown and incomplete escapes stay literal instead of guessing bytes."""
+    assert unquote_zsh("$'\\q'") == "q"
+    assert unquote_zsh("$'\\xZZ'") == "\\xZZ"
+    assert unquote_zsh("$'\\u12'") == "\\u12"
+
+
+def test_decode_dollar_quote_keeps_a_trailing_backslash() -> None:
+    """The trailing-backslash guard is unreachable through unquote_zsh; pin it directly."""
+    assert recording._decode_dollar_quote("ab\\") == b"ab\\"  # pyright: ignore[reportPrivateUsage]
+
+
 # --- doctor ------------------------------------------------------------------
 
 

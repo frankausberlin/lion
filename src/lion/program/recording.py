@@ -322,6 +322,33 @@ _DOLLAR_ESCAPES = {
 }
 
 
+def _decode_octal_escape(body: str, index: int) -> tuple[bytes, int]:
+    """Decode up to three octal digits; return the byte and the next index."""
+    digits = ""
+    while index < len(body) and len(digits) < 3 and body[index].isdigit():
+        digits += body[index]
+        index += 1
+    # zsh truncates an octal escape to one byte: $'\777' is 0xff.
+    return bytes([int(digits, 8) & 0xFF]), index
+
+
+def _decode_hex_escape(body: str, index: int, escaped: str) -> tuple[bytes, int]:
+    """Decode an ``x``/``u``/``U`` escape; return the bytes and the next index.
+
+    A digit sequence that is too short or not hexadecimal stays a literal
+    backslash plus the escape letter.
+    """
+    width = {"x": 2, "u": 4, "U": 8}[escaped]
+    index += 1
+    digits = body[index : index + width]
+    if len(digits) == width and all(char in "0123456789abcdefABCDEF" for char in digits):
+        value = int(digits, 16)
+        if escaped == "x":
+            return bytes([value]), index + width
+        return chr(value).encode("utf-8"), index + width
+    return ("\\" + escaped).encode("utf-8"), index
+
+
 def _decode_dollar_quote(body: str) -> bytes:
     """Decode the inner text of one ``$'...'`` group into its bytes."""
     result = bytearray()
@@ -342,26 +369,12 @@ def _decode_dollar_quote(body: str) -> bytes:
             index += 1
             continue
         if escaped.isdigit():
-            digits = ""
-            while index < len(body) and len(digits) < 3 and body[index].isdigit():
-                digits += body[index]
-                index += 1
-            # zsh truncates an octal escape to one byte: $'\777' is 0xff.
-            result.append(int(digits, 8) & 0xFF)
+            decoded, index = _decode_octal_escape(body, index)
+            result.extend(decoded)
             continue
         if escaped in "xuU":
-            width = {"x": 2, "u": 4, "U": 8}[escaped]
-            index += 1
-            digits = body[index : index + width]
-            if len(digits) == width and all(char in "0123456789abcdefABCDEF" for char in digits):
-                value = int(digits, 16)
-                if escaped == "x":
-                    result.append(value)
-                else:
-                    result.extend(chr(value).encode("utf-8"))
-                index += width
-                continue
-            result.extend(("\\" + escaped).encode("utf-8"))
+            decoded, index = _decode_hex_escape(body, index, escaped)
+            result.extend(decoded)
             continue
         result.extend(escaped.encode("utf-8"))
         index += 1
