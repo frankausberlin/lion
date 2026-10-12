@@ -300,7 +300,12 @@ def _run_edit(reference: str | None) -> None:
         _ = stream.write(annotations.overlay_template(current))
         stream.flush()
         os.fsync(stream.fileno())
-    completed = subprocess.run([*shlex.split(editor), str(draft)], check=False)
+    try:
+        completed = subprocess.run([*shlex.split(editor), str(draft)], check=False)
+    except OSError as exc:
+        raise annotations.AnnotationError(
+            f"Cannot run $EDITOR '{editor}': {exc}; the draft remains at {draft}."
+        ) from exc
     if completed.returncode != 0:
         raise annotations.AnnotationError(
             f"{editor} exited with status {completed.returncode}; the draft remains at {draft}."

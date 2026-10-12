@@ -514,6 +514,21 @@ def test_edit_editor_failure_keeps_the_draft(tmp_path: Path, monkeypatch: pytest
     assert not _overlay_path(ref).exists()
 
 
+def test_edit_unrunnable_editor_names_the_draft(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An $EDITOR that cannot be executed keeps the draft and says so."""
+    monkeypatch.setenv("EDITOR", "/nonexistent/editor-binary")
+    ref = _record(COMPLETE_ADR)
+
+    result = _invoke("records", "edit", ref)
+
+    assert result.exit_code == 1
+    assert "Cannot run $EDITOR" in result.stderr
+    drafts = list(recording.load_recording(ref).path.glob(".adr-edit-*"))
+    assert len(drafts) == 1
+    assert str(drafts[0]) in result.stderr
+    assert not _overlay_path(ref).exists()
+
+
 def test_edit_invalid_content_keeps_the_draft(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Invalid edited content fails with the draft path and writes no overlay."""
     monkeypatch.setenv("EDITOR", _edit_script(tmp_path, "path.write_text('broken = [')\n"))
