@@ -205,6 +205,9 @@ best-effort before they leave the process, mirroring the zsh watch mask
   `api_key`, `apikey`, `credential`, `authorization`.
 - `NAME=VALUE` assignments whose name carries a keyword (bare, single- or
   double-quoted values) become `NAME=***`.
+- A mapped field (an ADR field) whose **name** carries a keyword is masked as a
+  whole (`***`), the mapping form of the same rule; a keyword-free name still
+  masks assignments inside its value.
 - `Authorization:` header values become `Authorization: ***`.
 
 The filter applies to the recording details, the recording list notes, the

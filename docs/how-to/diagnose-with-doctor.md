@@ -11,7 +11,7 @@ uv run lion doctor
 ```
 
 `doctor` performs a fresh collection (it does not reuse or change `scan` history)
-and checks ten topics:
+and checks eleven topics:
 
 | Topic | What it checks |
 | --- | --- |
@@ -25,6 +25,7 @@ and checks ten topics:
 | `watch` | the recording space and the ADR overlays are valid |
 | `adr` | the standalone ADR store is valid (`adr.storage`) |
 | `classify` | the classifier rule set (defaults plus the user file) is valid |
+| `serve` | the MCP server definition builds (`serve.definition`) |
 
 Each finding is one of four states:
 
