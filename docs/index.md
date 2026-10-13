@@ -22,6 +22,8 @@ reference reproduces it, and the other pages explain, guide and link.
   integration, record, stop, read the events and classify the blocks.
 - [Document a decision without a recording](how-to/document-a-decision.md) —
   create, edit and read a standalone ADR with `lion adr`.
+- [Use LION from an MCP client](how-to/use-lion-from-an-mcp-client.md) — run `lion serve`
+  and wire it into an agent harness.
 - [Compare stored states](how-to/compare-states.md) — list the history and diff
   two states.
 - [Diagnose with doctor](how-to/diagnose-with-doctor.md) — run the read-only
@@ -44,6 +46,8 @@ reference reproduces it, and the other pages explain, guide and link.
   document schema, ids, the `lion adr` views and the `doctor` topic.
 - [Classifiers](reference/classifiers.md) — the rule file schema, the group
   catalog, the ERE subset and the `lion classify`/`watch R` views.
+- [MCP server](reference/mcp.md) — `lion serve`: tools, resources, prompts,
+  payload shapes and redaction.
 - [Collectors](reference/collectors.md) — the fields each collector records.
 
 ## Explanation
@@ -79,3 +83,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0015 — Classifier rules: read-time data in a POSIX-ERE subset](decisions/0015-classifier-rules-read-time-ere.md)
 - [0016 — The wiki is a derived OKF v0.2 artifact written by scan](decisions/0016-wiki-derived-okf-artifact.md)
 - [0017 — Standalone ADRs live beside the recordings](decisions/0017-standalone-adrs.md)
+- [0018 — The MCP server is a read-only mirror plus ADR writing](decisions/0018-mcp-serve-read-mirror.md)

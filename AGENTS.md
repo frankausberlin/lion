@@ -202,6 +202,23 @@ just audit       # dependency vulnerability scan
   `lion classify` and shares `preview`/`matches_text` with the terse
   `watch R`/`R-` reads in `command/watch.py` (both text-only, read-only, never
   collect).
+- `program/serve.py` owns the MCP server behind `lion serve`: eleven tools
+  that mirror the existing `--json` contracts (`lion_history`, `lion_snapshot`,
+  `lion_diff`, `lion_recordings`, `lion_recording`, `lion_classify`,
+  `lion_adr_list`, `lion_adr_show`, `lion_adr_add`, `lion_adr_update`,
+  `lion_search`), the resources `lion://wiki/index`, `lion://wiki/{collector}`,
+  `lion://collectors` and `lion://classifier/rules`, and the three prompt
+  defaults; `command/serve.py` runs it on stdio (`show_banner=False`, stdout
+  carries only JSON-RPC). `fastmcp` is imported inside `build_server()` only
+  (types under `TYPE_CHECKING`), so the ordinary CLI never pays the import
+  price. `program/redaction.py` mirrors the zsh watch mask for text from
+  recordings and ADR fields (keyword gate, `NAME=VALUE` forms,
+  `Authorization:`; `LION_SERVE_REDACT=0` opts out; a display filter, never a
+  security boundary). `program/prompts.py` reads exactly the three Markdown
+  defaults with fixed TOML frontmatter from `program/prompt_defaults/` once
+  per build and fails loudly with the file path; `serve_checks`
+  (`serve.definition`) only builds the server (doctor topic `serve`, after
+  `classify`).
 - `doctor` is a read-only check framework: `program/checks.py` holds the shared
   `CheckStatus`/`Finding`/`DoctorContext`/`Check` types (a leaf module, so the
   owning check modules never import the aggregator and create a cycle); the
@@ -210,11 +227,12 @@ just audit       # dependency vulnerability scan
   `program/wiki.py` (`wiki_checks`),
   `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`),
   `program/recording.py` (`watch_checks`), `program/annotations.py`
-  (`annotations_checks`), `program/adrs.py` (`adr_checks`) and
-  `classify/checks.py` (`classifier_checks`);
+  (`annotations_checks`), `program/adrs.py` (`adr_checks`),
+  `classify/checks.py` (`classifier_checks`) and `program/serve.py`
+  (`serve_checks`);
   `program/doctor.py` only runs, orders and renders them (`TOPIC_ORDER`
-  includes `wiki`, `shell`, `watch`, `adr` and `classify`; `CHECKS` is an ordered
-  tuple of `(topic, check)` pairs, so the `watch` topic carries two);
+  includes `wiki`, `shell`, `watch`, `adr`, `classify` and `serve`; `CHECKS` is
+  an ordered tuple of `(topic, check)` pairs, so the `watch` topic carries two);
   `command/doctor.py` resolves the home, collects once and publishes at most one
   `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any finding is
   `warn`/`error`. `doctor` writes nothing when everything is `ok`/`skip`, and
@@ -299,6 +317,17 @@ just audit       # dependency vulnerability scan
   carries a deterministic hash, invalid files fail loudly with their path,
   the doctor topic `classify` reports `classify.ruleset`, and the
   `scan`/`status`/`watch` JSON contracts stay unchanged.
+- `serve` never collects: every tool reads the ledger except `lion_adr_add`/
+  `lion_adr_update`, which write only into the standalone ADR store under the
+  ADR 0017 rules. Tool payloads equal the CLI `--json` contracts for the same
+  ledger (pinned by tests), errors surface as MCP tool errors with the program
+  layer's message, and read calls leave every file byte-identical. Redaction is
+  a best-effort display filter mirroring the zsh mask (keyword gate,
+  `NAME=VALUE`, `Authorization:`; `LION_SERVE_REDACT=0` disables it) and never
+  touches snapshots, wiki pages or the classifier rule set. Prompts are package
+  data read once per build; a missing, extra or invalid default is a loud start
+  error naming the path. The transport is stdio only: stdout carries pure
+  JSON-RPC, no banner, no network.
 - `collectors_equal` and displayed diffs share list rules in `state/comparison.py`:
   `STRING_LISTS` (package selections) and an `IDENTITY_KEYS` map (`hardware.gpu`
   by `pci_id`; `network.interfaces`, `services.units`, `containers.containers`,
@@ -370,7 +399,8 @@ just audit       # dependency vulnerability scan
   package detection, the collector set, persisted CLI lifecycles, shlib, the
   watch capture/recordings/shell integration, the wiki renderer or the
   `scan`/`status` text index, the `doctor` checks or the reco
-  paths, or the E2E runner, also run `just test-e2e`. The watch E2E scenarios
+  paths, the MCP server (`serve`, including its prompts and redaction), or the
+  E2E runner, also run `just test-e2e`. The watch E2E scenarios
   drive a real interactive zsh inside tmux in the disposable container
   (`tests/e2e/watchutil.py`) and read results only from spool/record files,
   never from the terminal text. Never run the real package lifecycle on a
