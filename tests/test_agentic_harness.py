@@ -30,6 +30,7 @@ from tests.agentic.agent import (
     AgentError,
     AgentReport,
     AttemptOutcome,
+    AttemptRecord,
     ChatFunction,
     ChatReply,
     ChatTimeoutError,
@@ -910,3 +911,27 @@ def test_chat_maps_transport_and_parse_failures(
     """Transport errors, HTTP errors and unparseable bodies map to the loud chat errors."""
     with pytest.raises(error, match=message):
         _chat_via(handler)
+
+
+# --- 13. closed vocabularies --------------------------------------------------
+
+
+def test_attempt_record_rejects_unknown_termination() -> None:
+    """A termination outside the closed vocabulary is a loud programming error."""
+    with pytest.raises(AgentError, match="unknown termination reason"):
+        AttemptRecord(
+            name="bogus",
+            request="local regression scenario bogus",
+            hard=False,
+            started_at="2026-10-05T18:00:00+00:00",
+            outcome=AttemptOutcome.ERROR,
+            termination="bogus",
+        )
+
+
+def test_report_rejects_unknown_run_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The report never publishes a state outside the closed vocabulary."""
+    report = _report(tmp_path)
+    monkeypatch.setattr(report, "_state", "bogus")
+    with pytest.raises(AgentError, match="unknown run state"):
+        report.write()

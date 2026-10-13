@@ -1257,6 +1257,11 @@ class AttemptRecord:
     metrics: AttemptMetrics = field(default_factory=AttemptMetrics)
     notes: str = ""
 
+    def __post_init__(self) -> None:
+        """Refuse a termination outside the closed vocabulary."""
+        if self.termination not in TERMINATIONS:
+            raise AgentError(f"unknown termination reason: {self.termination!r}; add it to TERMINATIONS")
+
     def as_json(self) -> dict[str, object]:
         """The JSON shape written to ``report.json``."""
         return {
@@ -1504,7 +1509,13 @@ class AgentReport:
         self._extras[key] = value
 
     def write(self) -> None:
-        """Write the report atomically: temp file, fsync, ``os.replace``."""
+        """Write the report atomically: temp file, fsync, ``os.replace``.
+
+        Raises:
+            AgentError: If the run state is outside the closed vocabulary.
+        """
+        if self._state not in RUN_STATES:
+            raise AgentError(f"unknown run state: {self._state!r}; add it to RUN_STATES")
         payload: dict[str, object] = {
             "schema_version": REPORT_SCHEMA_VERSION,
             "run": {
