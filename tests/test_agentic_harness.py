@@ -954,3 +954,13 @@ def test_report_rejects_unknown_run_state(tmp_path: Path, monkeypatch: pytest.Mo
     monkeypatch.setattr(report, "_state", "bogus")
     with pytest.raises(AgentError, match="unknown run state"):
         report.write()
+
+
+# --- 14. scenario names -------------------------------------------------------
+
+
+@pytest.mark.parametrize("name", ["", ".", "..", "sub/scenario"], ids=["empty", "dot", "dotdot", "slash"])
+def test_scenario_name_stays_a_file_component(name: str) -> None:
+    """A scenario name that could escape the transcript directory is rejected."""
+    with pytest.raises(AgentError, match="file name component"):
+        Scenario(name=name, request="local regression scenario")

@@ -534,6 +534,11 @@ class Scenario:
     prompt_arguments: Mapping[str, str] = field(default_factory=dict[str, str])
     check: ScenarioCheck | None = None
 
+    def __post_init__(self) -> None:
+        """Keep the scenario name usable as the transcript file name."""
+        if self.name in ("", ".", "..") or Path(self.name).name != self.name:
+            raise AgentError(f"scenario name must be a plain file name component, got {self.name!r}")
+
 
 @dataclass(frozen=True)
 class ToolCallRecord:
