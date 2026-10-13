@@ -78,6 +78,24 @@ running tmux session, so a test can be observed as it happens instead of only
 through its saved files. The default `just test-e2e` stays headless and removes
 the container, so it is safe for CI.
 
+## Agentic QA (opt-in)
+
+`just test-agent` runs an advisory LLM-as-tester suite (`tests/agentic/`,
+marker `agentic`): a local Ollama model drives `lion serve` over stdio through
+the real MCP client and answers eight scripted requests. Hard assertions stay
+model-independent — a required tool was called, the ADR write path produced a
+valid document, no recorded secret reached the model-visible text, a server
+error was delivered as an error. Tool selection and answer quality are
+reported, not asserted. Transcripts and `report.json` land under
+`agentic-artifacts.*/`.
+
+It is deliberately **not** a fourth gate level: it needs a local model, and its
+determinism depends on the model digest and the Ollama build (temperature 0
+and a fixed seed reduce, but do not remove, variation). It is therefore never
+part of `just check` or CI, and it never replaces the levels above — it
+complements them on the one surface they cannot reach: how an external agent
+actually calls the MCP tools.
+
 ## Where the rules live
 
 The testing rules — determinism, mocks for external tools, the coverage floor

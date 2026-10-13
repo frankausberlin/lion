@@ -59,6 +59,21 @@ If `lion` is not on the client's `PATH`, use the absolute path
 stdout carries pure JSON-RPC; every diagnostic goes to stderr. The server never
 prints a banner and never touches the network.
 
+### Interactive inspection
+
+For a quick manual look at the tools, resources and prompts, the official
+[MCP Inspector](https://github.com/modelcontextprotocol/inspector) can drive
+the server without any repo dependency:
+
+```bash
+npx @modelcontextprotocol/inspector lion serve
+```
+
+It is a manual tool, not part of the test suite: automated coverage lives in
+`tests/test_serve.py` (in-memory contracts), `tests/test_serve_stdio.py` (raw
+JSON-RPC and SDK clients) and the opt-in agentic suite (`just test-agent`, see
+[tests/agentic/README.md](../../tests/agentic/README.md)).
+
 ## Tools
 
 All payloads mirror the corresponding CLI `--json` contract. Errors are

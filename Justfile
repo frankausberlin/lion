@@ -37,6 +37,7 @@ clean:
     fi
     rm -rf build dist ./*.egg-info
     rm -rf e2e-artifacts.*
+    rm -rf agentic-artifacts.*
     find . -path ./.venv -prune -o -path ./.git -prune -o -type d -name __pycache__ -print -exec rm -rf {} +
     find . -path ./.venv -prune -o -path ./.git -prune -o -type f \( -name '*.pyc' -o -name '*.pyo' \) -print -exec rm -f {} +
     echo "Cleaned caches and generated artifacts (kept .venv, sources, .refactor/baselines, SESSION.md and JOURNAL.md)."
@@ -66,13 +67,17 @@ bump part="patch":
 run:
     uv run lion
 
-# Real CLI/package lifecycle in a disposable Docker container
-test-e2e:
-    bash scripts/test-e2e.sh
+# Real CLI/package lifecycle in disposable Docker containers (default 4 parallel shards)
+test-e2e *args:
+    bash scripts/test-e2e.sh {{args}}
 
 # Run the E2E suite and keep the container so a live tmux session can be watched
 test-e2e-attach:
     bash scripts/test-e2e.sh --attach
+
+# Agentic QA against a local Ollama model (opt-in, advisory, never part of check/CI)
+test-agent:
+    uv run pytest tests/agentic -m agentic -v
 
 # Design report to .refactor/ (run | save <name> | compare <name>; advisory, never fails on findings)
 rate-design *args:

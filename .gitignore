@@ -35,4 +35,7 @@ ignore/
 # End-to-end diagnostics
 e2e-artifacts.*/
 
+# Agentic QA transcripts and report (opt-in)
+agentic-artifacts.*/
+
 .kilo

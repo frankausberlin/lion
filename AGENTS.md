@@ -381,7 +381,9 @@ just audit       # dependency vulnerability scan
   are exercised through fixtures/mocks in ordinary tests; `network` uses a
   temporary sysfs tree. The opt-in
   `tests/e2e/` suite exercises real Dpkg and apt-mark in a disposable Docker
-  container; run it only through `just test-e2e`.
+  container; run it only through `just test-e2e`, which shards the suite over
+  four parallel containers by default (`LION_E2E_SHARDS`, or
+  `just test-e2e --shards N`; `--shards 1` is the serial fallback).
 
 ### Testing
 
@@ -409,6 +411,9 @@ just audit       # dependency vulnerability scan
   the E2E suite. It owns setup, isolation, diagnostics, the alpha-testing
   checklists and scenario guidance; [docs/explanation/testing-strategy.md](docs/explanation/testing-strategy.md)
   explains the test levels and why the container cannot replace a real machine.
+- `just test-agent` runs the opt-in agentic QA suite (`tests/agentic/`, marker
+  `agentic`) against a local Ollama model; it is advisory, needs the local
+  model, and is never part of `just check` or CI.
 - Report the checks actually run and their results; name any unavailable
   prerequisites or skipped checks explicitly.
 
