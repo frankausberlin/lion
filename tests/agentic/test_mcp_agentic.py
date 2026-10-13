@@ -98,9 +98,8 @@ def test_tool_selection_matrix(
     """Nine read intents, one expected first tool each — the hit ratio is reported only."""
     hits = 0
     for scenario in MATRIX:
-        expected = scenario.required_tools[0]
         record = run_attempt(scenario, agent_env, agent_report, hard=False)
-        hits += int(list(record.tool_calls)[:1] == [expected])
+        hits += int(record.metrics.first_tool_hit)
     ratio = hits / len(MATRIX)
     agent_report.set_extra(
         "tool_selection",
