@@ -136,10 +136,12 @@ show --json` shape plus `origin`; a recording ADR keeps the `lion records adrs
 REF --json` shape plus `origin`.
 
 `lion_adr_add` and `lion_adr_update` are the only writing tools. They use the
-same store and rules as the CLI ([Standalone ADRs](adrs.md)): field names and
-values must be non-empty, at least one field is required, `update` overwrites
-and adds but never removes a field, and every update stamps `edited_at`. They
-return `{"ref", "path"}` (plus `edited_at` for updates).
+same store and rules as the CLI ([Standalone ADRs](adrs.md)): field names,
+field values and a given `recording` reference must be non-empty, at least one
+field is required, `update` overwrites and adds but never removes a field, and
+every update stamps `edited_at`. The full document is validated before it is
+published, so an invalid write is a loud error and never creates or replaces a
+document. They return `{"ref", "path"}` (plus `edited_at` for updates).
 
 ### Search
 
@@ -163,7 +165,9 @@ line; hits are ordered newest first and capped by `limit`:
 ```
 
 `where` is `field:<name>` for ADRs, `note`, `command` or `comment` for
-recordings; recording hits carry no `origin`. Snippets are redacted and capped.
+recordings; recording hits carry no `origin`. Snippets are redacted and capped;
+the mask runs over the complete value before the snippet is derived, so a
+secret spanning several lines keeps its masking context.
 
 ## Resources
 

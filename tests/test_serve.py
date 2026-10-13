@@ -70,9 +70,10 @@ TOOL_NAMES = (
 
 @pytest.fixture(autouse=True)
 def isolated_home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Disposable home and data directories with a default-on redaction switch."""
+    """Disposable home, data and config directories with a default-on redaction switch."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "data"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     monkeypatch.delenv("ZDOTDIR", raising=False)
     monkeypatch.delenv(redaction.DISABLE_ENV, raising=False)
 
@@ -550,6 +551,25 @@ def test_adr_update_overwrites_adds_and_never_removes() -> None:
     assert "Unknown reference" in _tool_error("lion_adr_update", {"reference": "adr-2000", "fields": {"title": "X"}})
 
 
+def test_adr_write_rejects_invalid_recording_without_touching_the_store() -> None:
+    """A whitespace-only recording is loud and never corrupts or creates a document."""
+    assert "recording must be a non-empty string" in _tool_error(
+        "lion_adr_add", {"fields": {"title": "T"}, "recording": "   "}
+    )
+    assert list(adrs.get_adrs_dir().iterdir()) == []
+
+    ref = _add_adr({"title": "Old", "decision": "Keep me"})
+    path = adrs.get_adrs_dir() / f"{ref}.toml"
+    before = path.read_bytes()
+
+    assert "recording must be a non-empty string" in _tool_error(
+        "lion_adr_update", {"reference": ref, "fields": {"title": "New"}, "recording": "   "}
+    )
+    assert path.read_bytes() == before
+    shown = _mapping(_cli_json("adr", "show", ref, "--json"))
+    assert shown["fields"] == {"title": "Old", "decision": "Keep me"}
+
+
 # --- search -------------------------------------------------------------------
 
 
@@ -648,6 +668,20 @@ def test_redaction_masks_recording_adr_and_search_texts() -> None:
     assert "note-secret" in meta
 
 
+def test_search_masks_multiline_values_with_their_context() -> None:
+    """A match inside a value spanning lines keeps the masking context."""
+    _ = _add_adr({"title": "Keys", "notes": "API_KEY='first line\nSYNTHETIC-SECRET'"})
+
+    shown = _mapping(_call("lion_adr_show", {"reference": "latest"}))
+    assert _mapping(shown["fields"])["notes"] == "API_KEY=***"
+
+    hits = [_mapping(hit) for hit in _sequence(_mapping(_call("lion_search", {"query": "SYNTHETIC"}))["hits"])]
+
+    assert hits
+    assert all(hit["snippet"] == "API_KEY=***" for hit in hits)
+    assert "SYNTHETIC-SECRET" not in json.dumps(hits)
+
+
 def test_redaction_switch_disables_the_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     """``LION_SERVE_REDACT=0`` returns the recorded text verbatim."""
     ref = _recording([("cmd", "export API_KEY=visible-value")])
@@ -722,7 +756,8 @@ def test_classifier_rules_resource_serves_the_merged_ruleset() -> None:
 def test_prompts_render_with_defaults_and_arguments() -> None:
     """The three prompts render from the shipped templates."""
     review = _prompt_text("review_latest_changes")
-    assert "the stored state latest" in review
+    assert "between the stored state previous and the latest state" in review
+    assert "no comparison baseline" in review
     assert "Keep the review concise and actionable." in review
 
     focused = _prompt_text(
@@ -741,6 +776,19 @@ def test_prompts_render_with_defaults_and_arguments() -> None:
 
     recall = _prompt_text("recall_knowledge", {"query": "Why Firefox?"})
     assert "Why Firefox?" in recall
+
+
+def test_review_prompt_default_reference_is_a_real_baseline() -> None:
+    """The default review reference compares two states instead of the latest with itself."""
+    _two_states()
+
+    review = _prompt_text("review_latest_changes")
+    assert "previous" in review
+
+    payload = _mapping(_call("lion_diff", {"reference": "previous"}))
+    assert _mapping(payload["from"])["ref"] == A_REF
+    assert _mapping(payload["to"])["ref"] == B_REF
+    assert payload["changed"] is True
 
 
 def test_prompt_metadata_comes_from_the_files() -> None:

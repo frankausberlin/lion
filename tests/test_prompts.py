@@ -48,7 +48,10 @@ def test_shipped_defaults_load_in_order() -> None:
     assert templates["review_latest_changes"].arguments == (
         prompts.PromptArgumentSpec(
             name="reference",
-            description="State reference to compare against; defaults to the latest stored state.",
+            description=(
+                "State reference to compare against; defaults to the previous state, "
+                "so the review covers the newest changes."
+            ),
             required=False,
         ),
         prompts.PromptArgumentSpec(

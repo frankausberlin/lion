@@ -514,16 +514,29 @@ def lion_adr_update(reference: str, fields: dict[str, str], recording: str | Non
     return {"ref": updated.ref, "path": str(updated.path), "edited_at": updated.edited_at}
 
 
+def _cap_snippet(text: str) -> str:
+    """Collapse one snippet's whitespace and cap it at the shared limit."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) > SNIPPET_LIMIT:
+        return collapsed[:SNIPPET_LIMIT] + "\u2026"
+    return collapsed
+
+
 def _match_snippet(text: str, needle: str) -> str | None:
-    """Return the first matching line, collapsed, redacted and capped."""
-    for line in text.splitlines() or [""]:
-        collapsed = " ".join(line.split())
-        if needle in collapsed.lower():
-            masked = redaction.redact(collapsed)
-            if len(masked) > SNIPPET_LIMIT:
-                return masked[:SNIPPET_LIMIT] + "\u2026"
-            return masked
-    return None
+    """Return the first matching line, collapsed, redacted and capped.
+
+    The whole text is masked before the snippet is derived: a match inside a
+    value that spans several lines must keep the masking context the ADR
+    detail view applies, so the line split cannot happen before the mask.
+    """
+    lines = text.splitlines() or [""]
+    if not any(needle in " ".join(line.split()).lower() for line in lines):
+        return None
+    masked = redaction.redact(text)
+    for line in masked.splitlines():
+        if needle in " ".join(line.split()).lower():
+            return _cap_snippet(line)
+    return _cap_snippet(masked)
 
 
 def lion_search(query: str, limit: int = 20) -> dict[str, object]:
@@ -653,7 +666,7 @@ def classifier_rules_resource() -> str:
 # --- prompts ----------------------------------------------------------------
 
 
-def _render_review(template: prompts.PromptTemplate, reference: str = "latest", focus: str = "") -> str:
+def _render_review(template: prompts.PromptTemplate, reference: str = "previous", focus: str = "") -> str:
     return template.render({"reference": reference, "focus": focus or "Keep the review concise and actionable."})
 
 
@@ -703,7 +716,7 @@ def build_server() -> "FastMCP":
 
     templates = prompts.load_prompt_templates()
 
-    def render_review(reference: str = "latest", focus: str = "") -> str:
+    def render_review(reference: str = "previous", focus: str = "") -> str:
         return _render_review(templates["review_latest_changes"], reference, focus)
 
     def render_document(subject: str, recording: str = "") -> str:
