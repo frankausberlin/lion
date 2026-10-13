@@ -787,12 +787,17 @@ class ScenarioRunError(AgentError):
 # --- agent loop --------------------------------------------------------------
 
 
-def server_command() -> list[str]:
-    """The installed console script, started exactly like a client would."""
+def _lion_script() -> Path:
+    """The installed console script, or a loud setup error."""
     script = Path(sys.executable).with_name("lion")
     if not script.exists():
         raise AgentError(f"missing console script: {script}; run 'uv sync' first")
-    return [str(script), "serve"]
+    return script
+
+
+def server_command() -> list[str]:
+    """The installed console script, started exactly like a client would."""
+    return [str(_lion_script()), "serve"]
 
 
 def _tree(root: Path) -> dict[str, bytes]:
@@ -1166,9 +1171,7 @@ def cli_json(env: Mapping[str, str], *args: str) -> dict[str, object]:
         AgentError: If the command fails, exceeds :data:`CLI_TIMEOUT_SECONDS`,
             or does not print a JSON object.
     """
-    script = Path(sys.executable).with_name("lion")
-    if not script.exists():
-        raise AgentError(f"missing console script: {script}; run 'uv sync' first")
+    script = _lion_script()
     try:
         result = subprocess.run(
             [str(script), *args, "--json"],
