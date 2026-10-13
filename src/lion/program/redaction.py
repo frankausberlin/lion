@@ -9,14 +9,24 @@ untouched - this is a display filter, never a security boundary.
 The trigger gate mirrors the zsh mask exactly: a text is only processed when
 its lowercased form contains one of :data:`KEYWORDS`. Then ``NAME=VALUE``
 assignments whose name carries a secret keyword and ``Authorization:`` headers
-are replaced with ``***``. Set ``LION_SERVE_REDACT=0`` to disable the filter.
+are replaced with ``***``. A mapped field (an ADR field) whose *name* carries a
+keyword is masked as a whole, the mapping form of the same rule. Set
+``LION_SERVE_REDACT=0`` to disable the filter.
 """
 
 import os
 import re
 from collections.abc import Mapping
 
-__all__ = ["DISABLE_ENV", "KEYWORDS", "REDACTED", "enabled", "redact", "redact_fields"]
+__all__ = [
+    "DISABLE_ENV",
+    "KEYWORDS",
+    "REDACTED",
+    "enabled",
+    "redact",
+    "redact_field",
+    "redact_fields",
+]
 
 #: The replacement written over a masked secret.
 REDACTED = "***"
@@ -39,13 +49,21 @@ KEYWORDS: tuple[str, ...] = (
 _NAME = r"[A-Za-z0-9_]*(?:TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|APIKEY|CREDENTIAL)[A-Za-z0-9_]*"
 _VALUE = r"""(?:"(?:[^"\\]|\\.)*"|'[^']*'|[^\s;&|]*)"""
 
-_ASSIGNMENT = re.compile(rf"(?i)({_NAME})=({_VALUE})")
+# The lookbehind keeps a failed match from restarting the greedy name run at
+# every offset of a long alphanumeric token (that made the scan quadratic).
+_ASSIGNMENT = re.compile(rf"(?i)(?<![A-Za-z0-9_])({_NAME})=({_VALUE})")
 _AUTHORIZATION = re.compile(r"(?i)(Authorization:)[ \t]*(?:(?:Basic|Bearer|Token)[ \t]*)?\S+")
 
 
 def enabled() -> bool:
     """Return whether redaction is active; the default is on."""
     return os.environ.get(DISABLE_ENV, "").strip() != "0"
+
+
+def _has_keyword(text: str) -> bool:
+    """Return whether the lowercased text carries a trigger keyword."""
+    lowered = text.lower()
+    return any(keyword in lowered for keyword in KEYWORDS)
 
 
 def redact(text: str) -> str:
@@ -57,13 +75,24 @@ def redact(text: str) -> str:
     """
     if not enabled():
         return text
-    lowered = text.lower()
-    if not any(keyword in lowered for keyword in KEYWORDS):
+    if not _has_keyword(text):
         return text
     masked = _ASSIGNMENT.sub(rf"\1={REDACTED}", text)
     return _AUTHORIZATION.sub(rf"\1 {REDACTED}", masked)
 
 
+def redact_field(name: str, value: str) -> str:
+    """Return one mapped value masked: a keyword-bearing name masks it whole.
+
+    This is the mapping form of the ``NAME=VALUE`` rule: an ADR field named
+    ``api_key``, ``password``, ... must not depend on its value carrying a
+    keyword itself.
+    """
+    if enabled() and _has_keyword(name):
+        return REDACTED
+    return redact(value)
+
+
 def redact_fields(fields: Mapping[str, str]) -> dict[str, str]:
     """Return a copy of a field mapping with every value redacted."""
-    return {name: redact(value) for name, value in fields.items()}
+    return {name: redact_field(name, value) for name, value in fields.items()}

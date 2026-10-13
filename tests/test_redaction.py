@@ -5,6 +5,8 @@ variants and the ``Authorization:`` header. The environment switch is tested
 explicitly; no test depends on the developer's environment.
 """
 
+import time
+
 import pytest
 
 from lion.program import redaction
@@ -97,6 +99,7 @@ def test_env_switch_disables_the_filter(monkeypatch: pytest.MonkeyPatch) -> None
     monkeypatch.setenv(redaction.DISABLE_ENV, "0")
     assert redaction.enabled() is False
     assert redaction.redact("export API_KEY=secret") == "export API_KEY=secret"
+    assert redaction.redact_field("api_key", "sk-live-abc") == "sk-live-abc"
 
 
 def test_env_switch_any_other_value_keeps_the_filter(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -112,9 +115,29 @@ def test_env_switch_any_other_value_keeps_the_filter(monkeypatch: pytest.MonkeyP
 
 def test_redact_fields_masks_every_value() -> None:
     """The mapping helper redacts each value and keeps the keys."""
-    fields = {"title": "Use the API_TOKEN=abc", "component": "shell", "empty": ""}
+    fields = {"title": "Use the API_TOKEN=abc", "component": "shell", "empty": "", "api_key": "sk-live-abc"}
     assert redaction.redact_fields(fields) == {
         "title": "Use the API_TOKEN=***",
         "component": "shell",
         "empty": "",
+        "api_key": "***",
     }
+
+
+def test_redact_field_masks_a_keyword_named_field_whole() -> None:
+    """A keyword-bearing field name masks the value even without a keyword inside."""
+    assert redaction.redact_field("api_key", "sk-live-abc") == redaction.REDACTED
+    assert redaction.redact_field("DB_PASSWORD", "hunter2") == redaction.REDACTED
+    assert redaction.redact_field("title", "Set API_KEY=abc") == "Set API_KEY=***"
+    assert redaction.redact_field("component", "shell") == "shell"
+
+
+def test_long_alphanumeric_runs_are_scanned_in_linear_time() -> None:
+    """A long keyword-adjacent token must not make the scan quadratic."""
+    run = "a" * 20_000
+    start = time.perf_counter()
+
+    assert redaction.redact(f"token {run}") == f"token {run}"
+    assert redaction.redact(f"API_KEY={run}") == "API_KEY=***"
+
+    assert time.perf_counter() - start < 2.0

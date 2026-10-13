@@ -611,7 +611,10 @@ def test_redaction_masks_recording_adr_and_search_texts() -> None:
         ],
         note="rotate API_TOKEN=note-secret",
     )
-    _ = _call("lion_adr_add", {"fields": {"title": "T", "decision": "Set DB_PASSWORD=hunter2"}})
+    _ = _call(
+        "lion_adr_add",
+        {"fields": {"title": "T", "decision": "Set DB_PASSWORD=hunter2", "api_key": "sk-live-abc"}},
+    )
 
     recording_payload = json.dumps(_call("lion_recording", {"reference": ref}))
     assert "super-secret-value" not in recording_payload
@@ -626,11 +629,18 @@ def test_redaction_masks_recording_adr_and_search_texts() -> None:
 
     show_payload = json.dumps(_call("lion_adr_show", {"reference": "latest"}))
     assert "hunter2" not in show_payload
+    assert "sk-live-abc" not in show_payload
     assert "DB_PASSWORD=***" in show_payload
+    assert '"api_key": "***"' in show_payload
 
     search_payload = json.dumps(_call("lion_search", {"query": "secret"}))
     assert "super-secret-value" not in search_payload
     assert "note-secret" not in search_payload
+
+    key_hits = [_mapping(hit) for hit in _sequence(_mapping(_call("lion_search", {"query": "sk-live"}))["hits"])]
+    assert key_hits
+    assert all(hit["snippet"] == "***" for hit in key_hits)
+    assert "sk-live-abc" not in json.dumps(key_hits)
 
     raw = (recording.get_recordings_dir() / ref / "events" / "100-1-1.log").read_text(encoding="utf-8")
     assert "super-secret-value" in raw

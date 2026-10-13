@@ -404,7 +404,7 @@ def _standalone_detail(document: adrs.AdrDocument, adr_refs: list[str], recordin
     }
 
 
-def _recording_detail(record: Recording) -> dict[str, object]:
+def _recording_detail(record: Recording, refs: list[str]) -> dict[str, object]:
     """Return one recording ADR in the ``records adrs REF --json`` shape plus ``origin``."""
     result = annotations.annotations_for(record)
     if result.adr is None:
@@ -413,7 +413,6 @@ def _recording_detail(record: Recording) -> dict[str, object]:
             "issues": [_issue_json(issue) for issue in result.issues],
             "origin": "recording",
         }
-    refs = [item.ref for item in recording.list_recordings()]
     return {"adr": _adr_detail_json(result.adr, refs), "origin": "recording"}
 
 
@@ -448,7 +447,7 @@ def _resolve_detail(reference: str) -> dict[str, object]:
                 f"valid recordings: {_options(recording_refs)}"
             ) from exc
         raise
-    return _recording_detail(record)
+    return _recording_detail(record, recording_refs)
 
 
 def _adr_options(documents: list[adrs.AdrDocument]) -> str:
@@ -556,7 +555,7 @@ def lion_search(query: str, limit: int = 20) -> dict[str, object]:
                             "ref": document.ref,
                             "origin": "standalone",
                             "where": f"field:{name}",
-                            "snippet": snippet,
+                            "snippet": redaction.redact_field(name, snippet),
                         },
                     )
                 )
@@ -581,7 +580,7 @@ def lion_search(query: str, limit: int = 20) -> dict[str, object]:
                                 "ref": record.ref,
                                 "origin": "recording",
                                 "where": f"field:{name}",
-                                "snippet": snippet,
+                                "snippet": redaction.redact_field(name, snippet),
                             },
                         )
                     )
