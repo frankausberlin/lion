@@ -61,7 +61,10 @@ list`, `lion adr show` and `doctor` — it is never skipped.
 command and LION never removes a field. The `id` and `created_at` must stay
 unchanged. Strict validation applies: an invalid draft (including an emptied
 `[fields]` table) aborts loudly, the temporary file stays in the store with its
-path in the message, and the document is not written.
+path in the message, and the document is not written. The same strict reader
+runs before every write: a rendered document that could not be loaded back
+(for example a whitespace-only `recording`) is rejected loudly, a new document
+is never published, and an existing one stays byte-identical.
 
 Unlike the recording overlay (`records edit`), where an empty `[fields]` table
 means "deliberately no ADR", a standalone ADR always has at least one field.

@@ -308,6 +308,26 @@ def _render(
     return tomli_w.dumps(data)
 
 
+def _render_validated(
+    *,
+    ref: str,
+    created_at: str,
+    edited_at: str,
+    recording_ref: str,
+    fields: Mapping[str, str],
+    path: Path,
+) -> str:
+    """Render one document and parse it back, so an invalid one is never published.
+
+    The rendered text runs through the same strict reader as :func:`load_adr`;
+    a violation raises :class:`AdrError` naming ``path`` before anything is
+    staged or published.
+    """
+    content = _render(ref=ref, created_at=created_at, edited_at=edited_at, recording_ref=recording_ref, fields=fields)
+    _ = parse_adr_document(content.encode("utf-8"), path)
+    return content
+
+
 def _instant(now: datetime | None) -> datetime:
     return now if now is not None else datetime.now(UTC)
 
@@ -345,7 +365,14 @@ def create_adr(fields: Mapping[str, str], recording_ref: str = "", *, now: datet
         target = directory / f"{ref}.toml"
         temporary = recording.stage_text(
             directory,
-            _render(ref=ref, created_at=created_at, edited_at="", recording_ref=recording_ref, fields=ordered),
+            _render_validated(
+                ref=ref,
+                created_at=created_at,
+                edited_at="",
+                recording_ref=recording_ref,
+                fields=ordered,
+                path=target,
+            ),
         )
         try:
             os.link(temporary, target)
@@ -372,12 +399,13 @@ def write_adr(
     ordered = annotations.order_fields(fields)
     if not ordered:
         raise AdrError("An ADR needs at least one field.")
-    content = _render(
+    content = _render_validated(
         ref=document.ref,
         created_at=document.created_at,
         edited_at=edited_at,
         recording_ref=recording_ref,
         fields=ordered,
+        path=document.path,
     )
     temporary = recording.stage_text(document.path.parent, content)
     try:

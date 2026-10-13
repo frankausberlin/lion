@@ -75,6 +75,15 @@ def test_create_stores_recording_reference() -> None:
     assert adrs.load_adr(document.path).recording == "2026-01-01T00-00-00.000000Z"
 
 
+def test_create_rejects_invalid_recording_before_publishing() -> None:
+    """A whitespace-only recording fails loudly before any document is published."""
+    with pytest.raises(adrs.AdrError, match="recording must be a non-empty string"):
+        _ = adrs.create_adr({"title": "T"}, recording_ref="   ", now=T0)
+
+    store = adrs.get_adrs_dir()
+    assert not store.exists() or list(store.iterdir()) == []
+
+
 # --- load and validation ---------------------------------------------------
 
 
@@ -199,6 +208,22 @@ def test_update_can_set_recording_and_rejects_empty_fields() -> None:
 
     with pytest.raises(adrs.AdrError, match="at least one field"):
         _ = adrs.update_adr(document, {}, now=T1)
+
+
+def test_update_rejects_invalid_values_and_keeps_the_document_byte_identical() -> None:
+    """An invalid recording or field value never replaces the stored document."""
+    document = adrs.create_adr({"title": "T"}, now=T0)
+    before = document.path.read_bytes()
+
+    with pytest.raises(adrs.AdrError, match="recording must be a non-empty string"):
+        _ = adrs.update_adr(document, {"extra": "x"}, recording_ref="   ", now=T1)
+    assert document.path.read_bytes() == before
+
+    with pytest.raises(adrs.AdrError, match="field 'title' must be a non-empty string"):
+        _ = adrs.update_adr(document, {"title": "   "}, now=T1)
+    assert document.path.read_bytes() == before
+
+    assert adrs.load_adr(document.path).fields == {"title": "T"}
 
 
 def test_write_rejects_empty_fields() -> None:
