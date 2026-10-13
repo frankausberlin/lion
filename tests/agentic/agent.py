@@ -51,7 +51,7 @@ import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -1302,6 +1302,25 @@ class _PendingAttempt:
         return {"name": self.name, "request": self.request, "hard": self.hard, "started_at": self.started_at}
 
 
+def _record_base(
+    pending: _PendingAttempt,
+    *,
+    outcome: AttemptOutcome,
+    failure: str,
+    termination: str,
+) -> AttemptRecord:
+    """The fields every final record shares, before the branch-specific ones."""
+    return AttemptRecord(
+        name=pending.name,
+        request=pending.request,
+        hard=pending.hard,
+        started_at=pending.started_at,
+        outcome=outcome,
+        failure=failure,
+        termination=termination,
+    )
+
+
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -1543,14 +1562,13 @@ class AgentReport:
             pending = self._pending
             self._pending = None
             self._entries.append(
-                AttemptRecord(
-                    name=pending.name,
-                    request=pending.request,
-                    hard=pending.hard,
-                    started_at=pending.started_at,
-                    outcome=AttemptOutcome.ERROR,
-                    failure="attempt interrupted before completion",
-                    termination="interrupted",
+                replace(
+                    _record_base(
+                        pending,
+                        outcome=AttemptOutcome.ERROR,
+                        failure="attempt interrupted before completion",
+                        termination="interrupted",
+                    ),
                     notes="the run stopped while this attempt was in flight",
                 )
             )
@@ -1573,16 +1591,11 @@ def _build_record(
 ) -> AttemptRecord:
     """Build the final report entry from a run, a scenario failure, or bare counters."""
     task_passed = outcome is AttemptOutcome.PASSED
+    base = _record_base(pending, outcome=outcome, failure=failure_text, termination=termination)
     if run is not None:
         metrics = run.recovery_metrics(task_passed=task_passed)
-        return AttemptRecord(
-            name=pending.name,
-            request=pending.request,
-            hard=pending.hard,
-            started_at=pending.started_at,
-            outcome=outcome,
-            failure=failure_text,
-            termination=termination,
+        return replace(
+            base,
             tool_calls=tuple(run.tool_names()),
             steps=run.steps,
             duration_seconds=round(run.duration_seconds, 3),
@@ -1605,14 +1618,8 @@ def _build_record(
     )
     if failure is not None:
         metrics = _recovery_metrics(failure.calls, target, task_passed=False)
-        return AttemptRecord(
-            name=pending.name,
-            request=pending.request,
-            hard=pending.hard,
-            started_at=pending.started_at,
-            outcome=outcome,
-            failure=failure_text,
-            termination=termination,
+        return replace(
+            base,
             tool_calls=tuple(call.name for call in failure.calls),
             steps=failure.steps,
             duration_seconds=round(duration_seconds, 3),
@@ -1629,14 +1636,8 @@ def _build_record(
             recovered=metrics.recovered,
             metrics=_attempt_metrics(scenario, failure.calls, done_reasons=failure.done_reasons),
         )
-    return AttemptRecord(
-        name=pending.name,
-        request=pending.request,
-        hard=pending.hard,
-        started_at=pending.started_at,
-        outcome=outcome,
-        failure=failure_text,
-        termination=termination,
+    return replace(
+        base,
         duration_seconds=round(duration_seconds, 3),
         prompt_name=scenario.prompt_name,
         metrics=_attempt_metrics(scenario, ()),
