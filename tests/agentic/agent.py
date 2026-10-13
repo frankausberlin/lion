@@ -405,8 +405,12 @@ async def chat(
     messages: Sequence[Mapping[str, object]],
     tools: Sequence[Mapping[str, object]],
     timeout: float = CHAT_TIMEOUT_SECONDS,
+    transport: httpx.AsyncBaseTransport | None = None,
 ) -> ChatReply:
     """Send one non-streamed ``/api/chat`` request.
+
+    ``transport`` is an injectable seam: deterministic tests pass an
+    ``httpx.MockTransport``; the default opens a real connection.
 
     Raises:
         ChatTimeoutError: If the request exceeds ``timeout``.
@@ -424,7 +428,7 @@ async def chat(
     }
     url = f"{settings.host}/api/chat"
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
             response = await client.post(url, json=payload)
     except httpx.TimeoutException as exc:
         raise ChatTimeoutError(f"Ollama chat request to {url} timed out after {timeout:.0f}s") from exc

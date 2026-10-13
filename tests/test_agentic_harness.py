@@ -17,6 +17,7 @@ from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import cast
 
+import httpx
 import pytest
 from mcp import StdioServerParameters
 from mcp.types import CallToolResult, GetPromptResult, PromptMessage, TextContent, Tool
@@ -735,3 +736,148 @@ def test_comparability_metadata_is_stable(tmp_path: Path) -> None:
     assert record_one.tool_inventory_sha256 == record_two.tool_inventory_sha256
     assert record_one.prompt_name == ""
     assert record_one.prompt_name == record_two.prompt_name
+
+
+# --- 12. chat parser (mock transport) -----------------------------------------
+
+
+def _responder(response: httpx.Response) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return response
+
+    return handler
+
+
+def _raising(exc: Exception) -> Callable[[httpx.Request], httpx.Response]:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise exc
+
+    return handler
+
+
+def _chat_via(handler: Callable[[httpx.Request], httpx.Response]) -> ChatReply:
+    """Run the real chat parser against a mock transport."""
+    return asyncio.run(
+        agent_module.chat(
+            OllamaSettings(),
+            [{"role": "user", "content": "list states"}],
+            [{"type": "function", "function": {"name": "lion_history"}}],
+            transport=httpx.MockTransport(handler),
+        )
+    )
+
+
+def test_chat_parses_reply_fidelity() -> None:
+    """The chat seam parses the wire shape: content, thinking, tool calls and counters."""
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/api/chat"
+        bodies.append(cast("dict[str, object]", json.loads(request.content)))
+        return httpx.Response(
+            200,
+            json={
+                "message": {
+                    "content": "checking",
+                    "thinking": "look at the ledger first",
+                    "tool_calls": [{"function": {"name": "lion_history", "arguments": {"limit": 2}}}],
+                },
+                "done_reason": "stop",
+                "prompt_eval_count": 11,
+                "eval_count": 7,
+            },
+        )
+
+    reply = _chat_via(handler)
+
+    assert reply.content == "checking"
+    assert reply.thinking == "look at the ledger first"
+    assert reply.done_reason == "stop"
+    assert reply.prompt_eval_count == 11
+    assert reply.eval_count == 7
+    (call,) = reply.tool_calls
+    assert call.name == "lion_history"
+    assert call.arguments == {"limit": 2}
+    assert call.arguments_raw == {"limit": 2}
+    assert call.normalized is False
+    assert call.raw == {"function": {"name": "lion_history", "arguments": {"limit": 2}}}
+
+    settings = OllamaSettings()
+    body = bodies[0]
+    assert body["model"] == settings.model
+    assert body["stream"] is False
+    assert body["messages"] == [{"role": "user", "content": "list states"}]
+    assert body["tools"] == [{"type": "function", "function": {"name": "lion_history"}}]
+    assert body["options"] == settings.options.as_ollama()
+    assert body["keep_alive"] == settings.options.keep_alive
+
+
+@pytest.mark.parametrize(
+    ("arguments", "normalized", "expected"),
+    [
+        ('{"reference": "1", "note": null}', True, {"reference": "1"}),
+        ({"reference": "1"}, False, {"reference": "1"}),
+        (None, True, {}),
+    ],
+    ids=["string-with-null", "clean-object", "missing"],
+)
+def test_chat_normalizes_tool_arguments(arguments: object, normalized: bool, expected: dict[str, object]) -> None:
+    """String or null-laden tool arguments are normalized; clean objects stay untouched."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = {"tool_calls": [{"function": {"name": "lion_history", "arguments": arguments}}]}
+        return httpx.Response(200, json={"message": body})
+
+    (call,) = _chat_via(handler).tool_calls
+    assert call.arguments == expected
+    assert call.arguments_raw == arguments
+    assert call.normalized is normalized
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ("{not json", "unparseable tool arguments"),
+        (5, "non-object tool arguments"),
+        ([1, 2], "non-object tool arguments"),
+    ],
+    ids=["unparseable", "number", "array"],
+)
+def test_chat_rejects_malformed_arguments(arguments: object, message: str) -> None:
+    """Malformed tool arguments raise a loud AgentError before any call runs."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = {"tool_calls": [{"function": {"name": "lion_history", "arguments": arguments}}]}
+        return httpx.Response(200, json={"message": body})
+
+    with pytest.raises(AgentError, match=message):
+        _chat_via(handler)
+
+
+def test_chat_rejects_tool_call_without_name() -> None:
+    """A tool call without a name is a loud AgentError, never a guess."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"message": {"tool_calls": [{"function": {"arguments": {}}}]}})
+
+    with pytest.raises(AgentError, match="without a name"):
+        _chat_via(handler)
+
+
+@pytest.mark.parametrize(
+    ("handler", "error", "message"),
+    [
+        (_raising(httpx.ReadTimeout("read timed out")), ChatTimeoutError, "timed out after"),
+        (_raising(httpx.ConnectError("connection refused")), ChatTransportError, "not reachable"),
+        (_responder(httpx.Response(500, text="model failed to load")), ChatTransportError, "HTTP 500"),
+        (_responder(httpx.Response(200, text="not json")), ChatTransportError, "is not JSON"),
+        (_responder(httpx.Response(200, json=[1, 2])), ChatTransportError, "is not a JSON object"),
+    ],
+    ids=["timeout", "connect", "http-500", "invalid-json", "non-object-json"],
+)
+def test_chat_maps_transport_and_parse_failures(
+    handler: Callable[[httpx.Request], httpx.Response], error: type[AgentError], message: str
+) -> None:
+    """Transport errors, HTTP errors and unparseable bodies map to the loud chat errors."""
+    with pytest.raises(error, match=message):
+        _chat_via(handler)
