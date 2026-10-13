@@ -33,7 +33,9 @@ uv run lion scan
 
 On an empty history this creates the first entry and prints `State created`
 with the path of the new file. No initialization step is needed: `scan` creates
-its data directory automatically.
+its data directory automatically. Every scan also regenerates the derived
+[OKF v0.2 wiki](../reference/wiki.md) and prints the collector index with the
+`wiki:` path.
 
 ## Compare with the latest state
 

@@ -149,7 +149,7 @@ leading `Structure changed.` line in text output.
 ```json
 {
   "status": "error",
-  "checked": ["collectors", "tools", "history", "storage", "shlib", "shell", "watch"],
+  "checked": ["collectors", "tools", "history", "storage", "wiki", "shlib", "shell", "watch", "classify"],
   "findings": [
     {"topic": "tools", "name": "tools.nvidia_smi", "status": "warn",
      "message": "…", "hint": "…", "commands": ["sudo …"]}

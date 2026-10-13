@@ -27,7 +27,7 @@ uv sync           # install all dependencies
 just lint         # ruff + basedpyright
 just typecheck    # type checking only
 just test         # pytest with coverage
-just check        # full gate (lint + typecheck + tests)
+just check        # full gate (lint + typecheck + docs + tests)
 just fix          # auto-fix formatting and lint issues
 ```
 
@@ -38,8 +38,8 @@ just fix          # auto-fix formatting and lint issues
 - `src/lion/state/tools.py` — shared `run_tool` helper for external tools.
 - `src/lion/state/tooling.py` — the `tools` collector of tool availability.
 - `src/lion/state/<collector>.py` — one collector per file (`host`, `hardware`,
-  `network`, `packages`, `services`, `containers`, `tooling`), each with its
-  frozen dataclass, a private `_collect()`, and a `COLLECTOR` export.
+  `network`, `packages`, `services`, `containers`, `tooling`, `dash`), each with
+  its frozen dataclass, a private `_collect()`, and a `COLLECTOR` export.
 - `src/lion/state/registry.py` — ordered `COLLECTORS` tuple.
 - `src/lion/state/model.py` — `Snapshot`, strict validation, and the shared
   `collectors_equal`/`value_equal` comparison rules (including the RAM tolerance);
@@ -49,11 +49,22 @@ just fix          # auto-fix formatting and lint issues
   `resolve`, `load_latest`, `save_state`).
 - `src/lion/program/diff.py` — `diff_collectors`, `has_structural_change` and
   terminal `render` (lists match by identity; `added`/`removed` are structural).
+- `src/lion/program/wiki.py` — the derived OKF v0.2 wiki (`render_pages`,
+  `write_pages`) and the `wiki.freshness` doctor check.
+- `src/lion/program/recording.py` — the watch recordings (lifecycle writers
+  `start_recording`/`stop_recording`; `stage_text` is the shared staging writer
+  used by the lifecycle and the ADR overlay; reads are derived elsewhere).
+- `src/lion/program/annotations.py` — the ADR fold over the recorded events and
+  the `records edit` overlay rules.
+- `src/lion/classify/` — the read-time classifier: bounded shell parser, rule
+  loader and engine, plus the `classify.ruleset` doctor check.
 - `src/lion/program/doctor.py` — the read-only check framework (`checks.py` holds
   the shared types; the checks are owned by the data modules).
 - `src/lion/command/<command>.py` — one module per command (`scan` writes the
-  history; `status`, `history` and `diff` read only; `doctor` only publishes a
-  reco; `shlib` manages the shell library); `cli.py` keeps the Typer decorators.
+  history and the wiki; `status`, `history`, `diff` and `classify` read only;
+  `doctor` only publishes a reco; `shlib` manages the shell library; `shell`,
+  `watch` and `records` own the watch integration); `cli.py` keeps the Typer
+  decorators.
 
 New collectors must not abort a capture: report `unavailable` or `error` with a
 message and return their data keys regardless. Never persist volatile fields.
@@ -66,9 +77,10 @@ without them. Keep `just check` green, which includes
 coverage of at least 90%.
 
 `just check` is the fast gate. For changes to package detection, the collector
-set, persisted CLI lifecycles, shlib, the watch integration, the `doctor` checks
-or the E2E runner, also run the opt-in `just test-e2e` container suite. The
-[testing strategy](docs/explanation/testing-strategy.md) explains the levels,
+set, persisted CLI lifecycles, shlib, the watch capture/recordings/shell
+integration, the wiki renderer or the `scan`/`status` text index, the `doctor`
+checks or the E2E runner, also run the opt-in `just test-e2e` container suite.
+The [testing strategy](docs/explanation/testing-strategy.md) explains the levels,
 and the [E2E guide](tests/e2e/README.md) covers the container, the live-attach
 recipe (`just test-e2e-attach`) and the manual alpha-testing checklists.
 

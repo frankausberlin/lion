@@ -9,6 +9,9 @@ arguments:
 
 - `lion` is the same as `lion status`.
 - `lion shlib` is the same as `lion shlib status`.
+- `lion shell` is the same as `lion shell status`.
+- `lion watch` is the same as `lion watch status`.
+- `lion records` is the same as `lion records status`.
 
 A group without a `status` subcommand shows its help instead, so no operation
 runs by accident.

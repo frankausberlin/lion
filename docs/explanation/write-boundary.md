@@ -19,8 +19,10 @@ explains what it means in practice.
 - **Fail loud.** No silent omissions. Every stored file is validated; a damaged
   entry stops the command with its path instead of being skipped.
 - **Read/write separation.** Read-only commands never write. In practice only
-  `scan` (state history), `shlib` (shell configuration) and `doctor`
-  (a recommendation script) write.
+  `scan` (state history and the derived wiki), `shlib` (shell configuration),
+  `shell insert`/`remove` (the watch artifact), `watch start`/`stop`
+  (recordings), `records edit` (the ADR overlay) and `doctor` (a recommendation
+  script) write.
 - **Deterministic.** No volatile fields (clocks, temperatures, uptime) are
   persisted.
 - **No secrets in output.** Redaction and restrictive permissions where needed;
@@ -31,6 +33,11 @@ explains what it means in practice.
 - State history: `$XDG_DATA_HOME/lion/history` (default
   `~/.local/share/lion/history`), plus the writer lock `.history.lock` — see
   [Storage](../reference/storage.md).
+- Derived wiki: `$XDG_DATA_HOME/lion/wiki` — see
+  [Wiki](../reference/wiki.md).
+- Recordings and ADR overlays: `$XDG_DATA_HOME/lion/recordings/<ref>` — see
+  [Recordings](../reference/recordings.md) and
+  [Records and ADRs](../reference/records-and-adrs.md).
 - Recommendation scripts: `$XDG_DATA_HOME/lion/recos` — see
   [Storage](../reference/storage.md) and
   [Diagnose with doctor](../how-to/diagnose-with-doctor.md).

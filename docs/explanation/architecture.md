@@ -7,7 +7,7 @@ LION separates the machine-state core from the CLI:
 | Layer | Location | Responsibility |
 | --- | --- | --- |
 | Collector framework | `src/lion/state/` | Collect the machine state, the snapshot model and its comparison rules. |
-| Programs | `src/lion/program/` | State history storage, the collector diff, the shell library and the doctor checks. |
+| Programs | `src/lion/program/` | State history storage, the collector diff, the derived wiki, the shell library and the watch shell integration, recordings and ADRs, and the doctor checks. |
 | Commands | `src/lion/command/` | One module per command with a single `run` function. |
 | CLI | `src/lion/cli.py` | Typer decorators and command wiring only. |
 | Help texts | `src/lion/main.py` | The English epilogs and sub-app help. |
@@ -27,15 +27,21 @@ only calls it, prints the result and maps errors to CLI failures.
 `doctor` is a read-only framework: the shared check types live in
 `program/checks.py`, the checks are owned by the modules that own the data
 (`state/diagnosis.py` for collectors and tools, `program/storage.py` for history
-and storage, `program/shlib.py` for the shell library) and `program/doctor.py`
+and storage, `program/wiki.py` for the wiki, `program/shlib.py` for the shell
+library, `program/shell.py` for the watch integration, `program/recording.py`
+for the recording space, `program/annotations.py` for the ADR overlays and
+`classify/checks.py` for the rule set) and `program/doctor.py`
 only runs, orders and renders them. `command/doctor.py` resolves the home, runs
 the checks and publishes at most one reco script.
 
 ## Write boundary
 
-Only `scan` (to the state history), `shlib` (to the shell configuration) and
+Only `scan` (state history and the derived wiki), `shlib` (the shell
+configuration), `shell insert`/`remove` (the watch artifact),
+`watch start`/`stop` (recordings), `records edit` (the ADR overlay) and
 `doctor` (a reviewable recommendation script, never executed) write. `status`,
-`history` and `diff` are strictly read-only. See the
+`history`, `diff`, `classify`, `records status`/`list`/`adrs` and the read-only
+`shell`/`watch` subcommands never write. See the
 [write boundary](write-boundary.md).
 
 ## Terminology: `status` vs. `state`
@@ -46,7 +52,6 @@ Only `scan` (to the state history), `shlib` (to the shell configuration) and
   collector mapping and the persisted `Snapshot`.
 
 The two words are not interchangeable. A command group with a `status`
-subcommand runs it when invoked without arguments (`lion` is the same as
-`lion status`, `lion shlib` the same as `lion shlib status`); a group without
-one shows its help. This is detailed in
-[CLI conventions](cli-conventions.md).
+subcommand runs it when invoked without arguments (`lion`, `lion shlib`,
+`lion shell`, `lion watch` and `lion records`); a group without one shows its
+help. This is detailed in [CLI conventions](cli-conventions.md).

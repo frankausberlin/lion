@@ -124,7 +124,8 @@ just audit       # dependency vulnerability scan
   help texts (epilogs and sub-app help) live in `main.py` and are imported by
   `cli.py`. `shlib` is a Typer
   sub-app with `status`/`install`/`uninstall`. A command group with a `status`
-  subcommand (`lion`, `lion shlib`) runs it when invoked without arguments;
+  subcommand (`lion`, `lion shlib`, `lion shell`, `lion watch`,
+  `lion records`) runs it when invoked without arguments;
   groups without one show their help. Naming: `status` is the
   command, `state` is the internal representation (collected mapping / persisted
   `Snapshot`). The former `scan.py` and `scans/` directory are gone.
@@ -181,10 +182,12 @@ just audit       # dependency vulnerability scan
   JSON shapes; `engine.py` builds the blocks (non-empty, non-silent `cmd`
   events only), matches segment scope anchored after the prefix strip and
   block scope on masked lines, deduplicates by `(group, rule_id, fields)` and
-  orders deterministically; `checks.py` owns the doctor check
-  `classify.ruleset`. `command/classify.py` implements `lion classify` and
-  shares `preview`/`matches_text` with the terse `watch R`/`R-` reads in
-  `command/watch.py` (both text-only, read-only, never collect).
+  orders deterministically; `text.py` (`sanitize_controls`) strips C0/C1
+  control characters from every terminal-facing classifier text; `checks.py`
+  owns the doctor check `classify.ruleset`. `command/classify.py` implements
+  `lion classify` and shares `preview`/`matches_text` with the terse
+  `watch R`/`R-` reads in `command/watch.py` (both text-only, read-only, never
+  collect).
 - `doctor` is a read-only check framework: `program/checks.py` holds the shared
   `CheckStatus`/`Finding`/`DoctorContext`/`Check` types (a leaf module, so the
   owning check modules never import the aggregator and create a cycle); the

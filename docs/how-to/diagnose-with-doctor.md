@@ -11,7 +11,7 @@ uv run lion doctor
 ```
 
 `doctor` performs a fresh collection (it does not reuse or change `scan` history)
-and checks five topics:
+and checks nine topics:
 
 | Topic | What it checks |
 | --- | --- |
@@ -19,7 +19,11 @@ and checks five topics:
 | `tools` | the external tools required for the detected profile |
 | `history` | the stored states are valid and in order |
 | `storage` | the data directory, `history/` and `recos/` are writable |
+| `wiki` | the derived wiki matches the newest history state (`wiki.freshness`) |
 | `shlib` | the shell library installation is consistent |
+| `shell` | the watch shell integration is present and unmodified |
+| `watch` | the recording space and the ADR overlays are valid |
+| `classify` | the classifier rule set (defaults plus the user file) is valid |
 
 Each finding is one of four states:
 
