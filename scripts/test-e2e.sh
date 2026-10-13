@@ -101,7 +101,8 @@ if ! assignment="$(python3 scripts/e2e_shards.py --shards "$shards")"; then
     exit 1
 fi
 
-echo "E2E: $shards container(s) in parallel; per-shard artifacts under $artifacts"
+effective_shards="$(printf '%s\n' "$assignment" | grep -c .)"
+echo "E2E: $effective_shards container(s) in parallel; per-shard artifacts under $artifacts"
 while IFS= read -r line; do
     [[ -n "$line" ]] || continue
     IFS=$'\t' read -r -a fields <<<"$line"
@@ -191,4 +192,4 @@ if (( failed )); then
     echo "E2E failed: at least one shard exited non-zero." >&2
     exit 1
 fi
-echo "E2E passed: all $shards shard(s) green."
+echo "E2E passed: all ${#containers[@]} shard(s) green."

@@ -30,7 +30,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import TracebackType
@@ -327,7 +327,6 @@ class ScenarioContext:
     """The ledger state around one scenario run, for custom checks."""
 
     data_home: Path
-    artifacts: Path
     server_env: Mapping[str, str]
     before: Mapping[str, bytes]
     after: Mapping[str, bytes]
@@ -364,7 +363,6 @@ class Scenario:
 class ToolCallRecord:
     """One executed tool call with its result and duration."""
 
-    step: int
     name: str
     arguments: Mapping[str, object]
     is_error: bool
@@ -546,7 +544,6 @@ class Transcript:
 
     def __init__(self, path: Path) -> None:
         """Open the transcript file below ``path``, creating parents."""
-        self.path = path
         path.parent.mkdir(parents=True, exist_ok=True)
         self._handle = path.open("w", encoding="utf-8")
 
@@ -636,7 +633,6 @@ async def _drive(
                 duration = time.monotonic() - started
                 calls.append(
                     ToolCallRecord(
-                        step=step,
                         name=call.name,
                         arguments=call.arguments,
                         is_error=is_error,
@@ -683,7 +679,6 @@ def run_scenario(
     duration = time.monotonic() - started
     context = ScenarioContext(
         data_home=data_home,
-        artifacts=artifacts,
         server_env=server_env,
         before=before,
         after=_tree(data_home),
@@ -704,12 +699,6 @@ def run_scenario(
 def transcript_text(run: ScenarioRun) -> str:
     """The full transcript of a run, for the secret-leak proof."""
     return run.transcript.read_text(encoding="utf-8")
-
-
-def iter_transcript(run: ScenarioRun) -> Iterator[dict[str, object]]:
-    """Parse the transcript into its JSON objects."""
-    for line in transcript_text(run).splitlines():
-        yield _loads_object(line, "transcript line")
 
 
 def cli_json(env: Mapping[str, str], *args: str) -> dict[str, object]:

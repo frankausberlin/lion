@@ -25,7 +25,9 @@ from agent import (
     evaluate,
     transcript_text,
 )
-from ledger import A_REF, B_REF, SEARCH_TOKEN, SECRET
+from ledger import SEARCH_TOKEN, SECRET
+
+from tests.ledger_fixtures import A_REF, B_REF
 
 pytestmark = pytest.mark.agentic
 
@@ -98,10 +100,10 @@ def _check_adr_write(run: ScenarioRun) -> None:
 
 
 def _check_missing_recording_error(run: ScenarioRun) -> None:
-    relevant = [call for call in run.calls if call.name in {"lion_recording", "lion_recordings"}]
-    assert relevant, f"neither lion_recording nor lion_recordings was called: {run.tool_names()}"
-    assert any(call.is_error for call in relevant), "the missing-recording result was not delivered as an error"
-    assert any("No recording stored" in call.result_text for call in relevant), (
+    calls = run.calls_of("lion_recording")
+    assert calls, f"lion_recording was not called: {run.tool_names()}"
+    assert any(call.is_error for call in calls), "the missing-recording result was not delivered as an error"
+    assert any("No recording stored" in call.result_text for call in calls), (
         "the error text does not name the missing recording"
     )
 
@@ -153,7 +155,7 @@ SCENARIO_ADR_WRITE = Scenario(
 SCENARIO_MISSING_RECORDING = Scenario(
     name="missing-recording",
     request="Open the latest shell recording and tell me what commands it contains.",
-    required_any=("lion_recording", "lion_recordings"),
+    required_tools=("lion_recording",),
     check=_check_missing_recording_error,
 )
 SCENARIO_REDACTION = Scenario(

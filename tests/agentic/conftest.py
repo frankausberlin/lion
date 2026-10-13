@@ -17,6 +17,8 @@ import ledger
 import pytest
 from agent import AgentEnvironment, AgentReport, OllamaModel, OllamaSettings, check_ollama
 
+from tests.ledger_fixtures import two_states as seed_two_states
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -82,7 +84,7 @@ def agent_env(
 @pytest.fixture
 def two_states(agent_env: AgentEnvironment) -> None:
     """Seed the fixed A/B states (A older, B latest)."""
-    ledger.two_states()
+    seed_two_states()
 
 
 @pytest.fixture

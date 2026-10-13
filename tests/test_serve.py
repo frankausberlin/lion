@@ -10,13 +10,12 @@ environment is isolated via ``HOME``/``XDG_DATA_HOME``.
 import asyncio
 import json
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
 import pytest
-import tomli_w
 from fastmcp import Client
 from fastmcp.exceptions import ToolError
 from mcp.shared.exceptions import MCPError
@@ -29,17 +28,21 @@ from lion.command import scan as scan_command
 from lion.program import adrs, prompts, recording, redaction, serve
 from lion.program.storage import get_history_dir
 from lion.program.wiki import get_wiki_dir
-from lion.state.model import Snapshot
+from tests.ledger_fixtures import (
+    A_ISO,
+    A_REF,
+    B_ISO,
+    B_REF,
+    HOST_STATE,
+    OTHER_STATE,
+    add_adr,
+    stopped_recording,
+    two_states,
+    write_state,
+)
 
 runner = CliRunner()
 
-HOST_STATE: dict[str, dict[str, object]] = {"host": {"status": "ok", "error": "", "hostname": "lion"}}
-OTHER_STATE: dict[str, dict[str, object]] = {"host": {"status": "ok", "error": "", "hostname": "other"}}
-
-A_REF = "2026-10-05T18-00-00.000000Z"
-A_ISO = "2026-10-05T18:00:00+00:00"
-B_REF = "2026-10-05T20-00-00.000000Z"
-B_ISO = "2026-10-05T20:00:00+00:00"
 C_REF = "2026-10-05T22-00-00.000000Z"
 C_ISO = "2026-10-05T22:00:00+00:00"
 
@@ -163,42 +166,9 @@ def _mappings(value: object) -> list[dict[str, object]]:
 
 
 # --- fixtures for the ledger -------------------------------------------------
-
-
-def _write_state(ref: str, iso: str, collectors: Mapping[str, Mapping[str, object]]) -> None:
-    get_history_dir().mkdir(parents=True, exist_ok=True)
-    snapshot = Snapshot(created_at=iso, confirmed_at=iso, collectors={k: dict(v) for k, v in collectors.items()})
-    (get_history_dir() / f"{ref}.toml").write_text(tomli_w.dumps(snapshot.to_toml_dict()))
-
-
-def _two_states() -> None:
-    _write_state(A_REF, A_ISO, HOST_STATE)
-    _write_state(B_REF, B_ISO, OTHER_STATE)
-
-
-def _add_adr(fields: Mapping[str, str], now: datetime | None = None) -> str:
-    return adrs.create_adr(dict(fields), now=now).ref
-
-
-def _recording(events: Sequence[tuple[str, str]], note: str = "") -> str:
-    """Create one stopped recording whose single segment carries the events."""
-    record = recording.start_recording(dict(HOST_STATE), note)
-    base = datetime.now(UTC).timestamp() - 60
-    boot = Path("/proc/sys/kernel/random/boot_id").read_text(encoding="utf-8").strip()
-    stat = Path(f"/proc/{os.getpid()}/stat").read_text(encoding="utf-8")
-    ticks = int(stat.rsplit(")", 1)[-1].split()[19])
-    lines = [f"segment\t{boot}\t{os.getpid()}\t{ticks}\t{base}"]
-    for index, (kind, text) in enumerate(events):
-        stamp = base + index + 1
-        if kind in ("cmd", "comment"):
-            lines.append(f"{kind}\t{stamp}\t/tmp\t{text}")
-        else:
-            lines.append(f"{kind}\t{stamp}\t{text}")
-    directory = recording.get_recordings_dir() / record.ref / "events"
-    directory.mkdir(parents=True, exist_ok=True)
-    (directory / "100-1-1.log").write_text("\n".join(lines) + "\n", encoding="utf-8")
-    _ = recording.stop_recording(dict(HOST_STATE))
-    return record.ref
+#
+# The builders live in tests/ledger_fixtures.py, shared with the agentic suite;
+# the aliases keep this file's long-standing call sites unchanged.
 
 
 def _tree(root: Path) -> dict[str, bytes]:
@@ -265,7 +235,7 @@ def test_resource_and_prompt_inventory_is_exact() -> None:
 
 def test_both_protocol_eras_serve_the_same_tools() -> None:
     """The modern discover handshake and the legacy initialize serve alike."""
-    _two_states()
+    two_states()
 
     modern = _call("lion_history")
     legacy = _call("lion_history", mode="legacy")
@@ -279,9 +249,9 @@ def test_both_protocol_eras_serve_the_same_tools() -> None:
 
 def test_history_matches_cli_json_and_trims_with_limit() -> None:
     """The history tool mirrors ``lion history --json`` and trims like ``--limit``."""
-    _write_state(A_REF, A_ISO, HOST_STATE)
-    _write_state(B_REF, B_ISO, OTHER_STATE)
-    _write_state(C_REF, C_ISO, HOST_STATE)
+    write_state(A_REF, A_ISO, HOST_STATE)
+    write_state(B_REF, B_ISO, OTHER_STATE)
+    write_state(C_REF, C_ISO, HOST_STATE)
 
     assert _call("lion_history") == _cli_json("history", "--json")
 
@@ -305,7 +275,7 @@ def test_history_without_entries_is_empty_not_an_error() -> None:
 
 def test_snapshot_matches_the_stored_document() -> None:
     """The snapshot tool returns the reference and the stored TOML document."""
-    _two_states()
+    two_states()
 
     payload = _mapping(_call("lion_snapshot"))
     assert payload["ref"] == B_REF
@@ -329,15 +299,15 @@ def test_snapshot_without_history_is_a_loud_error() -> None:
 
 def test_diff_matches_cli_json() -> None:
     """The diff tool mirrors ``lion diff --json`` for both reference styles."""
-    _two_states()
+    two_states()
 
     assert _call("lion_diff", {"reference": A_REF}) == _cli_json("diff", A_REF, "--json")
     assert _call("lion_diff", {"reference": "1", "second": "2"}) == _cli_json("diff", "1", "2", "--json")
 
 
-def test_diff_requires_two_states() -> None:
+def test_diff_requirestwo_states() -> None:
     """Fewer than two states is a loud error with the scan hint."""
-    _write_state(A_REF, A_ISO, HOST_STATE)
+    write_state(A_REF, A_ISO, HOST_STATE)
 
     message = _tool_error("lion_diff", {"reference": A_REF})
 
@@ -350,8 +320,8 @@ def test_diff_requires_two_states() -> None:
 
 def test_recordings_matches_cli_json_and_trims_with_limit() -> None:
     """The recordings tool mirrors ``lion watch list --json`` and trims the newest."""
-    first = _recording([("cmd", "echo one")], note="first")
-    second = _recording([("cmd", "echo two")], note="second")
+    first = stopped_recording([("cmd", "echo one")], note="first")
+    second = stopped_recording([("cmd", "echo two")], note="second")
 
     assert _call("lion_recordings") == _cli_json("watch", "list", "--json")
 
@@ -364,7 +334,7 @@ def test_recordings_matches_cli_json_and_trims_with_limit() -> None:
 
 def test_recording_matches_cli_json() -> None:
     """The recording tool mirrors ``lion watch show REF --json`` event for event."""
-    ref = _recording(
+    ref = stopped_recording(
         [
             ("cmd", "echo hello"),
             ("result", "0\t1.5\t2.25"),
@@ -379,7 +349,7 @@ def test_recording_matches_cli_json() -> None:
 
 def test_recording_unknown_reference_is_a_loud_error() -> None:
     """An unknown recording reference lists the known recordings."""
-    _ = _recording([("cmd", "echo one")])
+    _ = stopped_recording([("cmd", "echo one")])
 
     message = _tool_error("lion_recording", {"reference": "nope"})
 
@@ -397,7 +367,7 @@ def test_recording_without_any_recording_names_the_hint() -> None:
 
 def test_classify_matches_cli_json() -> None:
     """The classify tool mirrors ``lion classify --json`` for a stored recording."""
-    ref = _recording([("cmd", "apt-get install -y ripgrep")])
+    ref = stopped_recording([("cmd", "apt-get install -y ripgrep")])
 
     assert _call("lion_classify", {"reference": ref}) == _cli_json("classify", ref, "--json")
 
@@ -412,8 +382,8 @@ def test_classify_without_recordings_is_empty() -> None:
 
 def test_adr_list_combines_both_origins_oldest_first() -> None:
     """Standalone and recording ADRs share one uniform, ordered list."""
-    record_ref = _recording(COMPLETE_ADR)
-    standalone_ref = _add_adr({"title": "Standalone title", "decision": "Because"})
+    record_ref = stopped_recording(COMPLETE_ADR)
+    standalone_ref = add_adr({"title": "Standalone title", "decision": "Because"})
 
     payload = _mapping(_call("lion_adr_list"))
     items = [_mapping(item) for item in _sequence(payload["adrs"])]
@@ -444,7 +414,7 @@ def test_adr_list_combines_both_origins_oldest_first() -> None:
 
 def test_adr_show_standalone_matches_cli_plus_origin() -> None:
     """A standalone ADR keeps the ``adr show --json`` shape and adds ``origin``."""
-    ref = _add_adr({"title": "T", "decision": "D"})
+    ref = add_adr({"title": "T", "decision": "D"})
 
     payload = _mapping(_call("lion_adr_show", {"reference": ref}))
 
@@ -455,7 +425,7 @@ def test_adr_show_standalone_matches_cli_plus_origin() -> None:
 
 def test_adr_show_recording_matches_cli_plus_origin() -> None:
     """A recording ADR keeps the ``records adrs REF --json`` shape and adds ``origin``."""
-    ref = _recording(COMPLETE_ADR)
+    ref = stopped_recording(COMPLETE_ADR)
 
     payload = _mapping(_call("lion_adr_show", {"reference": ref}))
 
@@ -467,7 +437,7 @@ def test_adr_show_recording_matches_cli_plus_origin() -> None:
 
 def test_adr_show_recording_without_adr_reports_null() -> None:
     """A recording without an ADR yields ``adr: null`` plus its issues."""
-    ref = _recording([("cmd", "echo plain")])
+    ref = stopped_recording([("cmd", "echo plain")])
 
     payload = _mapping(_call("lion_adr_show", {"reference": ref}))
 
@@ -477,8 +447,8 @@ def test_adr_show_recording_without_adr_reports_null() -> None:
 
 def test_adr_show_resolution_and_errors() -> None:
     """ADR ids win over recordings; unknown and empty references fail loudly."""
-    record_ref = _recording(COMPLETE_ADR)
-    standalone_ref = _add_adr({"title": "T"})
+    record_ref = stopped_recording(COMPLETE_ADR)
+    standalone_ref = add_adr({"title": "T"})
 
     assert _mapping(_call("lion_adr_show", {"reference": record_ref}))["origin"] == "recording"
     assert _mapping(_call("lion_adr_show", {"reference": "adr-2026"}))["ref"] == standalone_ref
@@ -492,8 +462,8 @@ def test_adr_show_resolution_and_errors() -> None:
 
 def test_adr_show_ambiguous_prefix_is_loud() -> None:
     """An ambiguous ADR prefix is an error instead of a guess."""
-    first = _add_adr({"title": "One"}, now=T0)
-    second = _add_adr({"title": "Two"}, now=T0.replace(second=1))
+    first = add_adr({"title": "One"}, now=T0)
+    second = add_adr({"title": "Two"}, now=T0.replace(second=1))
     common = os.path.commonprefix([first, second])
     assert common.startswith("adr-2026-10-13")
 
@@ -530,7 +500,7 @@ def test_adr_add_writes_through_the_real_store() -> None:
 
 def test_adr_update_overwrites_adds_and_never_removes() -> None:
     """The update tool merges fields, stamps ``edited_at`` and keeps the rest."""
-    ref = _add_adr({"title": "Old", "decision": "Keep me"})
+    ref = add_adr({"title": "Old", "decision": "Keep me"})
 
     payload = _mapping(_call("lion_adr_update", {"reference": ref, "fields": {"title": "New", "component": "shell"}}))
 
@@ -558,7 +528,7 @@ def test_adr_write_rejects_invalid_recording_without_touching_the_store() -> Non
     )
     assert list(adrs.get_adrs_dir().iterdir()) == []
 
-    ref = _add_adr({"title": "Old", "decision": "Keep me"})
+    ref = add_adr({"title": "Old", "decision": "Keep me"})
     path = adrs.get_adrs_dir() / f"{ref}.toml"
     before = path.read_bytes()
 
@@ -575,14 +545,14 @@ def test_adr_write_rejects_invalid_recording_without_touching_the_store() -> Non
 
 def test_search_finds_adr_fields_and_recording_texts() -> None:
     """Search covers both ADR origins and the note, command and comment texts."""
-    record_ref = _recording(
+    record_ref = stopped_recording(
         [
             ("cmd", "firefox --new-window"),
             ("comment", "# firefox shortcut"),
         ],
         note="the firefox note",
     )
-    standalone_ref = _add_adr({"title": "Browser", "decision": "Firefox stays the default"})
+    standalone_ref = add_adr({"title": "Browser", "decision": "Firefox stays the default"})
 
     payload = _mapping(_call("lion_search", {"query": "firefox"}))
     hits = [_mapping(hit) for hit in _sequence(payload["hits"])]
@@ -604,8 +574,8 @@ def test_search_finds_adr_fields_and_recording_texts() -> None:
 
 def test_search_is_case_insensitive_and_newest_first() -> None:
     """Search matches case-insensitively and orders hits newest first."""
-    _ = _recording([("cmd", "echo ALPHA")])
-    _ = _recording([("cmd", "echo alpha")])
+    _ = stopped_recording([("cmd", "echo ALPHA")])
+    _ = stopped_recording([("cmd", "echo alpha")])
 
     hits = [_mapping(hit) for hit in _sequence(_mapping(_call("lion_search", {"query": "alpha"}))["hits"])]
 
@@ -624,7 +594,7 @@ def test_search_rejects_empty_query_and_bad_limit() -> None:
 
 def test_redaction_masks_recording_adr_and_search_texts() -> None:
     """Recorded secrets disappear from every read surface while bytes stay raw."""
-    ref = _recording(
+    ref = stopped_recording(
         [
             ("cmd", "export API_KEY=super-secret-value"),
             ("comment", 'curl -H "Authorization: Bearer tok-123"'),
@@ -670,7 +640,7 @@ def test_redaction_masks_recording_adr_and_search_texts() -> None:
 
 def test_search_masks_multiline_values_with_their_context() -> None:
     """A match inside a value spanning lines keeps the masking context."""
-    _ = _add_adr({"title": "Keys", "notes": "API_KEY='first line\nSYNTHETIC-SECRET'"})
+    _ = add_adr({"title": "Keys", "notes": "API_KEY='first line\nSYNTHETIC-SECRET'"})
 
     shown = _mapping(_call("lion_adr_show", {"reference": "latest"}))
     assert _mapping(shown["fields"])["notes"] == "API_KEY=***"
@@ -684,7 +654,7 @@ def test_search_masks_multiline_values_with_their_context() -> None:
 
 def test_redaction_switch_disables_the_filter(monkeypatch: pytest.MonkeyPatch) -> None:
     """``LION_SERVE_REDACT=0`` returns the recorded text verbatim."""
-    ref = _recording([("cmd", "export API_KEY=visible-value")])
+    ref = stopped_recording([("cmd", "export API_KEY=visible-value")])
     monkeypatch.setenv(redaction.DISABLE_ENV, "0")
 
     payload = json.dumps(_call("lion_recording", {"reference": ref}))
@@ -695,7 +665,7 @@ def test_redaction_switch_disables_the_filter(monkeypatch: pytest.MonkeyPatch) -
 
 def test_snapshots_are_never_redacted() -> None:
     """Collector facts stay untouched even when they contain keyword patterns."""
-    _write_state(A_REF, A_ISO, {"host": {"status": "ok", "error": "", "hostname": "API_KEY=abc"}})
+    write_state(A_REF, A_ISO, {"host": {"status": "ok", "error": "", "hostname": "API_KEY=abc"}})
 
     payload = _mapping(_call("lion_snapshot", {"reference": A_REF}))
 
@@ -780,7 +750,7 @@ def test_prompts_render_with_defaults_and_arguments() -> None:
 
 def test_review_prompt_default_reference_is_a_real_baseline() -> None:
     """The default review reference compares two states instead of the latest with itself."""
-    _two_states()
+    two_states()
 
     review = _prompt_text("review_latest_changes")
     assert "previous" in review
@@ -830,9 +800,9 @@ def test_read_surface_leaves_every_file_untouched(monkeypatch: pytest.MonkeyPatc
     """Every read tool, resource and prompt leaves home and data byte-identical."""
     monkeypatch.setattr(scan_command, "collect_state", _collect_once)
     assert _invoke("scan").exit_code == 0
-    _write_state(B_REF, B_ISO, OTHER_STATE)
-    record_ref = _recording([("cmd", "apt-get install -y ripgrep")])
-    _ = _add_adr({"title": "T", "decision": "D"})
+    write_state(B_REF, B_ISO, OTHER_STATE)
+    record_ref = stopped_recording([("cmd", "apt-get install -y ripgrep")])
+    _ = add_adr({"title": "T", "decision": "D"})
     before = _tree(tmp_path)
 
     assert _call("lion_history")
