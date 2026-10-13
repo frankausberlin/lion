@@ -55,7 +55,10 @@ just fix          # auto-fix formatting and lint issues
   `start_recording`/`stop_recording`; `stage_text` is the shared staging writer
   used by the lifecycle and the ADR overlay; reads are derived elsewhere).
 - `src/lion/program/annotations.py` — the ADR fold over the recorded events and
-  the `records edit` overlay rules.
+  the `records edit` overlay rules (also the shared field catalog, completeness
+  and status helpers).
+- `src/lion/program/adrs.py` — the standalone ADR store (model, parser, store,
+  `uses`/`supersedes` resolution) and the `adr.storage` doctor check.
 - `src/lion/classify/` — the read-time classifier: bounded shell parser, rule
   loader and engine, plus the `classify.ruleset` doctor check.
 - `src/lion/program/doctor.py` — the read-only check framework (`checks.py` holds
@@ -63,7 +66,8 @@ just fix          # auto-fix formatting and lint issues
 - `src/lion/command/<command>.py` — one module per command (`scan` writes the
   history and the wiki; `status`, `history`, `diff` and `classify` read only;
   `doctor` only publishes a reco; `shlib` manages the shell library; `shell`,
-  `watch` and `records` own the watch integration); `cli.py` keeps the Typer
+  `watch` and `records` own the watch integration; `adr` writes and reads the
+  standalone ADR store); `cli.py` keeps the Typer
   decorators.
 
 New collectors must not abort a capture: report `unavailable` or `error` with a

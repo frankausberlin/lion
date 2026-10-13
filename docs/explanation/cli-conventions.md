@@ -12,6 +12,7 @@ arguments:
 - `lion shell` is the same as `lion shell status`.
 - `lion watch` is the same as `lion watch status`.
 - `lion records` is the same as `lion records status`.
+- `lion adr` is the same as `lion adr status`.
 
 A group without a `status` subcommand shows its help instead, so no operation
 runs by accident.

@@ -21,7 +21,8 @@ explains what it means in practice.
 - **Read/write separation.** Read-only commands never write. In practice only
   `scan` (state history and the derived wiki), `shlib` (shell configuration),
   `shell insert`/`remove` (the watch artifact), `watch start`/`stop`
-  (recordings), `records edit` (the ADR overlay) and `doctor` (a recommendation
+  (recordings), `records edit` (the ADR overlay), `adr add`/`edit` (the
+  standalone ADR store) and `doctor` (a recommendation
   script) write.
 - **Deterministic.** No volatile fields (clocks, temperatures, uptime) are
   persisted.
@@ -38,6 +39,8 @@ explains what it means in practice.
 - Recordings and ADR overlays: `$XDG_DATA_HOME/lion/recordings/<ref>` — see
   [Recordings](../reference/recordings.md) and
   [Records and ADRs](../reference/records-and-adrs.md).
+- Standalone ADRs: `$XDG_DATA_HOME/lion/adrs/<id>.toml` — see
+  [Standalone ADRs](../reference/adrs.md).
 - Recommendation scripts: `$XDG_DATA_HOME/lion/recos` — see
   [Storage](../reference/storage.md) and
   [Diagnose with doctor](../how-to/diagnose-with-doctor.md).

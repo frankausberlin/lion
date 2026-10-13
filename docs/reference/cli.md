@@ -31,6 +31,7 @@ Common commands:
   lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
   lion watch           record shell sessions and read the recordings
   lion records         read and edit the ADRs attached to recordings
+  lion adr             document standalone decisions (ADRs)
   lion classify        classify recorded input blocks (read-only)
   lion --version       print the installed version
 
@@ -49,6 +50,7 @@ Run 'lion <command> --help' for details on a command.
 * `shell`: Manage the watch shell integration (~/.zshrc, ~/.shlib).
 * `watch`: Record shell sessions and read the recordings.
 * `records`: Read and edit the ADRs attached to recordings.
+* `adr`: Document standalone decisions (ADRs).
 
 ## `lion scan`
 
@@ -676,4 +678,138 @@ $ lion records edit [OPTIONS] [reference]
 
 **Options**:
 
+* `--help`: Show this message and exit.
+
+## `lion adr`
+
+Document standalone decisions (ADRs) that exist without a recording, such as
+switching the default browser. Each ADR is a TOML document under
+$XDG_DATA_HOME/lion/adrs/:
+
+  status   overview of the ADR store and the counters (read-only)
+  add      create a new ADR; at least one field is required
+  edit     edit one ADR in $EDITOR (overwrites and adds fields)
+  list     list stored ADRs (read-only)
+  show     show one ADR in detail (read-only)
+
+The fields, the completeness rule (title + decision) and the status values are
+the same as for recording ADRs; &#x27;lion records&#x27; keeps the recording-bound view.
+
+**Usage**:
+
+```console
+$ lion adr [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+Running 'lion adr' without an operation shows the status. Read commands never
+collect a state and never write. There is no delete command: 'edit' overwrites
+and adds fields, and LION never removes a field. A REF is the id, a unique
+prefix or 'latest'.
+
+Examples:
+
+  lion adr                          the ADR counters
+  lion adr add --title "Use X" --decision "Because Y" --status accepted
+  lion adr add --field component shell --recording latest
+  lion adr list                     all ADRs, oldest first
+  lion adr show latest              one ADR in detail
+  lion adr edit latest              edit an ADR in $EDITOR
+
+
+**Commands**:
+
+* `status`: Show the standalone ADR counters (read-only).
+* `add`: Create a new standalone ADR; at least one...
+* `edit`: Edit one ADR in $EDITOR (overwrites and...
+* `list`: List stored ADRs, oldest first (read-only).
+* `show`: Show one standalone ADR in detail...
+
+### `lion adr status`
+
+Show the standalone ADR counters (read-only).
+
+**Usage**:
+
+```console
+$ lion adr status [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output status as JSON.
+* `--help`: Show this message and exit.
+
+### `lion adr add`
+
+Create a new standalone ADR; at least one field is required.
+
+**Usage**:
+
+```console
+$ lion adr add [OPTIONS]
+```
+
+**Options**:
+
+* `--title <str>`: The decision title.
+* `--decision <str>`: The decision text.
+* `--status <str>`: The status value (proposed, accepted, superseded).
+* `--field <str>`: Add a field as NAME=VALUE (repeatable).
+* `--recording <str>`: Reference a recording the decision belongs to.
+* `--help`: Show this message and exit.
+
+### `lion adr edit`
+
+Edit one ADR in $EDITOR (overwrites and adds fields).
+
+**Usage**:
+
+```console
+$ lion adr edit [OPTIONS] [reference]
+```
+
+**Arguments**:
+
+* `reference`: ADR reference (unique prefix, exact id); defaults to latest.
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+### `lion adr list`
+
+List stored ADRs, oldest first (read-only).
+
+**Usage**:
+
+```console
+$ lion adr list [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output the list as JSON.
+* `--help`: Show this message and exit.
+
+### `lion adr show`
+
+Show one standalone ADR in detail (read-only).
+
+**Usage**:
+
+```console
+$ lion adr show [OPTIONS] [reference]
+```
+
+**Arguments**:
+
+* `reference`: ADR reference (&#x27;latest&#x27;, a unique prefix); defaults to latest.
+
+**Options**:
+
+* `--json`: Output the ADR as JSON.
 * `--help`: Show this message and exit.

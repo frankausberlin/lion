@@ -11,7 +11,7 @@ uv run lion doctor
 ```
 
 `doctor` performs a fresh collection (it does not reuse or change `scan` history)
-and checks nine topics:
+and checks ten topics:
 
 | Topic | What it checks |
 | --- | --- |
@@ -23,6 +23,7 @@ and checks nine topics:
 | `shlib` | the shell library installation is consistent |
 | `shell` | the watch shell integration is present and unmodified |
 | `watch` | the recording space and the ADR overlays are valid |
+| `adr` | the standalone ADR store is valid (`adr.storage`) |
 | `classify` | the classifier rule set (defaults plus the user file) is valid |
 
 Each finding is one of four states:

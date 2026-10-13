@@ -6,7 +6,9 @@
 comment lines inside that input are read back as **one ADR** (architecture
 decision record) per recording. This page documents the grammar, the fold and
 the `lion records` views. Command usage lives in `lion records --help` and
-[Record a shell session](../how-to/record-shell.md).
+[Record a shell session](../how-to/record-shell.md). Decisions that exist
+without a recording are separate documents with the same field catalog and
+status rules; see [Standalone ADRs](adrs.md).
 
 ## Markers
 
