@@ -1321,9 +1321,10 @@ def _record_base(
     outcome: AttemptOutcome,
     failure: str,
     termination: str,
+    recovery: RecoveryMetrics | None = None,
 ) -> AttemptRecord:
-    """The fields every final record shares, before the branch-specific ones."""
-    return AttemptRecord(
+    """The fields every final record shares, plus the recovery counters when known."""
+    base = AttemptRecord(
         name=pending.name,
         request=pending.request,
         hard=pending.hard,
@@ -1331,6 +1332,15 @@ def _record_base(
         outcome=outcome,
         failure=failure,
         termination=termination,
+    )
+    if recovery is None:
+        return base
+    return replace(
+        base,
+        first_attempt_success=recovery.first_attempt_success,
+        failed_target_calls=recovery.failed_target_calls,
+        retries=recovery.retries,
+        recovered=recovery.recovered,
     )
 
 
@@ -1606,9 +1616,22 @@ def _build_record(
 ) -> AttemptRecord:
     """Build the final report entry from a run, a scenario failure, or bare counters."""
     task_passed = outcome is AttemptOutcome.PASSED
-    base = _record_base(pending, outcome=outcome, failure=failure_text, termination=termination)
+    target = frozenset(
+        dict.fromkeys((*scenario.required_tools, *scenario.required_any)),
+    )
+    recovery: RecoveryMetrics | None = None
     if run is not None:
-        metrics = run.recovery_metrics(task_passed=task_passed)
+        recovery = run.recovery_metrics(task_passed=task_passed)
+    elif failure is not None:
+        recovery = _recovery_metrics(failure.calls, target, task_passed=False)
+    base = _record_base(
+        pending,
+        outcome=outcome,
+        failure=failure_text,
+        termination=termination,
+        recovery=recovery,
+    )
+    if run is not None:
         return replace(
             base,
             tool_calls=tuple(run.tool_names()),
@@ -1622,17 +1645,9 @@ def _build_record(
             prompt_name=scenario.prompt_name,
             user_text_sha256=run.user_text_sha256,
             tool_inventory_sha256=run.tool_inventory_sha256,
-            first_attempt_success=metrics.first_attempt_success,
-            failed_target_calls=metrics.failed_target_calls,
-            retries=metrics.retries,
-            recovered=metrics.recovered,
             metrics=run.attempt_metrics(),
         )
-    target = frozenset(
-        dict.fromkeys((*scenario.required_tools, *scenario.required_any)),
-    )
     if failure is not None:
-        metrics = _recovery_metrics(failure.calls, target, task_passed=False)
         return replace(
             base,
             tool_calls=tuple(call.name for call in failure.calls),
@@ -1645,10 +1660,6 @@ def _build_record(
             prompt_name=scenario.prompt_name,
             user_text_sha256=failure.user_text_sha256,
             tool_inventory_sha256=failure.tool_inventory_sha256,
-            first_attempt_success=metrics.first_attempt_success,
-            failed_target_calls=metrics.failed_target_calls,
-            retries=metrics.retries,
-            recovered=metrics.recovered,
             metrics=_attempt_metrics(scenario, failure.calls, done_reasons=failure.done_reasons),
         )
     return replace(

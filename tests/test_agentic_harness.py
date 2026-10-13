@@ -406,6 +406,26 @@ def test_recovery_after_failed_target_call(tmp_path: Path) -> None:
     }
 
 
+def test_failed_attempt_records_recovery_metrics(tmp_path: Path) -> None:
+    """A scenario that dies after a failed target call carries its recovery fields."""
+    report = _report(tmp_path)
+    session = FakeSession({"lion_history": _error_result("No state stored")})
+    chat = ScriptedChat(
+        [
+            _reply(tool_calls=(_tool_call("lion_history"),)),
+            ChatTimeoutError("the chat timed out"),
+        ]
+    )
+    record = run_attempt(suite.SCENARIO_HISTORY, _env(tmp_path, chat=chat, session=session), report, hard=False)
+
+    assert record.outcome is AttemptOutcome.ERROR
+    assert record.termination == "chat_timeout"
+    assert record.first_attempt_success is False
+    assert record.failed_target_calls == 1
+    assert record.retries == 0
+    assert record.recovered is False
+
+
 # --- 3. diff predicate --------------------------------------------------------
 
 
