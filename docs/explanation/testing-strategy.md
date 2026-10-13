@@ -84,10 +84,10 @@ the container, so it is safe for CI.
 marker `agentic`): a local Ollama model drives `lion serve` over stdio through
 the real MCP client and answers eight scripted requests plus a nine-intent
 tool-selection matrix. Hard assertions stay model-independent and scan the
-whole call history — a required tool was called successfully with the fixture
-data, the ADR write path published exactly one valid document and nothing else,
-no recorded secret reached the model-visible text, a server error was delivered
-as an error. Tool selection, recovery, efficiency and answer quality are
+whole call history — a required tool was called and the scenario check passed
+on the fixture data, the ADR write path published exactly one valid document
+and nothing else, no recorded secret reached the model-visible text, a server
+error was delivered as an error. Tool selection, recovery, efficiency and answer quality are
 reported per attempt and aggregated with explicit denominators in
 `report.json`; they never fail the run.
 

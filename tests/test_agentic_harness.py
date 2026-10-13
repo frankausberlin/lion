@@ -726,7 +726,7 @@ def _normalize_segment_headers(files: Mapping[str, bytes]) -> dict[str, bytes]:
 
 
 def test_fixture_determinism_across_isolated_runs(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Two isolated runs produce identical fixture refs and bytes."""
+    """Two isolated runs produce identical fixture refs and bytes; only the kernel segment header differs."""
     first_refs, first_tree = _fixture_tree(tmp_path / "one", monkeypatch)
     second_refs, second_tree = _fixture_tree(tmp_path / "two", monkeypatch)
 

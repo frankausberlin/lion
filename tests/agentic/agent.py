@@ -598,7 +598,10 @@ def _recovery_metrics(calls: Sequence[ToolCallRecord], target: frozenset[str], *
 
 @dataclass(frozen=True)
 class AttemptMetrics:
-    """Per-attempt model metrics; the aggregate reuses the same names.
+    """Per-attempt model metrics; the aggregate reuses these names.
+
+    The recovery counters live on :class:`AttemptRecord`; the aggregate reports
+    them as ``first_attempt_success`` and ``recovered_success``.
 
     Definitions (all over the scenario's own call history):
 

@@ -38,7 +38,8 @@ script) and talks to it through the official MCP SDK client, exactly like an
 external agent would. The harness reads the tool inventory from `tools/list`,
 converts it to the Ollama function format, and loops: send the conversation,
 execute the model's tool calls against the live server, feed the results (JSON
-or error text) back. The execution budget is end to end:
+or error text) back. The execution budget is end to end (the values mirror the
+constants in `tests/agentic/agent.py`, the source of truth):
 
 | Limit | Value | Termination reason |
 | --- | --- | --- |
@@ -82,6 +83,8 @@ Environment overrides for experiments: `LION_AGENT_MODEL`,
 prompt is the builtin constant unless `LION_AGENT_SYSTEM_PROMPT_FILE` points at
 a readable, non-empty file; an unreadable or empty variant is a loud error, and
 the report pins its source, text and SHA-256. There is no pinning of the model.
+The report also pins the resolved `host` and the system-prompt text, so keep
+credentials out of `LION_AGENT_OLLAMA_HOST` and the prompt override file.
 
 ## Scenarios
 
@@ -109,7 +112,7 @@ removed by `just clean`):
 | Artifact | Purpose |
 | --- | --- |
 | `report.json` | Run metadata, per-attempt outcomes and metrics, aggregate metrics, extras. |
-| `transcripts/<scenario>.jsonl` | Every model-visible message: tool inventory hash, system prompt, user turn, each `chat_request` with the messages as sent (plus the normalization hint), assistant replies with raw `tool_calls`, `thinking` and `done_reason`, tool results with `tool_name` and durations, and the final answer. The redaction scenario asserts on these files. |
+| `transcripts/<scenario>.jsonl` | Every model-visible message: tool inventory hash, system prompt, user turn, each `chat_request` with the messages as sent (plus the normalization hint), assistant replies with raw `tool_calls`, `thinking` and `done_reason`, tool results with the called `name` and durations, and the final answer. The redaction scenario asserts on these files. |
 
 ### Reading `report.json`
 
