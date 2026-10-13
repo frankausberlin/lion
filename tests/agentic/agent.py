@@ -1296,6 +1296,10 @@ class _PendingAttempt:
     hard: bool
     started_at: str
 
+    def as_json(self) -> dict[str, object]:
+        """The in-flight attempt as published in the report checkpoint."""
+        return {"name": self.name, "request": self.request, "hard": self.hard, "started_at": self.started_at}
+
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
@@ -1478,10 +1482,11 @@ class AgentReport:
         self.write()
 
     def begin_attempt(self, name: str, request: str, hard: bool) -> _PendingAttempt:
-        """Register one attempt before it starts."""
+        """Register one attempt before it starts and checkpoint the report."""
         if self._pending is not None:
             raise RuntimeError(f"attempt {self._pending.name!r} is still open; finish it before starting {name!r}")
         self._pending = _PendingAttempt(name=name, request=request, hard=hard, started_at=_utc_now())
+        self.write()
         return self._pending
 
     def finish_attempt(self, record: AttemptRecord) -> None:
@@ -1515,6 +1520,7 @@ class AgentReport:
             "system_prompt": None if self._system_prompt is None else self._system_prompt.as_json(),
             "environment": dict(self._environment),
             "suite": dict(self._suite),
+            "pending": None if self._pending is None else self._pending.as_json(),
             "entries": [entry.as_json() for entry in self._entries],
             "metrics": _aggregate_metrics(self._entries),
             "extras": dict(self._extras),

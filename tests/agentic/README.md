@@ -57,11 +57,12 @@ arguments, missing server start and harness-internal exceptions map to the
 closed termination vocabulary (`transport_error`, `malformed_output`,
 `startup_error`, `harness_error`).
 
-Every attempt is registered in `report.json` before it starts and the report is
-checkpointed atomically after it — exactly one outcome (`passed`/`failed`/
-`error`) per attempt, with the partial data (calls, steps, token counts) on
-failures. An interrupted run stays readable (`state = "interrupted"`), and hard
-scenarios re-raise their failure only after the recording.
+Every attempt is registered in `report.json` before it starts (the `pending`
+field of the checkpoint) and the report is checkpointed atomically after it —
+exactly one outcome (`passed`/`failed`/`error`) per attempt, with the partial
+data (calls, steps, token counts) on failures. An interrupted run stays
+readable (`state = "interrupted"`), and hard scenarios re-raise their failure
+only after the recording.
 
 One source of truth for sampling is `tests/agentic/agent.py`:
 
@@ -117,7 +118,8 @@ removed by `just clean`):
 `model` (name, digest, capabilities), `host`, `options` (the resolved sampling
 options as sent), `think`, `system_prompt` (source, path, text, SHA-256),
 `environment` (Lion version, best-effort git commit/dirty, Ollama version),
-`suite` (scenario-and-seed identity hash plus the scenario names), `entries`,
+`suite` (scenario-and-seed identity hash plus the scenario names), `pending`
+(the in-flight attempt while a scenario runs, else `null`), `entries`,
 `metrics` and `extras`.
 
 Each attempt records `outcome`, `termination`, tool names, steps, tokens,

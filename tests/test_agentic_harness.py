@@ -304,6 +304,35 @@ def test_report_records_one_outcome_per_attempt(tmp_path: Path) -> None:
     }
 
 
+def test_report_registers_the_attempt_before_it_starts(tmp_path: Path) -> None:
+    """The checkpoint before the scenario carries the in-flight attempt."""
+    report = _report(tmp_path)
+    report_path = tmp_path / "report.json"
+    during: list[dict[str, object]] = []
+
+    async def chat(
+        settings: OllamaSettings,
+        messages: Sequence[Mapping[str, object]],
+        tools: Sequence[Mapping[str, object]],
+        timeout: float,
+    ) -> ChatReply:
+        during.append(_load(report_path))
+        return _reply(content="done")
+
+    record = run_attempt(_scenario("in-flight"), _env(tmp_path, chat=chat), report, hard=True)
+
+    assert record.outcome is AttemptOutcome.PASSED
+    assert _section(during[0], "run")["state"] == "running"
+    pending = _section(during[0], "pending")
+    assert pending["name"] == "in-flight"
+    assert pending["hard"] is True
+    assert pending["started_at"] == record.started_at
+
+    after = _load(report_path)
+    assert after["pending"] is None
+    assert [entry["outcome"] for entry in _entries(after)] == ["passed"]
+
+
 def test_interrupted_report_stays_readable(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A KeyboardInterrupt mid-attempt leaves an interrupted report with the attempt."""
     report_path = tmp_path / "report.json"
