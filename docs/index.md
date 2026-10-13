@@ -32,6 +32,8 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Data structures](reference/data-structures.md) — the stored snapshot, the
   shlib status and the JSON output shapes.
 - [Storage](reference/storage.md) — paths, files, locks and compatibility.
+- [Wiki (OKF v0.2)](reference/wiki.md) — the derived wiki `scan` regenerates:
+  files, frontmatter grammar, palette and determinism.
 - [Recordings](reference/recordings.md) — the watch data space, event grammar,
   masking and segment liveness.
 - [Records and ADRs](reference/records-and-adrs.md) — the `#-LION:` annotation
@@ -71,3 +73,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0013 — ADRs as flat annotation lines](decisions/0013-watch-adr-annotations.md)
 - [0014 — Watch dog: an `accept-line` guard widget](decisions/0014-watch-dog-accept-line.md)
 - [0015 — Classifier rules: read-time data in a POSIX-ERE subset](decisions/0015-classifier-rules-read-time-ere.md)
+- [0016 — The wiki is a derived OKF v0.2 artifact written by scan](decisions/0016-wiki-derived-okf-artifact.md)

@@ -94,14 +94,30 @@ just audit       # dependency vulnerability scan
   comparison rules (including the RAM tolerance).
 - `program/storage.py` owns the state history under `$XDG_DATA_HOME/lion/history`
   (`~/.local/share/lion/history`): `list_entries`/`resolve`/`load_latest`,
-  `save_state` (`created`/`confirmed`/`appended`), `Entry`, and `SaveOutcome`.
+  `save_state` (`created`/`confirmed`/`appended`), `Entry`, `SaveOutcome` and
+  the public `load_head_for_write` (used by `save_state` and as the scan
+  baseline; no behavior change from its former private form).
+- `program/wiki.py` owns the derived OKF v0.2 wiki under
+  `$XDG_DATA_HOME/lion/wiki`: `get_wiki_dir()`, the pure
+  `render_pages(snapshot, ref)` (one page per registry collector plus
+  `index.md`, fixed frontmatter key order, identity palette
+  `PALETTE`/`IDENTITY_COLORS`), the atomic writer `write_pages(pages)` (temp
+  file + `fsync` + `os.replace` per page, collector pages first, `index.md`
+  last, no cleanup in v1) and the doctor check `wiki_checks`
+  (`wiki.freshness`). `command/overview.py` renders the shared TTY-aware
+  index (`render_index(state, diff, wiki_dir)`) for `scan`/`status` with the
+  testable `_is_tty` indirection, the four semantic ANSI colors and OSC-8
+  hyperlinks; non-TTY/`NO_COLOR` output carries no escapes, and the `--json`
+  contracts never use it. `scan` is the only wiki writer (collect → save →
+  render → write); `status` and `doctor` only read it.
 - `program/diff.py` provides `diff_collectors`, `has_structural_change` and
   `render` (known lists share identities from `state/comparison.py` — PCI
   slots for GPUs, `name` for interfaces/units/containers/volumes/networks, the
   computed image reference, and unique strings for package selections — and
   `added`/`removed` mark structural changes); `cli.py` keeps only the
   Typer decorators and delegates to `src/lion/command/<command>.py`, one
-  module per command with a `run` function (`scan.py` writes the history;
+  module per command with a `run` function (`scan.py` writes the history and
+  regenerates the wiki;
   `status.py`, `history.py`, `diff.py` and `classify.py` read only; `doctor.py`
   only publishes the reco; `shlib.py` manages `~/.shlib` and takes `--json` for
   `status` only), plus the shared `diagnostics.py` stderr-warning helper. The English CLI
@@ -174,12 +190,13 @@ just audit       # dependency vulnerability scan
   owning check modules never import the aggregator and create a cycle); the
   checks are owned by `state/diagnosis.py` (`collector_checks`, `tool_checks`),
   `program/storage.py` (`history_checks`, `storage_checks`),
+  `program/wiki.py` (`wiki_checks`),
   `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`),
   `program/recording.py` (`watch_checks`), `program/annotations.py`
   (`annotations_checks`) and `classify/checks.py` (`classifier_checks`);
   `program/doctor.py` only runs, orders and renders them (`TOPIC_ORDER`
-  includes `shell`, `watch` and `classify`; `CHECKS` is an ordered tuple of
-  `(topic, check)` pairs, so the `watch` topic carries two);
+  includes `wiki`, `shell`, `watch` and `classify`; `CHECKS` is an ordered tuple
+  of `(topic, check)` pairs, so the `watch` topic carries two);
   `command/doctor.py` resolves the home, collects once and publishes at most one
   `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any finding is
   `warn`/`error`. `doctor` writes nothing when everything is `ok`/`skip`, and
@@ -196,6 +213,21 @@ just audit       # dependency vulnerability scan
   (the file name without `.toml`); `resolve` accepts aliases, 1-based indices,
   exact references, unique prefixes and ISO timestamps, validates every entry,
   and fails loudly on ambiguous or unknown references.
+- The wiki is derived, never a source of truth: `scan` regenerates it on every
+  run (including `confirmed`) from the just-stored snapshot; `status`, `doctor`
+  and every other command only read it. Rendering is a pure function of the
+  snapshot and the reference, so the same snapshot yields byte-identical pages
+  (no generation timestamp); `write_pages` replaces each page atomically (temp
+  file + `fsync` + `os.replace`, collector pages first, `index.md` last) and
+  removes nothing in v1. A render or write failure exits `1` after the history
+  save: the entry stays valid and the next `scan` heals. The text index colors
+  only in a TTY without a non-empty `NO_COLOR` (error red, unavailable yellow,
+  ok+changed/new blue, ok+unchanged green, OSC-8 link to the page file); the
+  `scan --json`/`status --json` contracts stay unchanged. `doctor`'s
+  `wiki.freshness` compares the newest history reference with the index
+  frontmatter (`skip` without or with unreadable history, `warn` when the wiki
+  is missing, unreadable or stale) and never writes; warnings carry the
+  `'lion scan' regenerates it.` hint.
 - `doctor` is read-only except for at most one recommended script under
   `$XDG_DATA_HOME/lion/recos` (published with `os.link`, never overwritten,
   mode `700`, created only when a finding is `warn`/`error`); it never executes
@@ -309,7 +341,8 @@ just audit       # dependency vulnerability scan
   coverage does not replace assertions about behavior.
 - Ordinary pytest runs and `just check` exclude the `e2e` marker. When changing
   package detection, the collector set, persisted CLI lifecycles, shlib, the
-  watch capture/recordings/shell integration, the `doctor` checks or the reco
+  watch capture/recordings/shell integration, the wiki renderer or the
+  `scan`/`status` text index, the `doctor` checks or the reco
   paths, or the E2E runner, also run `just test-e2e`. The watch E2E scenarios
   drive a real interactive zsh inside tmux in the disposable container
   (`tests/e2e/watchutil.py`) and read results only from spool/record files,
@@ -400,6 +433,10 @@ just audit       # dependency vulnerability scan
   verifies it is current (`scripts/gen_cli_docs.py --check`), so CI fails on a
   stale page. The source of truth is `src/lion/cli.py` together with the help
   texts in `src/lion/main.py`.
+- `docs/reference/wiki.md` is the home of the OKF v0.2 wiki format (files,
+  frontmatter grammar, palette, determinism). Keep it in sync with
+  `program/wiki.py`; the palette tokens and the frontmatter key order are
+  public API.
 - Every statement has exactly one home: move prose between README and `docs/`
   instead of copying it, and link rather than restate.
 

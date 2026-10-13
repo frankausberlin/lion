@@ -17,7 +17,7 @@
 * The **Shlib system** monitors changes to the **.zshrc** and **organizes** its contents into individual files.
 * The **Watch** mechanism records shell input blocks persistently: a recording survives shell restarts and system reboots, while active the prompt carries one red dot, and `#-LION:` / `#+LION:` / `#.LION:` annotation lines attach decisions (ADRs) to it; `lion records` reads and edits them, and `lion watch R`/`R-` classify the blocks in-session.
 * The **watch dog** mode asks for confirmation before critical input runs (guardrail, not a security boundary).
-* With **scan**, an **OKF v0.2** (Open Knowledge Format) compliant wiki is generated from the **current state**.
+* With **scan**, an **OKF v0.2** (Open Knowledge Format) compliant wiki is generated from the **current state** ([wiki reference](docs/reference/wiki.md)).
 * The **Serve** command starts an **MCP server** with **tools, resources and prompts**, it is used **exclusively by harnesses**.
 
 
@@ -29,7 +29,7 @@
 |-|-|-|-|
 |||--help\|--version|<li>Shows the help / version|
 |**shlib**<br><br><br>|[*status*]<br>*install*<br>*uninstall*||<li>Shows the status of the Shlib system<br><li>Installs the Shlib system<br><li>Removes the Shlib system|
-|**scan**||--json|<li>collect the current state and save it|
+|**scan**||--json|<li>collect the current state, save it and regenerate the OKF wiki|
 |[**status**]||--json|<li>compare the current state with the latest saved one|
 |**history**||--json\|--limit &lt;nr>|<li>list every stored state and its stable reference|
 |**diff**||&lt;nr>\|&lt;nr> &lt;nr>\|previous|<li>compare two stored states|
@@ -147,7 +147,7 @@ The full documentation lives in [`docs/`](docs/index.md), organized by
 
 - [Tutorials](docs/tutorials/getting-started.md) — learn by doing.
 - [How-to guides](docs/how-to/manage-shell-config.md) — one task at a time.
-- [Reference](docs/reference/cli.md) — CLI, data structures, storage and
+- [Reference](docs/reference/cli.md) — CLI, data structures, storage, wiki and
   collectors.
 - [Explanation](docs/explanation/architecture.md) — architecture, comparison
   model and the write boundary.
