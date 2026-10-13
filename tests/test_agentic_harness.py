@@ -630,6 +630,22 @@ def test_termination_reasons_and_budgets(tmp_path: Path, monkeypatch: pytest.Mon
     assert record.duration_seconds >= 0.05
 
 
+def test_total_call_limit_counts_across_steps(tmp_path: Path) -> None:
+    """The cumulative tool-call limit fires when the calls of all steps add up past it."""
+    report = _report(tmp_path)
+    scenario = _scenario("total-calls", required_tools=("lion_history",))
+    per_turn = agent_module.MAX_CALLS_PER_RESPONSE
+    replies = [_reply(tool_calls=tuple(_tool_call("lion_history") for _ in range(per_turn))) for _ in range(4)]
+    replies.append(_reply(tool_calls=(_tool_call("lion_history"),)))
+    record = run_attempt(scenario, _env(tmp_path, chat=ScriptedChat(replies)), report, hard=False)
+
+    assert record.outcome is AttemptOutcome.ERROR
+    assert record.termination == "call_limit"
+    assert record.steps == 5
+    assert len(record.tool_calls) == agent_module.MAX_TOTAL_CALLS
+    assert f"more than {agent_module.MAX_TOTAL_CALLS} tool calls" in record.failure
+
+
 # --- 9. CLI timeout -----------------------------------------------------------
 
 
