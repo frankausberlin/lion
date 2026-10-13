@@ -120,12 +120,13 @@ just audit       # dependency vulnerability scan
   regenerates the wiki;
   `status.py`, `history.py`, `diff.py` and `classify.py` read only; `doctor.py`
   only publishes the reco; `shlib.py` manages `~/.shlib` and takes `--json` for
-  `status` only), plus the shared `diagnostics.py` stderr-warning helper. The English CLI
+  `status` only; `adr.py` writes and reads the standalone ADR store), plus the
+  shared `diagnostics.py` stderr-warning helper. The English CLI
   help texts (epilogs and sub-app help) live in `main.py` and are imported by
   `cli.py`. `shlib` is a Typer
   sub-app with `status`/`install`/`uninstall`. A command group with a `status`
   subcommand (`lion`, `lion shlib`, `lion shell`, `lion watch`,
-  `lion records`) runs it when invoked without arguments;
+  `lion records`, `lion adr`) runs it when invoked without arguments;
   groups without one show their help. Naming: `status` is the
   command, `state` is the internal representation (collected mapping / persisted
   `Snapshot`). The former `scan.py` and `scans/` directory are gone.
@@ -172,6 +173,19 @@ just audit       # dependency vulnerability scan
   bare invocation runs `status`); the read commands never collect and never
   write, and the `scan`/`status`/`watch` JSON contracts stay unchanged.
   `watch list`/`watch show` remain untouched.
+- `program/adrs.py` owns the standalone ADRs (decisions without a recording)
+  under `$XDG_DATA_HOME/lion/adrs`: the schema-1 document model
+  (`AdrDocument`), the parser/validator, `list_adrs`/`load_adr`/`resolve_adr`,
+  `create_adr` (published with `os.link`, `~NNNN` collision suffix, mode
+  `600`), `write_adr`/`update_adr` (`os.replace`, mode `600`; edit never
+  deletes) and `adr_checks` (`adr.storage`). The id is `adr-` plus
+  `COMPACT_TIMESTAMP_FORMAT` (from `program/storage.py`); the field catalog,
+  completeness and status rules are the public helpers in
+  `program/annotations.py`; `uses`/`supersedes` resolve ADRs first, then
+  recordings. `command/adr.py` implements `lion adr`
+  (`status`/`add`/`edit`/`list`/`show`; a Typer sub-app whose bare invocation
+  runs `status`); `adr status`/`list`/`show` never collect and never write,
+  and the `scan`/`status`/`watch`/`records` JSON contracts stay unchanged.
 - `src/lion/classify/` is the read-time classifier (E4): `parser.py` is the
   bounded shell parser (`parse_command`, `strip_prefixes`, stable reason codes,
   `PARSER_VERSION = "classify/1"`); `rules.py` loads, validates, merges and
@@ -196,10 +210,11 @@ just audit       # dependency vulnerability scan
   `program/wiki.py` (`wiki_checks`),
   `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`),
   `program/recording.py` (`watch_checks`), `program/annotations.py`
-  (`annotations_checks`) and `classify/checks.py` (`classifier_checks`);
+  (`annotations_checks`), `program/adrs.py` (`adr_checks`) and
+  `classify/checks.py` (`classifier_checks`);
   `program/doctor.py` only runs, orders and renders them (`TOPIC_ORDER`
-  includes `wiki`, `shell`, `watch` and `classify`; `CHECKS` is an ordered tuple
-  of `(topic, check)` pairs, so the `watch` topic carries two);
+  includes `wiki`, `shell`, `watch`, `adr` and `classify`; `CHECKS` is an ordered
+  tuple of `(topic, check)` pairs, so the `watch` topic carries two);
   `command/doctor.py` resolves the home, collects once and publishes at most one
   `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any finding is
   `warn`/`error`. `doctor` writes nothing when everything is `ok`/`skip`, and
@@ -258,10 +273,19 @@ just audit       # dependency vulnerability scan
   `Unresolved:` finding, never a guess; a record without a field has no ADR;
   unknown `uses`/`supersedes` refs display `(unknown)` and are never errors.
   `records status/list/adrs` are read-only and never collect; a damaged record
-  fails loudly with its path. `records edit` is the only ADR writer: it writes
-  exactly one overlay file `<record>/adr.toml` (atomic `os.replace`, mode
-  `600`) for stopped records and never touches the raw events; overlay fields
-  replace the event-derived field set and set the `edited` flag.
+  fails loudly with its path. `records edit` is the only recording-ADR writer:
+  it writes exactly one overlay file `<record>/adr.toml` (atomic `os.replace`,
+  mode `600`) for stopped records and never touches the raw events; overlay
+  fields replace the event-derived field set and set the `edited` flag.
+- Standalone ADRs live beside the recordings, never inside one: a schema-1 TOML
+  document at `$XDG_DATA_HOME/lion/adrs/<id>.toml`, id `adr-` +
+  `COMPACT_TIMESTAMP_FORMAT` (`~NNNN` collision suffix), published with
+  `os.link` (mode `600`) and edited in place with `os.replace` (mode `600`).
+  There is no delete command and `edit` never removes a field; an empty
+  `[fields]` table is rejected (unlike the recording overlay, where it means
+  "no ADR"). `adr status`/`list`/`show` never collect and never write; the
+  `adr.storage` check is read-only and reports a broken document as an `error`
+  with its path and an orphaned `recording` reference as a `warn`.
 - Classifications are derived from the raw recording events on every read (no
   writer, no new event type, nothing persisted); `classify` and the terse
   `watch R`/`R-` never collect and never write. Blocks are the non-empty,

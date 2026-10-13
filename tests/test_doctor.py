@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 from lion.classify.checks import classifier_checks
 from lion.cli import app
 from lion.command import doctor as command_doctor
-from lion.program import annotations, doctor, recording, storage, wiki
+from lion.program import adrs, annotations, doctor, recording, storage, wiki
 from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
@@ -128,7 +128,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 15 ok, 0 warn, 0 error, 10 skip" in result.stdout
+    assert "Result: 16 ok, 0 warn, 0 error, 10 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -192,6 +192,7 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
         "shlib",
         "shell",
         "watch",
+        "adr",
         "classify",
     ]
     assert payload["summary"]["warn"] == 1
@@ -608,6 +609,7 @@ def test_shell_and_watch_topics_checked(monkeypatch: pytest.MonkeyPatch) -> None
         "shlib",
         "shell",
         "watch",
+        "adr",
         "classify",
     ]
     findings = {item["name"]: item for item in payload["findings"]}
@@ -675,6 +677,25 @@ def test_annotations_check_reports_invalid_overlay(doctor_env: SimpleNamespace) 
     assert findings[0].status == CheckStatus.ERROR
     assert annotations.OVERLAY_FILENAME in findings[0].message
     path.rmdir()
+
+
+def test_adr_storage_topic_reports_broken_document(
+    monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace
+) -> None:
+    """A broken standalone ADR is an error finding on the ``adr`` topic."""
+    _use_state(monkeypatch, _state())
+    directory = adrs.get_adrs_dir()
+    directory.mkdir(parents=True)
+    (directory / "adr-bad.toml").write_text("broken = [", encoding="utf-8")
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert "adr" in payload["checked"]
+    findings = {item["name"]: item for item in payload["findings"]}
+    assert findings["adr.adr-bad"]["status"] == "error"
+    assert "adr-bad.toml" in findings["adr.adr-bad"]["message"]
 
 
 def test_classifier_check_reports_invalid_user_rules(doctor_env: SimpleNamespace) -> None:

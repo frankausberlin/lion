@@ -51,7 +51,10 @@ __all__ = [
     "annotations_checks",
     "annotations_for",
     "fold_events",
+    "is_complete",
+    "is_known_status",
     "load_overlay",
+    "order_fields",
     "overlay_template",
     "parse_event_text",
     "parse_overlay_document",
@@ -583,8 +586,12 @@ def parse_event_text(event: SpoolEvent) -> ParsedEvent:
     return ParsedEvent(actions=tuple(actions), issues=tuple(issues))
 
 
-def _ordered_fields(fields: Mapping[str, str]) -> dict[str, str]:
-    """Return the fields in catalog order, then extras in first-set order."""
+def order_fields(fields: Mapping[str, str]) -> dict[str, str]:
+    """Return the fields in catalog order, then extras in first-set order.
+
+    This is the single source of the display and serialization order shared by
+    the recording overlay and the standalone ADRs, so the two cannot drift.
+    """
     ordered: dict[str, str] = {}
     for name in CATALOG:
         if name in fields:
@@ -593,6 +600,24 @@ def _ordered_fields(fields: Mapping[str, str]) -> dict[str, str]:
         if name not in ordered:
             ordered[name] = value
     return ordered
+
+
+def is_known_status(value: str) -> bool:
+    """Return whether a status value is one of the recognized values.
+
+    This is the single source of the status rule shared by the recording
+    overlay and the standalone ADRs; an unknown value stays verbatim and is
+    reported as an :class:`AdrIssue`, never a fatal error.
+    """
+    return value in STATUS_VALUES
+
+
+def is_complete(fields: Mapping[str, str]) -> bool:
+    """Return whether the fields satisfy the completeness rule (``title`` + ``decision``)."""
+    return bool(fields.get("title")) and bool(fields.get("decision"))
+
+
+_ordered_fields = order_fields
 
 
 def _anchor_for(
@@ -738,13 +763,13 @@ def _apply_item(
 
 def _known_status(value: str) -> bool:
     """Return whether a status value is one of the recognized values."""
-    return value in STATUS_VALUES
+    return is_known_status(value)
 
 
 def _status_is_unknown(fields: Mapping[str, str]) -> bool:
     """Return whether a status value is set but not recognized."""
     status = fields.get("status")
-    return bool(status) and not _known_status(status)
+    return bool(status) and not is_known_status(status)
 
 
 def _make_adr(
@@ -772,7 +797,7 @@ def _make_adr(
     adr = Adr(
         ref=ref,
         fields=ordered,
-        complete=bool(ordered.get("title")) and bool(ordered.get("decision")),
+        complete=is_complete(ordered),
         status=ordered.get("status") or STATUS_PROPOSED,
         anchor=anchor,
         issues=tuple(issues),

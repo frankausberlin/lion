@@ -16,6 +16,7 @@ from typing import Annotated
 import typer
 
 from lion import __version__
+from lion.command.adr import run as run_adr
 from lion.command.classify import run as run_classify
 from lion.command.diff import run as run_diff
 from lion.command.doctor import run as run_doctor
@@ -28,6 +29,8 @@ from lion.command.shlib import run as run_shlib
 from lion.command.status import run as run_status
 from lion.command.watch import run as run_watch
 from lion.main import (
+    ADR_EPILOG,
+    ADR_HELP,
     CLASSIFY_EPILOG,
     CLASSIFY_HELP,
     DIFF_EPILOG,
@@ -335,3 +338,82 @@ def records_edit(
 
 
 app.add_typer(records_app)
+
+adr_app = typer.Typer(
+    name="adr",
+    help=ADR_HELP,
+    short_help="Document standalone decisions (ADRs).",
+    epilog=ADR_EPILOG,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@adr_app.callback()
+def adr_root(ctx: typer.Context) -> None:
+    """Run ``lion adr status`` when no operation is given."""
+    if ctx.invoked_subcommand is None:
+        run_adr("status", json_output=False)
+
+
+@adr_app.command("status")
+def adr_status(json_output: Annotated[bool, typer.Option("--json", help="Output status as JSON.")] = False) -> None:
+    """Show the standalone ADR counters (read-only)."""
+    run_adr("status", json_output=json_output)
+
+
+@adr_app.command("add")
+def adr_add(
+    title: Annotated[str, typer.Option("--title", help="The decision title.")] = "",
+    decision: Annotated[str, typer.Option("--decision", help="The decision text.")] = "",
+    status: Annotated[str, typer.Option("--status", help="The status value (proposed, accepted, superseded).")] = "",
+    field: Annotated[
+        list[str] | None,
+        typer.Option("--field", help="Add a field as NAME=VALUE (repeatable)."),
+    ] = None,
+    recording_ref: Annotated[
+        str,
+        typer.Option("--recording", help="Reference a recording the decision belongs to."),
+    ] = "",
+) -> None:
+    """Create a new standalone ADR; at least one field is required."""
+    run_adr(
+        "add",
+        title=title,
+        decision=decision,
+        status=status,
+        fields=field or [],
+        recording_ref=recording_ref,
+    )
+
+
+@adr_app.command("edit")
+def adr_edit(
+    reference: Annotated[
+        str | None,
+        typer.Argument(help="ADR reference (unique prefix, exact id); defaults to latest."),
+    ] = None,
+) -> None:
+    """Edit one ADR in $EDITOR (overwrites and adds fields)."""
+    run_adr("edit", reference)
+
+
+@adr_app.command("list")
+def adr_list(json_output: Annotated[bool, typer.Option("--json", help="Output the list as JSON.")] = False) -> None:
+    """List stored ADRs, oldest first (read-only)."""
+    run_adr("list", json_output=json_output)
+
+
+@adr_app.command("show")
+def adr_show(
+    reference: Annotated[
+        str | None,
+        typer.Argument(help="ADR reference ('latest', a unique prefix); defaults to latest."),
+    ] = None,
+    json_output: Annotated[bool, typer.Option("--json", help="Output the ADR as JSON.")] = False,
+) -> None:
+    """Show one standalone ADR in detail (read-only)."""
+    run_adr("show", reference, json_output)
+
+
+app.add_typer(adr_app)

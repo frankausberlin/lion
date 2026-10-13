@@ -18,6 +18,7 @@ Common commands:
   lion shell           manage the watch shell integration (~/.zshrc, ~/.shlib)
   lion watch           record shell sessions and read the recordings
   lion records         read and edit the ADRs attached to recordings
+  lion adr             document standalone decisions (ADRs)
   lion classify        classify recorded input blocks (read-only)
   lion --version       print the installed version
 
@@ -196,6 +197,35 @@ Examples:
   lion records adrs            all ADRs, oldest first
   lion records adrs latest     the newest recording's ADR in detail
   lion records edit latest     edit the ADR overlay of a stopped recording
+"""
+
+ADR_HELP = """Document standalone decisions (ADRs) that exist without a recording, such as
+switching the default browser. Each ADR is a TOML document under
+$XDG_DATA_HOME/lion/adrs/:
+
+  status   overview of the ADR store and the counters (read-only)
+  add      create a new ADR; at least one field is required
+  edit     edit one ADR in $EDITOR (overwrites and adds fields)
+  list     list stored ADRs (read-only)
+  show     show one ADR in detail (read-only)
+
+The fields, the completeness rule (title + decision) and the status values are
+the same as for recording ADRs; 'lion records' keeps the recording-bound view.
+"""
+
+ADR_EPILOG = """Running 'lion adr' without an operation shows the status. Read commands never
+collect a state and never write. There is no delete command: 'edit' overwrites
+and adds fields, and LION never removes a field. A REF is the id, a unique
+prefix or 'latest'.
+
+Examples:
+
+  lion adr                          the ADR counters
+  lion adr add --title "Use X" --decision "Because Y" --status accepted
+  lion adr add --field component shell --recording latest
+  lion adr list                     all ADRs, oldest first
+  lion adr show latest              one ADR in detail
+  lion adr edit latest              edit an ADR in $EDITOR
 """
 
 CLASSIFY_HELP = """Classify the recorded input blocks of a recording into groups and fields with

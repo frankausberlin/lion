@@ -6,7 +6,8 @@ checks in :mod:`lion.program.storage`, the wiki freshness check in
 :mod:`lion.program.wiki`, the shlib check in
 :mod:`lion.program.shlib`, the shell-integration check in :mod:`lion.program.shell`,
 the recording check in :mod:`lion.program.recording`, the ADR overlay check
-in :mod:`lion.program.annotations` and the classifier rule check in
+in :mod:`lion.program.annotations`, the standalone ADR store check in
+:mod:`lion.program.adrs` and the classifier rule check in
 :mod:`lion.classify.checks`. This module only runs them, catches a crashing
 check, orders the findings deterministically and renders text, JSON and the
 human-executed ``reco.sh``.
@@ -17,7 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lion.classify.checks import classifier_checks
-from lion.program import annotations, recording, shell, shlib, storage, wiki
+from lion.program import adrs, annotations, recording, shell, shlib, storage, wiki
 from lion.program.checks import Check, CheckStatus, DoctorContext, Finding
 from lion.state import diagnosis
 
@@ -47,6 +48,7 @@ TOPIC_ORDER: tuple[str, ...] = (
     "shlib",
     "shell",
     "watch",
+    "adr",
     "classify",
 )
 
@@ -62,6 +64,7 @@ CHECKS: tuple[tuple[str, Check], ...] = (
     ("shell", shell.shell_checks),
     ("watch", recording.watch_checks),
     ("watch", annotations.annotations_checks),
+    ("adr", adrs.adr_checks),
     ("classify", classifier_checks),
 )
 
