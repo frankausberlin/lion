@@ -17,25 +17,40 @@ Design rules:
 - Hard assertions stay model-independent: a required tool was called, a custom
   scenario check passed, no recorded secret reached the model-visible text.
   Answer quality and tool-selection ratios are reported, not asserted.
+- Every attempt goes through :func:`run_attempt`: it is registered in the
+  ``report.json`` before the scenario starts, exactly one outcome is recorded
+  (passed/failed/error), and the report is checkpointed atomically after every
+  attempt, so an interrupted run stays readable. Hard scenarios re-raise their
+  failure after the recording; report-only variants never do.
+- The execution budget is one deadline for the whole scenario
+  (:data:`SCENARIO_TIMEOUT_SECONDS`), a per-chat cap
+  (:data:`CHAT_TIMEOUT_SECONDS`), and hard step and tool-call limits; the
+  server teardown after a timeout is measured separately and stays within
+  :data:`CLEANUP_ALLOWANCE_SECONDS` (the MCP SDK's shielded shutdown bounds
+  every internal wait, so no ``lion serve`` process is left behind).
 
 Nothing here imports Typer or the ``lion`` package: the server runs as a real
 subprocess, exactly like a client would start it.
 """
 
 import asyncio
+import hashlib
 import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
-import urllib.error
-import urllib.request
 from collections.abc import Callable, Mapping, Sequence
+from contextlib import AsyncExitStack
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from enum import StrEnum
 from pathlib import Path
 from types import TracebackType
 from typing import cast
 
+import httpx
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import TextContent, Tool
@@ -47,9 +62,27 @@ HOST_ENV = "LION_AGENT_OLLAMA_HOST"
 SEED_ENV = "LION_AGENT_SEED"
 NUM_CTX_ENV = "LION_AGENT_NUM_CTX"
 MAX_STEPS = 8
+MAX_CALLS_PER_RESPONSE = 4
+MAX_TOTAL_CALLS = 16
 CHAT_TIMEOUT_SECONDS = 120.0
 SCENARIO_TIMEOUT_SECONDS = 300.0
+CLEANUP_ALLOWANCE_SECONDS = 15.0
+CLI_TIMEOUT_SECONDS = 60.0
 TRANSCRIPTS_DIR = "transcripts"
+REPORT_SCHEMA_VERSION = 1
+RUN_STATES: tuple[str, ...] = ("running", "complete", "interrupted", "preflight_error")
+TERMINATIONS: tuple[str, ...] = (
+    "completed",
+    "step_limit",
+    "scenario_timeout",
+    "chat_timeout",
+    "call_limit",
+    "transport_error",
+    "malformed_output",
+    "startup_error",
+    "interrupted",
+    "harness_error",
+)
 
 SYSTEM_PROMPT = (
     "You are a Linux operations assistant with access to the lion MCP tools. "
@@ -60,6 +93,14 @@ SYSTEM_PROMPT = (
 
 class AgentError(RuntimeError):
     """A loud harness failure: endpoint, model, or a broken model interaction."""
+
+
+class ChatTransportError(AgentError):
+    """The chat request failed before a reply was parsed (transport or HTTP)."""
+
+
+class ChatTimeoutError(AgentError):
+    """The chat request exceeded its own timeout inside the scenario budget."""
 
 
 # --- environment -------------------------------------------------------------
@@ -162,36 +203,39 @@ def _sequence(value: object) -> list[object]:
 
 
 def _loads_object(text: str, what: str) -> dict[str, object]:
-    parsed: object = json.loads(text)
+    """Parse one JSON object; a syntax error or a non-object is loud."""
+    try:
+        parsed: object = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise AgentError(f"{what} is not JSON: {text[:200]!r}") from exc
     if not isinstance(parsed, dict):
         raise AgentError(f"{what} is not a JSON object: {text[:200]!r}")
     return cast("dict[str, object]", parsed)
 
 
-def _http_json(url: str, payload: Mapping[str, object] | None = None, timeout: float = 30.0) -> dict[str, object]:
-    """Call Ollama and parse a JSON object; every failure is loud."""
-    data = None if payload is None else json.dumps(payload).encode()
-    request = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST" if data is not None else "GET",
+def _unreachable_message(url: str, exc: Exception) -> str:
+    """The loud action-hint message for a transport-level failure."""
+    return (
+        f"Ollama is not reachable at {url} ({exc}); start it with 'ollama serve' "
+        f"or point {HOST_ENV} at a running instance."
     )
+
+
+def _http_failure_message(url: str, response: httpx.Response) -> str:
+    """The loud message for an HTTP error, including a body excerpt."""
+    return f"Ollama request to {url} failed with HTTP {response.status_code}: {response.text[:400]}"
+
+
+def _http_json(url: str, payload: Mapping[str, object] | None = None, timeout: float = 30.0) -> dict[str, object]:
+    """Call Ollama synchronously and parse a JSON object; every failure is loud."""
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = response.read().decode("utf-8", errors="replace")
-    except urllib.error.HTTPError as exc:
-        excerpt = exc.read().decode("utf-8", errors="replace")[:400]
-        raise AgentError(f"Ollama request to {url} failed with HTTP {exc.code}: {excerpt}") from exc
-    except urllib.error.URLError as exc:
-        raise AgentError(
-            f"Ollama is not reachable at {url} ({exc.reason}); start it with 'ollama serve' "
-            f"or point {HOST_ENV} at a running instance."
-        ) from exc
-    try:
-        return _loads_object(body, f"Ollama response from {url}")
-    except json.JSONDecodeError as exc:
-        raise AgentError(f"Ollama response from {url} is not JSON: {body[:200]!r}") from exc
+        with httpx.Client(timeout=timeout) as client:
+            response = client.get(url) if payload is None else client.post(url, json=payload)
+    except httpx.TransportError as exc:
+        raise AgentError(_unreachable_message(url, exc)) from exc
+    if response.status_code >= 400:
+        raise AgentError(_http_failure_message(url, response))
+    return _loads_object(response.text, f"Ollama response from {url}")
 
 
 def check_ollama(settings: OllamaSettings | None = None) -> OllamaModel:
@@ -226,10 +270,12 @@ def check_ollama(settings: OllamaSettings | None = None) -> OllamaModel:
 
 @dataclass(frozen=True)
 class ToolCall:
-    """One tool call the model asked for, with its raw Ollama object."""
+    """One tool call the model asked for: raw value, normalized arguments, raw entry."""
 
     name: str
     arguments: dict[str, object]
+    arguments_raw: object
+    normalized: bool
     raw: Mapping[str, object]
 
 
@@ -238,31 +284,41 @@ class ChatReply:
     """One non-streamed assistant reply."""
 
     content: str
+    thinking: str
     tool_calls: tuple[ToolCall, ...]
     prompt_eval_count: int
     eval_count: int
+    done_reason: str
 
 
 def _int_value(value: object) -> int:
     return value if isinstance(value, int) else 0
 
 
-def _normalize_arguments(raw: object) -> dict[str, object]:
-    """Accept object or JSON-string arguments and drop ``null`` values."""
+def _normalize_arguments(raw: object) -> tuple[dict[str, object], bool]:
+    """Accept object or JSON-string arguments, drop ``null`` values, and report changes.
+
+    ``normalized`` is ``False`` exactly when the value already was a JSON
+    object without ``null`` values — the shape the API expects.
+    """
     if raw is None:
-        return {}
+        return {}, True
+    changed = False
     if isinstance(raw, str):
         try:
             raw = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AgentError(f"model produced unparseable tool arguments: {raw[:200]!r}") from exc
+        changed = True
     if not isinstance(raw, dict):
         raise AgentError(f"model produced non-object tool arguments: {raw!r}")
     arguments: dict[str, object] = {}
     for key, value in cast("dict[object, object]", raw).items():
-        if value is not None:
-            arguments[str(key)] = value
-    return arguments
+        if value is None:
+            changed = True
+            continue
+        arguments[str(key)] = value
+    return arguments, changed
 
 
 def to_ollama_tools(tools: Sequence[Tool]) -> list[dict[str, object]]:
@@ -280,7 +336,13 @@ def to_ollama_tools(tools: Sequence[Tool]) -> list[dict[str, object]]:
     ]
 
 
-def chat(
+def inventory_sha256(tools: Sequence[Mapping[str, object]]) -> str:
+    """The canonical SHA-256 of the converted tool inventory (report and transcript)."""
+    canonical = json.dumps(list(tools), sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+async def chat(
     settings: OllamaSettings,
     messages: Sequence[Mapping[str, object]],
     tools: Sequence[Mapping[str, object]],
@@ -289,8 +351,10 @@ def chat(
     """Send one non-streamed ``/api/chat`` request.
 
     Raises:
-        AgentError: On transport errors, HTTP errors (with a body excerpt) and
-            malformed tool calls.
+        ChatTimeoutError: If the request exceeds ``timeout``.
+        ChatTransportError: On transport errors, HTTP errors (with a body
+            excerpt) and unparseable responses.
+        AgentError: On malformed tool calls in an otherwise valid reply.
     """
     payload: dict[str, object] = {
         "model": settings.model,
@@ -300,7 +364,20 @@ def chat(
         "options": settings.options.as_ollama(),
         "keep_alive": settings.options.keep_alive,
     }
-    reply = _http_json(f"{settings.host}/api/chat", payload, timeout=timeout)
+    url = f"{settings.host}/api/chat"
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            response = await client.post(url, json=payload)
+    except httpx.TimeoutException as exc:
+        raise ChatTimeoutError(f"Ollama chat request to {url} timed out after {timeout:.0f}s") from exc
+    except httpx.TransportError as exc:
+        raise ChatTransportError(_unreachable_message(url, exc)) from exc
+    if response.status_code >= 400:
+        raise ChatTransportError(_http_failure_message(url, response))
+    try:
+        reply = _loads_object(response.text, f"Ollama response from {url}")
+    except AgentError as exc:
+        raise ChatTransportError(str(exc)) from exc
     message = _mapping(reply.get("message", {}))
     calls: list[ToolCall] = []
     for item in _sequence(message.get("tool_calls", []) or []):
@@ -309,13 +386,21 @@ def chat(
         name = function.get("name")
         if not isinstance(name, str) or not name:
             raise AgentError(f"model produced a tool call without a name: {item!r}")
-        calls.append(ToolCall(name=name, arguments=_normalize_arguments(function.get("arguments")), raw=entry))
+        arguments_raw = function.get("arguments")
+        arguments, normalized = _normalize_arguments(arguments_raw)
+        calls.append(
+            ToolCall(name=name, arguments=arguments, arguments_raw=arguments_raw, normalized=normalized, raw=entry)
+        )
     content = message.get("content", "")
+    thinking = message.get("thinking", "")
+    done_reason = reply.get("done_reason", "")
     return ChatReply(
         content=content if isinstance(content, str) else str(content),
+        thinking=thinking if isinstance(thinking, str) else str(thinking),
         tool_calls=tuple(calls),
         prompt_eval_count=_int_value(reply.get("prompt_eval_count")),
         eval_count=_int_value(reply.get("eval_count")),
+        done_reason=done_reason if isinstance(done_reason, str) else str(done_reason),
     )
 
 
@@ -347,7 +432,8 @@ class Scenario:
     renders that MCP prompt on the live server and uses it as the user turn
     instead (the request then only documents the scenario in the report).
     ``required_tools`` must all be called; ``required_any`` needs at least one
-    hit when it is not empty.
+    hit when it is not empty. Together they are the scenario's target tools,
+    the basis of the recovery metrics.
     """
 
     name: str
@@ -379,6 +465,47 @@ class ToolCallRecord:
 
 
 @dataclass(frozen=True)
+class RecoveryMetrics:
+    """How the model handled failures of the scenario's target tools.
+
+    The definitions are deliberately narrow (target tools only) so they stay
+    comparable across models and prompt variants:
+
+    - ``first_attempt_success``: the first target-tool call succeeded and the
+      task checks passed.
+    - ``failed_target_calls``: target-tool calls that came back as errors.
+    - ``retries``: target-tool calls that followed a failed target-tool call.
+    - ``recovered``: the task checks passed even though a target-tool call had
+      failed before.
+    """
+
+    first_attempt_success: bool
+    failed_target_calls: int
+    retries: int
+    recovered: bool
+
+
+def _recovery_metrics(calls: Sequence[ToolCallRecord], target: frozenset[str], *, task_passed: bool) -> RecoveryMetrics:
+    """Compute the recovery metrics over all calls of the target tools."""
+    target_calls = [call for call in calls if call.name in target]
+    failed = sum(1 for call in target_calls if call.is_error)
+    first = target_calls[0] if target_calls else None
+    retries = 0
+    failed_seen = False
+    for call in target_calls:
+        if failed_seen:
+            retries += 1
+        if call.is_error:
+            failed_seen = True
+    return RecoveryMetrics(
+        first_attempt_success=task_passed and first is not None and not first.is_error,
+        failed_target_calls=failed,
+        retries=retries,
+        recovered=task_passed and failed > 0,
+    )
+
+
+@dataclass(frozen=True)
 class ScenarioRun:
     """Everything one scenario produced: transcript, calls and outcomes."""
 
@@ -386,6 +513,7 @@ class ScenarioRun:
     final_text: str
     calls: tuple[ToolCallRecord, ...]
     duration_seconds: float
+    teardown_seconds: float
     prompt_eval_count: int
     eval_count: int
     steps: int
@@ -400,9 +528,21 @@ class ScenarioRun:
         """Every executed call of one tool, in order."""
         return [call for call in self.calls if call.name == name]
 
+    def successful_calls_of(self, name: str) -> list[ToolCallRecord]:
+        """Every successful executed call of one tool, in order."""
+        return [call for call in self.calls if call.name == name and not call.is_error]
+
     def first_call(self, name: str) -> ToolCallRecord | None:
         """The first executed call of one tool, or ``None``."""
         return next((call for call in self.calls if call.name == name), None)
+
+    def target_tool_names(self) -> tuple[str, ...]:
+        """The scenario's target tools: every required plus every alternative."""
+        return tuple(dict.fromkeys((*self.scenario.required_tools, *self.scenario.required_any)))
+
+    def recovery_metrics(self, *, task_passed: bool) -> RecoveryMetrics:
+        """The recovery metrics of this run."""
+        return _recovery_metrics(self.calls, frozenset(self.target_tool_names()), task_passed=task_passed)
 
     def assert_required_tools(self) -> None:
         """Assert that every required tool was called at least once."""
@@ -420,106 +560,35 @@ class ScenarioRun:
         if self.scenario.check is not None:
             self.scenario.check(self)
 
-    def report_entry(self, hard: bool, passed: bool, notes: str = "") -> "ReportEntry":
-        """Summarize the run for ``report.json``."""
-        return ReportEntry(
-            name=self.scenario.name,
-            request=self.scenario.request,
-            hard=hard,
-            passed=passed,
-            tool_calls=self.tool_names(),
-            steps=self.steps,
-            duration_seconds=round(self.duration_seconds, 3),
-            prompt_eval_count=self.prompt_eval_count,
-            eval_count=self.eval_count,
-            final_text=self.final_text,
-            notes=notes,
-        )
 
+class ScenarioRunError(AgentError):
+    """A failed scenario run with the partial data collected before the failure.
 
-# --- report ------------------------------------------------------------------
-
-
-@dataclass(frozen=True)
-class ReportEntry:
-    """One scenario outcome for ``report.json``."""
-
-    name: str
-    request: str
-    hard: bool
-    passed: bool
-    tool_calls: list[str]
-    steps: int
-    duration_seconds: float
-    prompt_eval_count: int
-    eval_count: int
-    final_text: str
-    notes: str = ""
-
-    def as_json(self) -> dict[str, object]:
-        """The JSON shape written to ``report.json``."""
-        return {
-            "name": self.name,
-            "request": self.request,
-            "hard": self.hard,
-            "passed": self.passed,
-            "tool_calls": list(self.tool_calls),
-            "steps": self.steps,
-            "duration_seconds": self.duration_seconds,
-            "prompt_eval_count": self.prompt_eval_count,
-            "eval_count": self.eval_count,
-            "final_text": self.final_text,
-            "notes": self.notes,
-        }
-
-
-class AgentReport:
-    """Collects scenario outcomes and writes ``report.json`` once."""
-
-    def __init__(self, path: Path, settings: OllamaSettings, model: OllamaModel) -> None:
-        """Bind the report to its artifact path and the verified model."""
-        self._path = path
-        self._settings = settings
-        self._model = model
-        self._entries: list[ReportEntry] = []
-        self._extras: dict[str, object] = {}
-
-    def add(self, entry: ReportEntry) -> None:
-        """Append one scenario outcome."""
-        self._entries.append(entry)
-
-    def set_extra(self, key: str, value: object) -> None:
-        """Attach a summary value (for example the tool-selection ratio)."""
-        self._extras[key] = value
-
-    def write(self) -> None:
-        """Write the report atomically enough for an artifact directory."""
-        payload: dict[str, object] = {
-            "model": self._model.as_json(),
-            "host": self._settings.host,
-            "options": self._settings.options.as_json(),
-            "entries": [entry.as_json() for entry in self._entries],
-            "extra": dict(self._extras),
-        }
-        self._path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-
-
-def evaluate(run: ScenarioRun, report: AgentReport, hard: bool = True) -> None:
-    """Run the hard checks, record the outcome, and re-raise when hard.
-
-    A hard failure is recorded as ``passed: false`` with the failure message in
-    ``notes`` before the assertion is re-raised, so ``report.json`` stays
-    truthful even for a failed run.
+    Raises with the termination reason and whatever the loop had already
+    observed (calls, steps, token counts), so :func:`run_attempt` can record a
+    truthful report entry instead of zero values.
     """
-    failure = ""
-    try:
-        run.assert_required_tools()
-        run.run_check()
-    except AssertionError as exc:
-        failure = str(exc)
-    report.add(run.report_entry(hard=hard, passed=not failure, notes=failure))
-    if hard and failure:
-        raise AssertionError(failure)
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        termination: str,
+        calls: Sequence[ToolCallRecord] = (),
+        steps: int = 0,
+        prompt_eval_count: int = 0,
+        eval_count: int = 0,
+        transcript: Path | None = None,
+    ) -> None:
+        """Record the termination reason and the partial run data."""
+        super().__init__(message)
+        self.termination = termination
+        self.calls = tuple(calls)
+        self.steps = steps
+        self.prompt_eval_count = prompt_eval_count
+        self.eval_count = eval_count
+        self.transcript = transcript
+        self.teardown_seconds = 0.0
 
 
 # --- agent loop --------------------------------------------------------------
@@ -576,83 +645,222 @@ async def _call_tool(session: ClientSession, call: ToolCall) -> tuple[bool, str]
     return bool(result.is_error), text
 
 
-async def _drive(
+@dataclass
+class _LoopState:
+    """Mutable partial data of the model loop, so failures can carry it."""
+
+    calls: list[ToolCallRecord] = field(default_factory=list[ToolCallRecord])
+    normalizations: list[dict[str, object]] = field(default_factory=list[dict[str, object]])
+    steps: int = 0
+    prompt_eval_count: int = 0
+    eval_count: int = 0
+    teardown_seconds: float = 0.0
+
+
+@dataclass
+class _DriveOutcome:
+    """What one completed model loop produced (internal to the harness)."""
+
+    final_text: str
+    calls: tuple[ToolCallRecord, ...]
+    steps: int
+    prompt_eval_count: int
+    eval_count: int
+    teardown_seconds: float = 0.0
+
+
+def _state_failure(state: _LoopState, termination: str, message: str) -> ScenarioRunError:
+    """Build a :class:`ScenarioRunError` carrying the partial data collected so far."""
+    return ScenarioRunError(
+        message,
+        termination=termination,
+        calls=tuple(state.calls),
+        steps=state.steps,
+        prompt_eval_count=state.prompt_eval_count,
+        eval_count=state.eval_count,
+    )
+
+
+async def _drive_session(
+    stack: AsyncExitStack,
+    state: _LoopState,
     scenario: Scenario,
     settings: OllamaSettings,
     server_env: Mapping[str, str],
     transcript: Transcript,
-    deadline: float,
-) -> tuple[str, list[ToolCallRecord], int, int, int]:
-    """Run the real stdio session and the model loop for one scenario."""
-    params = StdioServerParameters(command=server_command()[0], args=["serve"], env=dict(server_env))
-    async with stdio_client(params) as (read, write), ClientSession(read, write) as session:
+) -> _DriveOutcome:
+    """Start the server session, run the model loop, and return the outcome."""
+    deadline = time.monotonic() + SCENARIO_TIMEOUT_SECONDS
+    try:
+        command = server_command()
+        params = StdioServerParameters(command=command[0], args=["serve"], env=dict(server_env))
+        read, write = await stack.enter_async_context(stdio_client(params))
+        session = await stack.enter_async_context(ClientSession(read, write))
         _ = await session.initialize()
         tools = (await session.list_tools()).tools
-        ollama_tools = to_ollama_tools(tools)
         user_text = scenario.request
         if scenario.prompt_name:
             prompt = await session.get_prompt(scenario.prompt_name, dict(scenario.prompt_arguments))
             content = prompt.messages[0].content
             user_text = content.text if isinstance(content, TextContent) else str(content)
-        transcript.event("system", text=SYSTEM_PROMPT)
-        transcript.event("user", text=user_text)
-        messages: list[dict[str, object]] = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_text},
-        ]
-        calls: list[ToolCallRecord] = []
-        prompt_eval_total = 0
-        eval_total = 0
-        for step in range(1, MAX_STEPS + 1):
+    except Exception as exc:
+        raise _state_failure(state, "startup_error", f"scenario {scenario.name!r} failed to start: {exc}") from exc
+    ollama_tools = to_ollama_tools(tools)
+    transcript.event(
+        "tools",
+        count=len(tools),
+        names=[tool.name for tool in tools],
+        sha256=inventory_sha256(ollama_tools),
+    )
+    transcript.event("system", text=SYSTEM_PROMPT)
+    transcript.event("user", text=user_text)
+    messages: list[dict[str, object]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": user_text},
+    ]
+    for step in range(1, MAX_STEPS + 1):
+        state.steps = step
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise _state_failure(
+                state, "scenario_timeout", f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s"
+            )
+        transcript.event(
+            "chat_request",
+            messages=[dict(message) for message in messages],
+            normalizations=[dict(item) for item in state.normalizations],
+        )
+        try:
+            reply = await chat(settings, messages, ollama_tools, timeout=min(CHAT_TIMEOUT_SECONDS, remaining))
+        except ChatTimeoutError as exc:
+            raise _state_failure(state, "chat_timeout", str(exc)) from exc
+        except ChatTransportError as exc:
+            raise _state_failure(state, "transport_error", str(exc)) from exc
+        except AgentError as exc:
+            raise _state_failure(state, "malformed_output", str(exc)) from exc
+        state.prompt_eval_count += reply.prompt_eval_count
+        state.eval_count += reply.eval_count
+        transcript.event(
+            "assistant",
+            text=reply.content,
+            thinking=reply.thinking,
+            done_reason=reply.done_reason,
+            tool_calls=[
+                {
+                    "name": call.name,
+                    "arguments": call.arguments,
+                    "arguments_raw": call.arguments_raw,
+                    "normalized": call.normalized,
+                }
+                for call in reply.tool_calls
+            ],
+            prompt_eval_count=reply.prompt_eval_count,
+            eval_count=reply.eval_count,
+        )
+        if not reply.tool_calls:
+            transcript.event("final", text=reply.content)
+            return _DriveOutcome(
+                final_text=reply.content,
+                calls=tuple(state.calls),
+                steps=step,
+                prompt_eval_count=state.prompt_eval_count,
+                eval_count=state.eval_count,
+            )
+        if len(reply.tool_calls) > MAX_CALLS_PER_RESPONSE:
+            raise _state_failure(
+                state,
+                "call_limit",
+                f"scenario {scenario.name!r}: the model asked for {len(reply.tool_calls)} tool calls in one turn "
+                f"(limit {MAX_CALLS_PER_RESPONSE})",
+            )
+        if len(state.calls) + len(reply.tool_calls) > MAX_TOTAL_CALLS:
+            raise _state_failure(
+                state,
+                "call_limit",
+                f"scenario {scenario.name!r}: more than {MAX_TOTAL_CALLS} tool calls in one scenario",
+            )
+        assistant: dict[str, object] = {
+            "role": "assistant",
+            "content": reply.content,
+            "tool_calls": [dict(call.raw) for call in reply.tool_calls],
+        }
+        if reply.thinking:
+            assistant["thinking"] = reply.thinking
+        messages.append(assistant)
+        for call in reply.tool_calls:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise AgentError(f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s")
-            reply = chat(settings, messages, ollama_tools, timeout=min(CHAT_TIMEOUT_SECONDS, remaining))
-            prompt_eval_total += reply.prompt_eval_count
-            eval_total += reply.eval_count
-            transcript.event(
-                "assistant",
-                text=reply.content,
-                tool_calls=[{"name": call.name, "arguments": call.arguments} for call in reply.tool_calls],
-                prompt_eval_count=reply.prompt_eval_count,
-                eval_count=reply.eval_count,
-            )
-            if not reply.tool_calls:
-                transcript.event("final", text=reply.content)
-                return reply.content, calls, step, prompt_eval_total, eval_total
-            messages.append(
-                {
-                    "role": "assistant",
-                    "content": reply.content,
-                    "tool_calls": [dict(call.raw) for call in reply.tool_calls],
-                }
-            )
-            for call in reply.tool_calls:
-                started = time.monotonic()
-                is_error, text = await _call_tool(session, call)
-                duration = time.monotonic() - started
-                calls.append(
-                    ToolCallRecord(
-                        name=call.name,
-                        arguments=call.arguments,
-                        is_error=is_error,
-                        result_text=text,
-                        duration_seconds=round(duration, 3),
-                    )
+                raise _state_failure(
+                    state,
+                    "scenario_timeout",
+                    f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s between tool calls",
                 )
-                transcript.event(
-                    "tool",
+            started = time.monotonic()
+            is_error, text = await _call_tool(session, call)
+            duration = time.monotonic() - started
+            state.calls.append(
+                ToolCallRecord(
                     name=call.name,
                     arguments=call.arguments,
                     is_error=is_error,
-                    text=text,
-                    duration_seconds=duration,
+                    result_text=text,
+                    duration_seconds=round(duration, 3),
                 )
-                messages.append({"role": "tool", "content": text})
-        raise AgentError(
-            f"scenario {scenario.name!r} did not finish within {MAX_STEPS} steps; "
-            f"calls so far: {[call.name for call in calls]}"
-        )
+            )
+            transcript.event(
+                "tool",
+                name=call.name,
+                arguments=call.arguments,
+                arguments_raw=call.arguments_raw,
+                normalized=call.normalized,
+                is_error=is_error,
+                text=text,
+                duration_seconds=duration,
+            )
+            messages.append({"role": "tool", "tool_name": call.name, "content": text})
+        for call in reply.tool_calls:
+            if call.normalized:
+                state.normalizations.append({"name": call.name, "arguments_raw": call.arguments_raw})
+    raise _state_failure(
+        state,
+        "step_limit",
+        f"scenario {scenario.name!r} did not finish within {MAX_STEPS} steps; "
+        f"calls so far: {[call.name for call in state.calls]}",
+    )
+
+
+async def _drive(
+    scenario: Scenario,
+    settings: OllamaSettings,
+    server_env: Mapping[str, str],
+    transcript: Transcript,
+) -> _DriveOutcome:
+    """Run the stdio session inside the execution budget and measure its teardown."""
+    state = _LoopState()
+    stack = AsyncExitStack()
+    outcome: _DriveOutcome | None = None
+    failure: BaseException | None = None
+    try:
+        try:
+            async with asyncio.timeout(SCENARIO_TIMEOUT_SECONDS):
+                outcome = await _drive_session(stack, state, scenario, settings, server_env, transcript)
+        except TimeoutError as exc:
+            raise _state_failure(
+                state, "scenario_timeout", f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s"
+            ) from exc
+    except BaseException as exc:
+        failure = exc
+        raise
+    finally:
+        started = time.monotonic()
+        await stack.aclose()
+        state.teardown_seconds = time.monotonic() - started
+        if outcome is not None:
+            outcome.teardown_seconds = state.teardown_seconds
+        if isinstance(failure, ScenarioRunError):
+            failure.teardown_seconds = state.teardown_seconds
+    assert outcome is not None  # every other path re-raised above
+    return outcome
 
 
 def run_scenario(
@@ -665,17 +873,20 @@ def run_scenario(
     """Run one scenario end to end and return its outcome.
 
     Raises:
-        AgentError: On environment problems, malformed model output, a scenario
-            timeout, or an agent loop that exceeds :data:`MAX_STEPS`.
+        ScenarioRunError: On environment problems, malformed model output, a
+            scenario/chat timeout, or the step and call limits; the failure
+            carries the partial run data and the transcript path.
     """
     before = _tree(data_home)
     transcript_path = artifacts / TRANSCRIPTS_DIR / f"{scenario.name}.jsonl"
     started = time.monotonic()
-    deadline = started + SCENARIO_TIMEOUT_SECONDS
-    with Transcript(transcript_path) as transcript:
-        final_text, calls, steps, prompt_eval_total, eval_total = asyncio.run(
-            _drive(scenario, settings, server_env, transcript, deadline)
-        )
+    try:
+        with Transcript(transcript_path) as transcript:
+            outcome = asyncio.run(_drive(scenario, settings, server_env, transcript))
+    except ScenarioRunError as exc:
+        if exc.transcript is None:
+            exc.transcript = transcript_path
+        raise
     duration = time.monotonic() - started
     context = ScenarioContext(
         data_home=data_home,
@@ -685,12 +896,13 @@ def run_scenario(
     )
     return ScenarioRun(
         scenario=scenario,
-        final_text=final_text,
-        calls=tuple(calls),
+        final_text=outcome.final_text,
+        calls=outcome.calls,
         duration_seconds=duration,
-        prompt_eval_count=prompt_eval_total,
-        eval_count=eval_total,
-        steps=steps,
+        teardown_seconds=outcome.teardown_seconds,
+        prompt_eval_count=outcome.prompt_eval_count,
+        eval_count=outcome.eval_count,
+        steps=outcome.steps,
         transcript=transcript_path,
         context=context,
     )
@@ -705,16 +917,23 @@ def cli_json(env: Mapping[str, str], *args: str) -> dict[str, object]:
     """Run the installed CLI with an isolated environment and parse ``--json``.
 
     Raises:
-        AgentError: If the command fails or does not print a JSON object.
+        AgentError: If the command fails, exceeds :data:`CLI_TIMEOUT_SECONDS`,
+            or does not print a JSON object.
     """
     script = Path(sys.executable).with_name("lion")
-    result = subprocess.run(
-        [str(script), *args, "--json"],
-        capture_output=True,
-        text=True,
-        env=dict(env),
-        check=False,
-    )
+    if not script.exists():
+        raise AgentError(f"missing console script: {script}; run 'uv sync' first")
+    try:
+        result = subprocess.run(
+            [str(script), *args, "--json"],
+            capture_output=True,
+            text=True,
+            env=dict(env),
+            check=False,
+            timeout=CLI_TIMEOUT_SECONDS,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise AgentError(f"lion {' '.join(args)} --json did not finish within {CLI_TIMEOUT_SECONDS:.0f}s") from exc
     if result.returncode != 0:
         raise AgentError(f"lion {' '.join(args)} --json failed ({result.returncode}): {result.stderr.strip()[:300]}")
     return _loads_object(result.stdout, f"lion {' '.join(args)} --json")
@@ -732,3 +951,326 @@ class AgentEnvironment:
     def run(self, scenario: Scenario) -> ScenarioRun:
         """Run one scenario against this environment."""
         return run_scenario(scenario, self.settings, self.data_home, self.artifacts, self.server_env)
+
+
+# --- report ------------------------------------------------------------------
+
+
+class AttemptOutcome(StrEnum):
+    """The final outcome of one attempt."""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class AttemptRecord:
+    """Exactly one final outcome of one attempt, as written to ``report.json``."""
+
+    name: str
+    request: str
+    hard: bool
+    started_at: str
+    outcome: AttemptOutcome
+    failure: str = ""
+    termination: str = "completed"
+    tool_calls: tuple[str, ...] = ()
+    steps: int = 0
+    duration_seconds: float = 0.0
+    teardown_seconds: float = 0.0
+    prompt_eval_count: int = 0
+    eval_count: int = 0
+    final_text: str = ""
+    transcript: str = ""
+    first_attempt_success: bool = False
+    failed_target_calls: int = 0
+    retries: int = 0
+    recovered: bool = False
+    notes: str = ""
+
+    def as_json(self) -> dict[str, object]:
+        """The JSON shape written to ``report.json``."""
+        return {
+            "name": self.name,
+            "request": self.request,
+            "hard": self.hard,
+            "started_at": self.started_at,
+            "outcome": self.outcome.value,
+            "failure": self.failure,
+            "termination": self.termination,
+            "tool_calls": list(self.tool_calls),
+            "steps": self.steps,
+            "duration_seconds": self.duration_seconds,
+            "teardown_seconds": self.teardown_seconds,
+            "prompt_eval_count": self.prompt_eval_count,
+            "eval_count": self.eval_count,
+            "final_text": self.final_text,
+            "transcript": self.transcript,
+            "first_attempt_success": self.first_attempt_success,
+            "failed_target_calls": self.failed_target_calls,
+            "retries": self.retries,
+            "recovered": self.recovered,
+            "notes": self.notes,
+        }
+
+
+@dataclass(frozen=True)
+class _PendingAttempt:
+    """One attempt that was registered but whose outcome is not final yet."""
+
+    name: str
+    request: str
+    hard: bool
+    started_at: str
+
+
+def _utc_now() -> str:
+    return datetime.now(UTC).isoformat()
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+    """Write JSON atomically: temp file in the target directory, fsync, ``os.replace``."""
+    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    tmp_path = Path(temporary)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+class AgentReport:
+    """Collects one final outcome per attempt and checkpoints ``report.json``.
+
+    The report exists before the first attempt: every checkpoints is written
+    atomically after each attempt, and :meth:`finalize` closes the run with
+    ``complete`` or ``interrupted``. A preflight problem produces a report with
+    ``state = "preflight_error"`` and no invented attempts.
+    """
+
+    def __init__(self, path: Path, settings: OllamaSettings) -> None:
+        """Bind the report to its artifact path and the resolved Ollama settings."""
+        self._path = path
+        self._settings = settings
+        self._model: OllamaModel | None = None
+        self._entries: list[AttemptRecord] = []
+        self._extras: dict[str, object] = {}
+        self._pending: _PendingAttempt | None = None
+        self._interrupted = False
+        self._run_id = f"{datetime.now(UTC).strftime('%Y%m%dT%H%M%SZ')}-{os.urandom(3).hex()}"
+        self._started_at = _utc_now()
+        self._finished_at: str | None = None
+        self._state = "running"
+
+    def set_model(self, model: OllamaModel) -> None:
+        """Record the verified model and write the first checkpoint."""
+        self._model = model
+        self.write()
+
+    def mark_preflight_error(self, message: str) -> None:
+        """Record a preflight failure (no attempt ran) and write the report."""
+        self._state = "preflight_error"
+        self._finished_at = _utc_now()
+        self._extras["preflight_error"] = message
+        self.write()
+
+    def begin_attempt(self, name: str, request: str, hard: bool) -> _PendingAttempt:
+        """Register one attempt before it starts."""
+        if self._pending is not None:
+            raise RuntimeError(f"attempt {self._pending.name!r} is still open; finish it before starting {name!r}")
+        self._pending = _PendingAttempt(name=name, request=request, hard=hard, started_at=_utc_now())
+        return self._pending
+
+    def finish_attempt(self, record: AttemptRecord) -> None:
+        """Store the one final outcome and checkpoint the report."""
+        self._pending = None
+        self._entries.append(record)
+        self.write()
+
+    def mark_interrupted(self) -> None:
+        """Mark the run as interrupted; the open attempt is closed by :meth:`finalize`."""
+        self._interrupted = True
+
+    def set_extra(self, key: str, value: object) -> None:
+        """Attach a summary value (for example the tool-selection ratio)."""
+        self._extras[key] = value
+
+    def write(self) -> None:
+        """Write the report atomically: temp file, fsync, ``os.replace``."""
+        payload: dict[str, object] = {
+            "schema_version": REPORT_SCHEMA_VERSION,
+            "run": {
+                "id": self._run_id,
+                "started_at": self._started_at,
+                "finished_at": self._finished_at,
+                "state": self._state,
+            },
+            "model": None if self._model is None else self._model.as_json(),
+            "host": self._settings.host,
+            "options": self._settings.options.as_json(),
+            "entries": [entry.as_json() for entry in self._entries],
+            "extras": dict(self._extras),
+        }
+        _write_json_atomic(self._path, payload)
+
+    def finalize(self) -> None:
+        """Close any open attempt, mark the run complete or interrupted, and write."""
+        if self._state != "running":
+            self.write()
+            return
+        if self._pending is not None:
+            pending = self._pending
+            self._pending = None
+            self._entries.append(
+                AttemptRecord(
+                    name=pending.name,
+                    request=pending.request,
+                    hard=pending.hard,
+                    started_at=pending.started_at,
+                    outcome=AttemptOutcome.ERROR,
+                    failure="attempt interrupted before completion",
+                    termination="interrupted",
+                    notes="the run stopped while this attempt was in flight",
+                )
+            )
+            self._interrupted = True
+        self._state = "interrupted" if self._interrupted else "complete"
+        self._finished_at = _utc_now()
+        self.write()
+
+
+def _build_record(
+    scenario: Scenario,
+    pending: _PendingAttempt,
+    *,
+    run: ScenarioRun | None,
+    failure: ScenarioRunError | None,
+    failure_text: str,
+    termination: str,
+    outcome: AttemptOutcome,
+    duration_seconds: float,
+) -> AttemptRecord:
+    """Build the final report entry from a run, a scenario failure, or bare counters."""
+    task_passed = outcome is AttemptOutcome.PASSED
+    if run is not None:
+        metrics = run.recovery_metrics(task_passed=task_passed)
+        return AttemptRecord(
+            name=pending.name,
+            request=pending.request,
+            hard=pending.hard,
+            started_at=pending.started_at,
+            outcome=outcome,
+            failure=failure_text,
+            termination=termination,
+            tool_calls=tuple(run.tool_names()),
+            steps=run.steps,
+            duration_seconds=round(run.duration_seconds, 3),
+            teardown_seconds=round(run.teardown_seconds, 3),
+            prompt_eval_count=run.prompt_eval_count,
+            eval_count=run.eval_count,
+            final_text=run.final_text,
+            transcript=str(run.transcript),
+            first_attempt_success=metrics.first_attempt_success,
+            failed_target_calls=metrics.failed_target_calls,
+            retries=metrics.retries,
+            recovered=metrics.recovered,
+        )
+    target = frozenset(
+        dict.fromkeys((*scenario.required_tools, *scenario.required_any)),
+    )
+    if failure is not None:
+        metrics = _recovery_metrics(failure.calls, target, task_passed=False)
+        return AttemptRecord(
+            name=pending.name,
+            request=pending.request,
+            hard=pending.hard,
+            started_at=pending.started_at,
+            outcome=outcome,
+            failure=failure_text,
+            termination=termination,
+            tool_calls=tuple(call.name for call in failure.calls),
+            steps=failure.steps,
+            duration_seconds=round(duration_seconds, 3),
+            teardown_seconds=round(failure.teardown_seconds, 3),
+            prompt_eval_count=failure.prompt_eval_count,
+            eval_count=failure.eval_count,
+            transcript="" if failure.transcript is None else str(failure.transcript),
+            first_attempt_success=metrics.first_attempt_success,
+            failed_target_calls=metrics.failed_target_calls,
+            retries=metrics.retries,
+            recovered=metrics.recovered,
+        )
+    return AttemptRecord(
+        name=pending.name,
+        request=pending.request,
+        hard=pending.hard,
+        started_at=pending.started_at,
+        outcome=outcome,
+        failure=failure_text,
+        termination=termination,
+        duration_seconds=round(duration_seconds, 3),
+    )
+
+
+def run_attempt(scenario: Scenario, env: AgentEnvironment, report: AgentReport, *, hard: bool) -> AttemptRecord:
+    """Run one scenario, record exactly one outcome, and re-raise failures of hard scenarios.
+
+    The attempt is registered before it starts and the report is checkpointed
+    after it, whatever happened: ``AssertionError`` from the scenario checks is
+    ``failed``; :class:`ScenarioRunError` and any other ``Exception`` is
+    ``error``. A hard scenario re-raises the recorded failure; report-only
+    variants (``hard=False``) never raise. ``BaseException`` (for example
+    ``KeyboardInterrupt``) propagates immediately and leaves the attempt open,
+    so the fixture teardown records it as interrupted.
+    """
+    pending = report.begin_attempt(scenario.name, scenario.request, hard)
+    started = time.monotonic()
+    run: ScenarioRun | None = None
+    failure: ScenarioRunError | None = None
+    error: BaseException | None = None
+    outcome = AttemptOutcome.PASSED
+    failure_text = ""
+    termination = "completed"
+    try:
+        run = env.run(scenario)
+        run.assert_required_tools()
+        run.run_check()
+    except AssertionError as exc:
+        outcome = AttemptOutcome.FAILED
+        failure_text = str(exc)
+        error = exc
+    except ScenarioRunError as exc:
+        outcome = AttemptOutcome.ERROR
+        failure_text = str(exc)
+        termination = exc.termination
+        failure = exc
+        error = exc
+    except Exception as exc:
+        outcome = AttemptOutcome.ERROR
+        failure_text = f"{type(exc).__name__}: {exc}"
+        termination = "harness_error"
+        error = exc
+    except BaseException:
+        report.mark_interrupted()
+        raise
+    record = _build_record(
+        scenario,
+        pending,
+        run=run,
+        failure=failure,
+        failure_text=failure_text,
+        termination=termination,
+        outcome=outcome,
+        duration_seconds=time.monotonic() - started,
+    )
+    report.finish_attempt(record)
+    if hard and error is not None:
+        raise error
+    return record

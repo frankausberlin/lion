@@ -1,9 +1,10 @@
 """Session fixtures for the opt-in agentic QA suite.
 
-The Ollama guard is a session fixture that fails loudly (never skips): the
-suite is explicitly opt-in, so a missing service or model is a setup error with
-an action hint, not a reason to pass silently. Every test runs against a
-disposable ``tmp_path`` home with an isolated ``XDG_DATA_HOME``/
+The Ollama preflight runs inside the report setup: the report exists before it
+can fail, so a missing service or model ends as a ``report.json`` with
+``state = "preflight_error"`` and then a loud ``AgentError`` with an action
+hint — never a skip, because the suite is explicitly opt-in. Every test runs
+against a disposable ``tmp_path`` home with an isolated ``XDG_DATA_HOME``/
 ``XDG_CONFIG_HOME``; the ledger builders live in :mod:`ledger`. Transcripts and
 ``report.json`` are collected in a session-scoped ``agentic-artifacts.*``
 directory in the repository root (gitignored, removed by ``just clean``).
@@ -15,7 +16,7 @@ from pathlib import Path
 
 import ledger
 import pytest
-from agent import AgentEnvironment, AgentReport, OllamaModel, OllamaSettings, check_ollama
+from agent import AgentEnvironment, AgentError, AgentReport, OllamaSettings, check_ollama
 
 from tests.ledger_fixtures import two_states as seed_two_states
 
@@ -29,27 +30,23 @@ def ollama_settings() -> OllamaSettings:
 
 
 @pytest.fixture(scope="session")
-def ollama_model(ollama_settings: OllamaSettings) -> OllamaModel:
-    """Verify the local Ollama model once; a setup problem fails loudly."""
-    return check_ollama(ollama_settings)
-
-
-@pytest.fixture(scope="session")
 def agent_artifacts() -> Path:
     """The session artifact directory; kept for inspection after the run."""
     return Path(tempfile.mkdtemp(prefix="agentic-artifacts.", dir=REPO_ROOT))
 
 
 @pytest.fixture(scope="session")
-def agent_report(
-    agent_artifacts: Path,
-    ollama_settings: OllamaSettings,
-    ollama_model: OllamaModel,
-) -> Iterator[AgentReport]:
-    """Collect scenario outcomes and write ``report.json`` at session end."""
-    report = AgentReport(agent_artifacts / "report.json", ollama_settings, ollama_model)
+def agent_report(agent_artifacts: Path, ollama_settings: OllamaSettings) -> Iterator[AgentReport]:
+    """Verify the local model, then collect outcomes and finalize the report."""
+    report = AgentReport(agent_artifacts / "report.json", ollama_settings)
+    try:
+        model = check_ollama(ollama_settings)
+    except AgentError as exc:
+        report.mark_preflight_error(str(exc))
+        raise
+    report.set_model(model)
     yield report
-    report.write()
+    report.finalize()
 
 
 @pytest.fixture(autouse=True)
