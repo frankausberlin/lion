@@ -35,6 +35,7 @@ from tests.ledger_fixtures import (
     B_REF,
     HOST_STATE,
     OTHER_STATE,
+    RECORDING_STOPPED_AT_LATER,
     add_adr,
     stopped_recording,
     two_states,
@@ -321,7 +322,7 @@ def test_diff_requirestwo_states() -> None:
 def test_recordings_matches_cli_json_and_trims_with_limit() -> None:
     """The recordings tool mirrors ``lion watch list --json`` and trims the newest."""
     first = stopped_recording([("cmd", "echo one")], note="first")
-    second = stopped_recording([("cmd", "echo two")], note="second")
+    second = stopped_recording([("cmd", "echo two")], note="second", now=RECORDING_STOPPED_AT_LATER)
 
     assert _call("lion_recordings") == _cli_json("watch", "list", "--json")
 
@@ -575,7 +576,7 @@ def test_search_finds_adr_fields_and_recording_texts() -> None:
 def test_search_is_case_insensitive_and_newest_first() -> None:
     """Search matches case-insensitively and orders hits newest first."""
     _ = stopped_recording([("cmd", "echo ALPHA")])
-    _ = stopped_recording([("cmd", "echo alpha")])
+    _ = stopped_recording([("cmd", "echo alpha")], now=RECORDING_STOPPED_AT_LATER)
 
     hits = [_mapping(hit) for hit in _sequence(_mapping(_call("lion_search", {"query": "alpha"}))["hits"])]
 

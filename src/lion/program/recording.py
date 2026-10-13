@@ -864,12 +864,16 @@ def _snapshot_for(now: datetime, collectors: Mapping[str, Mapping[str, object]])
     )
 
 
-def start_recording(collectors: Mapping[str, Mapping[str, object]], note: str = "") -> Recording:
+def start_recording(
+    collectors: Mapping[str, Mapping[str, object]], note: str = "", *, now: datetime | None = None
+) -> Recording:
     """Start a recording: create its space, publish the pointer and return it.
 
     Args:
         collectors: Serialized collector sections from ``collect_state``.
         note: Optional free-text note stored in ``meta.toml``.
+        now: The start instant; defaults to the current UTC time (tests pin it
+            for deterministic references).
 
     Returns:
         The freshly created, active recording.
@@ -885,20 +889,20 @@ def start_recording(collectors: Mapping[str, Mapping[str, object]], note: str = 
             f"An active recording pointer already exists: {get_active_pointer()}. "
             "Stop the recording or reconcile the space (see 'lion doctor')."
         )
-    now = datetime.now(UTC)
-    _guard_clock(now)
-    record_dir = _create_record_dir(recordings, now)
+    instant = (datetime.now(UTC) if now is None else now).astimezone(UTC)
+    _guard_clock(instant)
+    record_dir = _create_record_dir(recordings, instant)
     try:
         meta = RecordingMeta(
             schema_version=META_SCHEMA_VERSION,
             ref=record_dir.name,
             status=STATUS_OPEN,
-            started_at=now.isoformat(),
+            started_at=instant.isoformat(),
             note=note,
             integration_version=__version__,
         )
         _publish_new(record_dir, tomli_w.dumps(meta.to_toml_dict()), record_dir / "meta.toml")
-        snapshot = _snapshot_for(now, collectors)
+        snapshot = _snapshot_for(instant, collectors)
         _publish_new(record_dir, tomli_w.dumps(snapshot.to_toml_dict()), record_dir / "state-start.toml")
         (record_dir / "events").mkdir(mode=0o700)
         _publish_new(recordings, record_dir.name + "\n", get_active_pointer())
@@ -908,12 +912,16 @@ def start_recording(collectors: Mapping[str, Mapping[str, object]], note: str = 
     return load_recording(record_dir.name)
 
 
-def stop_recording(collectors: Mapping[str, Mapping[str, object]], note: str = "") -> Recording:
+def stop_recording(
+    collectors: Mapping[str, Mapping[str, object]], note: str = "", *, now: datetime | None = None
+) -> Recording:
     """Stop the active recording: publish its end state and clear the pointer.
 
     Args:
         collectors: Serialized collector sections from ``collect_state``.
         note: Optional note; when given it replaces the start note.
+        now: The stop instant; defaults to the current UTC time (tests pin it
+            for deterministic references).
 
     Returns:
         The stopped recording.
@@ -929,15 +937,15 @@ def stop_recording(collectors: Mapping[str, Mapping[str, object]], note: str = "
     recording = load_recording(ref)
     if not recording.active:
         raise RecordingError(f"Recording '{ref}' is already stopped; reconcile the space (see 'lion doctor').")
-    now = datetime.now(UTC)
+    instant = (datetime.now(UTC) if now is None else now).astimezone(UTC)
     latest_event = _latest_event_instant(recording.path)
-    _guard_clock(now, extra=[latest_event] if latest_event is not None else [])
-    snapshot = _snapshot_for(now, collectors)
+    _guard_clock(instant, extra=[latest_event] if latest_event is not None else [])
+    snapshot = _snapshot_for(instant, collectors)
     _publish_new(recording.path, tomli_w.dumps(snapshot.to_toml_dict()), recording.path / "state-end.toml")
     meta = replace(
         recording.meta,
         status=STATUS_STOPPED,
-        stopped_at=now.isoformat(),
+        stopped_at=instant.isoformat(),
         note=note or recording.meta.note,
     )
     _write_meta(recording.path / "meta.toml", meta)
