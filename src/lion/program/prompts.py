@@ -70,12 +70,15 @@ class PromptTemplate:
 
         A declared argument without a value renders as an empty string. The
         result is stripped, so an omitted optional placeholder that owns a
-        whole paragraph cannot leave trailing whitespace behind.
+        whole paragraph cannot leave trailing whitespace behind. Substitution
+        is a single pass: a value that contains ``{name}`` is inserted
+        literally and never expanded again.
         """
-        rendered = self.body
-        for argument in self.arguments:
-            rendered = rendered.replace("{" + argument.name + "}", values.get(argument.name, ""))
-        return rendered.strip()
+
+        def substitute(match: re.Match[str]) -> str:
+            return values.get(match.group(1), "")
+
+        return _PLACEHOLDER.sub(substitute, self.body).strip()
 
 
 def get_prompt_dir() -> Path:
@@ -95,7 +98,7 @@ def _split_frontmatter(raw: bytes, path: Path) -> tuple[str, str]:
     except UnicodeDecodeError as exc:
         raise _invalid(path, f"not valid UTF-8: {exc}") from exc
     lines = text.split("\n")
-    if not lines or lines[0].strip() != "---":
+    if lines[0].strip() != "---":
         raise _invalid(path, "missing frontmatter (the file must start with '---')")
     for index in range(1, len(lines)):
         if lines[index].strip() == "---":

@@ -82,6 +82,16 @@ def test_render_omitted_optional_placeholder_stays_clean() -> None:
     assert rendered == rendered.strip()
 
 
+def test_render_inserts_values_literally() -> None:
+    """A value that contains a placeholder is inserted literally, once."""
+    template = prompts.load_prompt_templates()["review_latest_changes"]
+
+    rendered = template.render({"reference": "{focus}", "focus": "FOCUS-VALUE"})
+
+    assert "the stored state {focus}" in rendered
+    assert rendered.endswith("FOCUS-VALUE")
+
+
 # --- folder-level failures --------------------------------------------------
 
 
