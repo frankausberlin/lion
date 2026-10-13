@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 from lion.classify.checks import classifier_checks
 from lion.cli import app
 from lion.command import doctor as command_doctor
-from lion.program import adrs, annotations, doctor, recording, storage, wiki
+from lion.program import adrs, annotations, doctor, prompts, recording, serve, storage, wiki
 from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
@@ -128,7 +128,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 16 ok, 0 warn, 0 error, 10 skip" in result.stdout
+    assert "Result: 17 ok, 0 warn, 0 error, 10 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -194,6 +194,7 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
         "watch",
         "adr",
         "classify",
+        "serve",
     ]
     assert payload["summary"]["warn"] == 1
     assert payload["reco_path"] is not None
@@ -611,6 +612,7 @@ def test_shell_and_watch_topics_checked(monkeypatch: pytest.MonkeyPatch) -> None
         "watch",
         "adr",
         "classify",
+        "serve",
     ]
     findings = {item["name"]: item for item in payload["findings"]}
     assert findings["shell.inserted"]["status"] == "skip"
@@ -748,6 +750,40 @@ def test_classifier_check_reports_the_user_file(doctor_env: SimpleNamespace) -> 
     assert len(findings) == 1
     assert findings[0].status == CheckStatus.OK
     assert str(path) in findings[0].message
+
+
+def test_serve_definition_topic_is_ok(doctor_env: SimpleNamespace) -> None:
+    """The serve topic reports a building MCP server definition."""
+    findings = serve.serve_checks(DoctorContext(state=_state(), home=doctor_env.home))
+
+    assert len(findings) == 1
+    assert findings[0].name == "serve.definition"
+    assert findings[0].status == CheckStatus.OK
+    assert "3 prompt defaults" in findings[0].message
+
+
+def test_serve_definition_reports_broken_prompt_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, doctor_env: SimpleNamespace
+) -> None:
+    """A broken prompt default is an error naming the file and exits 1."""
+    shipped = prompts.get_prompt_dir()
+    directory = tmp_path / "prompt_defaults"
+    directory.mkdir()
+    for name in prompts.EXPECTED_PROMPTS:
+        content = (shipped / f"{name}.md").read_text(encoding="utf-8")
+        if name == "recall_knowledge":
+            content = "---\nbroken = [\n---\n\nbody\n"
+        _ = (directory / f"{name}.md").write_text(content, encoding="utf-8")
+    monkeypatch.setattr(prompts, "get_prompt_dir", lambda: directory)
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert "serve" in payload["checked"]
+    findings = {item["name"]: item for item in payload["findings"]}
+    assert findings["serve.definition"]["status"] == "error"
+    assert str(directory / "recall_knowledge.md") in findings["serve.definition"]["message"]
 
 
 def _wiki_ctx(doctor_env: SimpleNamespace) -> DoctorContext:

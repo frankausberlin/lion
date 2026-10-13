@@ -7,8 +7,9 @@ checks in :mod:`lion.program.storage`, the wiki freshness check in
 :mod:`lion.program.shlib`, the shell-integration check in :mod:`lion.program.shell`,
 the recording check in :mod:`lion.program.recording`, the ADR overlay check
 in :mod:`lion.program.annotations`, the standalone ADR store check in
-:mod:`lion.program.adrs` and the classifier rule check in
-:mod:`lion.classify.checks`. This module only runs them, catches a crashing
+:mod:`lion.program.adrs`, the classifier rule check in
+:mod:`lion.classify.checks` and the MCP server definition check in
+:mod:`lion.program.serve`. This module only runs them, catches a crashing
 check, orders the findings deterministically and renders text, JSON and the
 human-executed ``reco.sh``.
 """
@@ -18,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lion.classify.checks import classifier_checks
-from lion.program import adrs, annotations, recording, shell, shlib, storage, wiki
+from lion.program import adrs, annotations, recording, serve, shell, shlib, storage, wiki
 from lion.program.checks import Check, CheckStatus, DoctorContext, Finding
 from lion.state import diagnosis
 
@@ -50,6 +51,7 @@ TOPIC_ORDER: tuple[str, ...] = (
     "watch",
     "adr",
     "classify",
+    "serve",
 )
 
 #: The ordered checks ``doctor`` runs as ``(topic, check)`` pairs; the ``watch``
@@ -66,6 +68,7 @@ CHECKS: tuple[tuple[str, Check], ...] = (
     ("watch", annotations.annotations_checks),
     ("adr", adrs.adr_checks),
     ("classify", classifier_checks),
+    ("serve", serve.serve_checks),
 )
 
 _TOPIC_INDEX = {topic: index for index, topic in enumerate(TOPIC_ORDER)}

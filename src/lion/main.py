@@ -20,6 +20,7 @@ Common commands:
   lion records         read and edit the ADRs attached to recordings
   lion adr             document standalone decisions (ADRs)
   lion classify        classify recorded input blocks (read-only)
+  lion serve           run the MCP server on stdio
   lion --version       print the installed version
 
 Run 'lion <command> --help' for details on a command.
@@ -249,6 +250,28 @@ Examples:
 
 Inside an active recording, 'lion watch R' lists the blocks tersely and
 'lion watch R-' shows only the previous block.
+"""
+
+SERVE_HELP = """Run an MCP server over stdio for MCP clients (editors, agents): a read-only
+view of the stored states, recordings, ADRs and classifications, plus two
+tools that create and update standalone ADRs.
+
+The server never collects a state; the ledger changes only through 'lion scan'
+and 'lion watch' on this machine. Recorded text and ADR values are masked
+best-effort (set LION_SERVE_REDACT=0 to opt out); masking is not a security
+boundary.
+"""
+
+SERVE_EPILOG = """The transport is stdio only; stdout carries pure JSON-RPC and diagnostics go to
+stderr. An MCP client starts the server with command "lion" and args ["serve"].
+The prompt defaults are read once at startup; a broken file is a loud error.
+
+Examples:
+
+  lion serve    start the MCP server on stdio (blocks until the client stops it)
+
+Read-only commands never write; 'lion_adr_add' and 'lion_adr_update' are the
+only writing tools and touch only $XDG_DATA_HOME/lion/adrs/.
 """
 
 

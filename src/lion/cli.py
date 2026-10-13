@@ -23,6 +23,7 @@ from lion.command.doctor import run as run_doctor
 from lion.command.history import run as run_history
 from lion.command.records import run as run_records
 from lion.command.scan import run as run_scan
+from lion.command.serve import run as run_serve
 from lion.command.shell import run as run_shell
 from lion.command.shlib import Action
 from lion.command.shlib import run as run_shlib
@@ -40,6 +41,8 @@ from lion.main import (
     RECORDS_HELP,
     ROOT_EPILOG,
     SCAN_EPILOG,
+    SERVE_EPILOG,
+    SERVE_HELP,
     SHELL_EPILOG,
     SHELL_HELP,
     SHLIB_EPILOG,
@@ -139,6 +142,12 @@ def classify(
 ) -> None:
     """Classify the recorded input blocks with the declarative rules (read-only)."""
     run_classify(reference, json_output)
+
+
+@app.command(help=SERVE_HELP, epilog=SERVE_EPILOG)
+def serve() -> None:
+    """Run the MCP server on stdio (read-only view plus ADR writing)."""
+    run_serve()
 
 
 shlib_app = typer.Typer(
