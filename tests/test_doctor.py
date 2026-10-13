@@ -1,8 +1,8 @@
 """Deterministic tests for ``lion doctor`` and its check framework.
 
-The collectors are replaced by a fixed state and ``HOME``/``XDG_DATA_HOME`` point
-at temporary directories, so no real hardware, packages or user shell is
-touched.
+The collectors are replaced by a fixed state and ``HOME``/``XDG_DATA_HOME``/
+``XDG_CONFIG_HOME`` point at temporary directories, so no real hardware,
+packages or user shell is touched.
 """
 
 import json
@@ -38,14 +38,16 @@ _NVIDIA_HARDWARE: dict[str, object] = {
 
 @pytest.fixture(autouse=True)
 def doctor_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
-    """Isolate the home and data directories from the developer's machine."""
+    """Isolate the home, data and config directories from the developer's machine."""
     home = tmp_path / "home"
     home.mkdir()
     data = tmp_path / "data"
+    config = tmp_path / "config"
     monkeypatch.setenv("HOME", str(home))
     monkeypatch.setenv("XDG_DATA_HOME", str(data))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
     monkeypatch.delenv("ZDOTDIR", raising=False)
-    return SimpleNamespace(home=home, data=data)
+    return SimpleNamespace(home=home, data=data, config=config)
 
 
 def _state(**overrides: object) -> dict[str, dict[str, object]]:
@@ -711,7 +713,7 @@ def test_classifier_check_reports_invalid_user_rules(doctor_env: SimpleNamespace
     assert bundled[0].status == CheckStatus.OK
     assert "built-in rules only" in bundled[0].message
 
-    path = doctor_env.home / ".config" / "lion" / "classifier.json"
+    path = doctor_env.config / "lion" / "classifier.json"
     path.parent.mkdir(parents=True)
     path.write_text("{not json", encoding="utf-8")
     findings = classifier_checks(ctx)
@@ -726,7 +728,7 @@ def test_classifier_check_reports_the_user_file(doctor_env: SimpleNamespace) -> 
     """A valid user file is reported with its path in the ok message."""
     state = _state()
     ctx = DoctorContext(state=state, home=doctor_env.home)
-    path = doctor_env.home / ".config" / "lion" / "classifier.json"
+    path = doctor_env.config / "lion" / "classifier.json"
     path.parent.mkdir(parents=True)
     path.write_text(
         json.dumps(
