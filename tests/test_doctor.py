@@ -17,7 +17,7 @@ from typer.testing import CliRunner
 from lion.classify.checks import classifier_checks
 from lion.cli import app
 from lion.command import doctor as command_doctor
-from lion.program import annotations, doctor, recording, storage
+from lion.program import annotations, doctor, recording, storage, wiki
 from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
@@ -128,7 +128,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 15 ok, 0 warn, 0 error, 9 skip" in result.stdout
+    assert "Result: 15 ok, 0 warn, 0 error, 10 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -188,6 +188,7 @@ def test_json_is_pure_and_schema_shaped(monkeypatch: pytest.MonkeyPatch) -> None
         "tools",
         "history",
         "storage",
+        "wiki",
         "shlib",
         "shell",
         "watch",
@@ -603,6 +604,7 @@ def test_shell_and_watch_topics_checked(monkeypatch: pytest.MonkeyPatch) -> None
         "tools",
         "history",
         "storage",
+        "wiki",
         "shlib",
         "shell",
         "watch",
@@ -725,3 +727,110 @@ def test_classifier_check_reports_the_user_file(doctor_env: SimpleNamespace) -> 
     assert len(findings) == 1
     assert findings[0].status == CheckStatus.OK
     assert str(path) in findings[0].message
+
+
+def _wiki_ctx(doctor_env: SimpleNamespace) -> DoctorContext:
+    return DoctorContext(state=_state(), home=doctor_env.home)
+
+
+def test_wiki_freshness_without_history_is_skip(doctor_env: SimpleNamespace) -> None:
+    """No history is a neutral skip; the check never creates anything."""
+    findings = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert len(findings) == 1
+    assert findings[0].name == "wiki.freshness"
+    assert findings[0].topic == "wiki"
+    assert findings[0].status == CheckStatus.SKIP
+    assert findings[0].message == "No history present."
+    assert not get_data_dir().exists()
+
+
+def test_wiki_freshness_unreadable_history_is_skip(doctor_env: SimpleNamespace) -> None:
+    """A damaged history defers to the history topic instead of erroring twice."""
+    history = get_history_dir()
+    history.mkdir(parents=True)
+    (history / "broken.toml").write_text("broken = [", encoding="utf-8")
+
+    findings = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert findings[0].status == CheckStatus.SKIP
+    assert "see the history topic" in findings[0].message
+
+
+def test_wiki_freshness_missing_index_is_warn(doctor_env: SimpleNamespace) -> None:
+    """A stored state without a wiki is a warn naming the reference."""
+    storage.save_state(_state())
+    ref = storage.list_entries()[-1].ref
+
+    findings = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert findings[0].status == CheckStatus.WARN
+    assert findings[0].message == f"Wiki is missing for the latest state ({ref})."
+    assert findings[0].hint == "'lion scan' regenerates it."
+    assert not wiki.get_wiki_dir().exists()
+
+
+def test_wiki_freshness_unreadable_index_is_warn(doctor_env: SimpleNamespace) -> None:
+    """An index without a readable frontmatter reference is a warn."""
+    storage.save_state(_state())
+    index = wiki.get_wiki_dir() / "index.md"
+    index.parent.mkdir(parents=True)
+    index.write_text("no frontmatter\n", encoding="utf-8")
+
+    findings = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert findings[0].status == CheckStatus.WARN
+    assert f"Wiki index is unreadable: {index}" in findings[0].message
+    assert findings[0].hint == "'lion scan' regenerates it."
+
+
+def test_wiki_freshness_stale_and_matching(doctor_env: SimpleNamespace) -> None:
+    """A foreign reference is stale; the rendered wiki matches again."""
+    storage.save_state(_state())
+    entry = storage.list_entries()[-1]
+    index = wiki.get_wiki_dir() / "index.md"
+    index.parent.mkdir(parents=True)
+    index.write_text("---\nsnapshot_ref: old-ref\n---\n", encoding="utf-8")
+
+    stale = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert stale[0].status == CheckStatus.WARN
+    assert stale[0].message == f"Wiki is stale (ref old-ref, latest {entry.ref})."
+
+    _ = wiki.write_pages(wiki.render_pages(entry.snapshot, entry.ref))
+    fresh = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert fresh[0].status == CheckStatus.OK
+    assert fresh[0].message == f"Wiki matches the latest state ({entry.ref})."
+    assert fresh[0].hint == ""
+
+
+def test_wiki_freshness_stale_after_out_of_band_state(
+    monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace
+) -> None:
+    """A state appended outside 'scan' leaves the wiki stale until the next scan."""
+    _use_state(monkeypatch, _state())
+    assert runner.invoke(app, ["scan"]).exit_code == 0
+    changed = _state()
+    changed["host"]["hostname"] = "other"
+    storage.save_state(changed)
+
+    findings = wiki.wiki_checks(_wiki_ctx(doctor_env))
+
+    assert findings[0].status == CheckStatus.WARN
+    assert "stale" in findings[0].message
+
+
+def test_doctor_json_reports_fresh_wiki(monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace) -> None:
+    """``lion doctor --json`` carries the fresh wiki finding."""
+    _use_state(monkeypatch, _state())
+    storage.save_state(_state())
+    entry = storage.list_entries()[-1]
+    _ = wiki.write_pages(wiki.render_pages(entry.snapshot, entry.ref))
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
+    assert findings["wiki.freshness"]["status"] == "ok"
+    assert findings["wiki.freshness"]["message"] == f"Wiki matches the latest state ({entry.ref})."

@@ -10,6 +10,7 @@ from lion.cli import app
 from lion.command import scan as scan_command
 from lion.command import status as status_command
 from lion.program.storage import get_data_dir, get_history_dir, load_latest, save_state
+from lion.program.wiki import get_wiki_dir
 
 runner = CliRunner()
 
@@ -79,11 +80,26 @@ def test_scan_created_then_confirmed(state: dict[str, dict[str, object]]) -> Non
     assert len(list(get_history_dir().glob("*.toml"))) == 1
 
 
+def test_scan_shows_index_and_writes_wiki(state: dict[str, dict[str, object]]) -> None:
+    """A scan prints the shared index plus the wiki path and writes the pages."""
+    result = _invoke("scan")
+    assert result.exit_code == 0
+    assert "  \u25cf host        ok           new" in result.stdout
+    assert "  \u25cf hardware    ok           new" in result.stdout
+    assert "  \u25cf services    unavailable  new" in result.stdout
+    wiki_dir = get_wiki_dir()
+    assert f"wiki: {wiki_dir / 'index.md'}" in result.stdout
+    assert (wiki_dir / "index.md").is_file()
+    assert (wiki_dir / "host.md").is_file()
+    assert (wiki_dir / "services.md").is_file()
+
+
 def test_scan_json(state: dict[str, dict[str, object]]) -> None:
     """``scan --json`` reports the event, path, and stored state."""
     result = _invoke("scan", "--json")
     assert result.exit_code == 0
     assert result.stderr == ""
+    assert "\u25cf" not in result.stdout
     payload = json.loads(result.stdout)
     assert payload["event"] == "created"
     assert payload["path"].endswith(".toml")
@@ -95,6 +111,7 @@ def test_status_without_history() -> None:
     text = _invoke("status")
     assert text.exit_code == 0
     assert "No state stored" in text.stdout
+    assert "wiki:" not in text.stdout
     machine = _invoke("status", "--json")
     assert machine.exit_code == 0
     assert machine.stdout.strip() == "null"
@@ -110,19 +127,22 @@ def test_status_warns_about_legacy_scans() -> None:
 
 
 def test_status_unchanged(state: dict[str, dict[str, object]]) -> None:
-    """An unchanged state reports that nothing changed."""
+    """An unchanged state reports the index, no change, and the wiki path."""
     _invoke("scan")
     result = _invoke("status")
     assert result.exit_code == 0
+    assert "  \u25cf host        ok           unchanged" in result.stdout
     assert "Nothing has changed" in result.stdout
+    assert f"wiki: {get_wiki_dir() / 'index.md'}" in result.stdout
 
 
 def test_status_changed(state: dict[str, dict[str, object]]) -> None:
-    """A changed state renders a grouped diff."""
+    """A changed state renders a grouped diff and marks the collector changed."""
     _invoke("scan")
     state["host"]["hostname"] = "server"
     result = _invoke("status")
     assert result.exit_code == 0
+    assert "  \u25cf host        ok           changed" in result.stdout
     assert "host:" in result.stdout
     assert "~ hostname: lion-test -> server" in result.stdout
 

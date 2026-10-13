@@ -2,7 +2,8 @@
 
 ``doctor`` aggregates checks owned by the modules that own the data: the
 collector/tool checks live in :mod:`lion.state.diagnosis`, the history/storage
-checks in :mod:`lion.program.storage`, the shlib check in
+checks in :mod:`lion.program.storage`, the wiki freshness check in
+:mod:`lion.program.wiki`, the shlib check in
 :mod:`lion.program.shlib`, the shell-integration check in :mod:`lion.program.shell`,
 the recording check in :mod:`lion.program.recording`, the ADR overlay check
 in :mod:`lion.program.annotations` and the classifier rule check in
@@ -16,7 +17,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lion.classify.checks import classifier_checks
-from lion.program import annotations, recording, shell, shlib, storage
+from lion.program import annotations, recording, shell, shlib, storage, wiki
 from lion.program.checks import Check, CheckStatus, DoctorContext, Finding
 from lion.state import diagnosis
 
@@ -37,7 +38,17 @@ __all__ = [
 ]
 
 #: Semantic topic order used for output; kept aligned with :data:`CHECKS`.
-TOPIC_ORDER: tuple[str, ...] = ("collectors", "tools", "history", "storage", "shlib", "shell", "watch", "classify")
+TOPIC_ORDER: tuple[str, ...] = (
+    "collectors",
+    "tools",
+    "history",
+    "storage",
+    "wiki",
+    "shlib",
+    "shell",
+    "watch",
+    "classify",
+)
 
 #: The ordered checks ``doctor`` runs as ``(topic, check)`` pairs; the ``watch``
 #: topic carries two checks (recordings and ADR overlays).
@@ -46,6 +57,7 @@ CHECKS: tuple[tuple[str, Check], ...] = (
     ("tools", diagnosis.tool_checks),
     ("history", storage.history_checks),
     ("storage", storage.storage_checks),
+    ("wiki", wiki.wiki_checks),
     ("shlib", shlib.shlib_checks),
     ("shell", shell.shell_checks),
     ("watch", recording.watch_checks),

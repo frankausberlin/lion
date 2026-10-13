@@ -1,7 +1,8 @@
 """The ``lion status`` command: compare without writing.
 
 ``status`` is the read-only *command*; *state* is the internal representation it
-compares. It never writes to the history; see :mod:`lion.command` for the
+compares. It never writes to the history or the wiki — it only points at the
+wiki written by the last ``scan``; see :mod:`lion.command` for the
 ``status``/``state`` naming.
 """
 
@@ -11,9 +12,11 @@ import typer
 
 from lion.command import fail
 from lion.command.diagnostics import warn_incomplete
+from lion.command.overview import render_index
 from lion.program import recording
 from lion.program.diff import diff_collectors, has_structural_change, render
 from lion.program.storage import get_data_dir, load_latest
+from lion.program.wiki import get_wiki_dir
 from lion.state.collector import collect_state
 from lion.state.registry import COLLECTORS
 
@@ -69,10 +72,14 @@ def run(json_output: bool = False) -> None:
         }
         typer.echo(json.dumps(payload))
         return
+    typer.echo(render_index(state, diff, get_wiki_dir()))
     if not diff:
         typer.echo(f"Nothing has changed since the last scan at {latest.confirmed_at}.")
     else:
         if has_structural_change(diff):
             typer.echo("Structure changed.")
         typer.echo(render(diff))
+    wiki_index = get_wiki_dir() / "index.md"
+    if wiki_index.exists():
+        typer.echo(f"wiki: {wiki_index}")
     _watch_banner()

@@ -279,14 +279,16 @@ def resolve(reference: str) -> Entry:
     return _resolve_fuzzy(entries, token, lowered, reference)
 
 
-def _load_head_for_write() -> tuple[Path, Snapshot] | None:
+def load_head_for_write() -> tuple[Path, Snapshot] | None:
     """Select the newest entry for writing, validating only the head.
 
     ``save_state`` does not need the full history: it only compares against and
     possibly refreshes the newest entry. Every entry is still parsed (so an
     unreadable or syntactically invalid file fails with its path), but the
     confirmation timestamps are checked for ordering and recursive collector
-    validation runs only for the selected head.
+    validation runs only for the selected head. ``scan`` also uses this head as
+    the baseline for the collector index it displays; it never substitutes for
+    the strict full validation of the read commands.
     """
     candidates: list[tuple[tuple[datetime, str], Path]] = []
     for path in _entry_paths():
@@ -368,7 +370,7 @@ def save_state(collectors: dict[str, dict[str, object]]) -> SaveOutcome:
     with (data_dir / ".history.lock").open("a") as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         now = datetime.now(UTC).isoformat()
-        latest = _load_head_for_write()
+        latest = load_head_for_write()
         if latest is not None:
             path, previous = latest
             if datetime.fromisoformat(now) < datetime.fromisoformat(previous.confirmed_at):

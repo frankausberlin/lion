@@ -26,7 +26,9 @@ Run 'lion <command> --help' for details on a command.
 
 SCAN_EPILOG = """The first run creates a history entry, an unchanged run refreshes its
 timestamp, and a changed state appends a new entry. Only 'scan' writes to the
-history.
+history. Every run also regenerates the derived OKF v0.2 wiki under
+$XDG_DATA_HOME/lion/wiki/ (index.md plus one page per collector); never edit it
+by hand.
 
 Examples:
 
@@ -34,8 +36,10 @@ Examples:
   lion scan --json     emit the result as a single JSON object
 """
 
-STATUS_EPILOG = """Read-only: it never changes the history. Running 'lion' without a command is
-the same as 'lion status'.
+STATUS_EPILOG = """Read-only: it never changes the history or the wiki. Running 'lion' without a
+command is the same as 'lion status'. The 'wiki:' line below the diff points at
+the wiki written by the latest 'scan'; it can be minimally older than the fresh
+collection.
 
 Examples:
 
@@ -66,8 +70,8 @@ Examples:
 """
 
 DOCTOR_EPILOG = """Read-only. 'doctor' runs a fresh collection and checks the collectors, the external
-tools, the history, the data directory and the shell library. It never stores
-that state and never runs a fix.
+tools, the history, the data directory, the wiki and the shell library. It never
+stores that state and never runs a fix.
 
 Findings use 'ok', 'warn', 'error' and 'skip'. If anything is 'warn' or 'error',
 exactly one reviewable script is written under $XDG_DATA_HOME/lion/recos/ for
