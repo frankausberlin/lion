@@ -16,6 +16,8 @@ jobs:
     if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      LION_E2E_SHARDS: "4"
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v2

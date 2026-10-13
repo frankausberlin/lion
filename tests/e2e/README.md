@@ -33,15 +33,41 @@ No separate manual image setup is needed. Each invocation runs
    [Dockerfile](Dockerfile) and `uv.lock`; Docker may reuse cached layers. The
    dependency layer is copied and installed before `src/`, so a source change
    only rebuilds the project and test layers.
-3. Creates a fresh container with networking disabled and
-   `LION_E2E_CONTAINER=1`, without host mounts or privileged mode.
-4. Runs pytest against `tests/e2e` with the `e2e` marker, temporary files
+3. Splits `tests/e2e/test_*.py` into balanced shards
+   ([scripts/e2e_shards.py](../../scripts/e2e_shards.py), greedy LPT packing
+   over measured per-file durations) and prints the assignment.
+4. Creates one fresh container per shard with networking disabled and
+   `LION_E2E_CONTAINER=1`, without host mounts or privileged mode, and starts
+   them in parallel.
+5. Runs pytest in every container with the `e2e` marker, temporary files
    under `/artifacts/work` and a JUnit report at `/artifacts/junit.xml`.
-5. Copies `/artifacts` to the host diagnostics directory and removes the
-   container on exit, including after test failures when a container exists.
+6. Copies each `/artifacts` to `e2e-artifacts.*/shard-<n>/`, removes the
+   containers on exit, and prints a per-shard summary with the tail of every
+   failed shard's log. A shard's full output stays in `shard-<n>/run.log`.
 
 The image remains available for subsequent builds. Re-run `just test-e2e`
 after changing code or tests so the image contains the current files.
+
+### Sharding
+
+By default the suite runs in four parallel containers
+(`LION_E2E_SHARDS`, default 4; override with
+`just test-e2e --shards 8`). The measured serial baseline is about 95 s; four
+shards finish in roughly 26–27 s wall clock because the largest file
+(`test_watch_lifecycle.py`, ~19 s) sets the floor. Each container is fully
+isolated: its own tmux server, its own package database, its own `/artifacts`.
+`just test-e2e --shards 1` runs one container with the whole file list (the
+pre-sharding path).
+
+More shards than files collapse to one shard per file, so no container ever
+collects the whole `tests/e2e` directory by accident; a new or unknown test
+file always gets scheduled with a fallback duration. The weight table in
+`scripts/e2e_shards.py` carries the measured per-file durations (2026-10-13);
+refresh the numbers from the newest `junit.xml` when a file changes
+significantly.
+
+`just test-e2e-attach` always runs a single container and cannot be combined
+with `--shards > 1`.
 
 ### Watching a run live
 
@@ -148,17 +174,18 @@ this image.
 
 ## Results and troubleshooting
 
-Read the pytest summary in the terminal and the final
-`E2E diagnostics: <path>` line. Within that directory:
+Read the per-shard summary and the tail of every failed shard's log in the
+terminal, plus the final `E2E diagnostics: <path>` line. Within that directory:
 
 | Artifact | Purpose |
 | --- | --- |
-| `junit.xml` | Test results and assertion failures. |
-| `work/**/commands.log` | Package-, shlib- and doctor-scenario commands, exit codes, stdout and stderr. |
-| `work/**/user-commands.log` | Non-root doctor, shlib and watch commands and output. |
-| `work/**/shell-diagnostics/*.txt` | Per-shell failure diagnostics from interactive scenarios: session and pane state, every input step, and the last screen including scrollback. Written only when a scenario fails and never an assertion source. |
-| `work/**/data/lion/history/*.toml` | Persisted package-scenario snapshots. |
-| Other files under `work/` | Temporary shell configuration, `recos/`, and package fixture files. |
+| `shard-<n>/junit.xml` | Test results and assertion failures of that shard. |
+| `shard-<n>/run.log` | Full pytest output of that shard. |
+| `shard-<n>/work/**/commands.log` | Package-, shlib- and doctor-scenario commands, exit codes, stdout and stderr. |
+| `shard-<n>/work/**/user-commands.log` | Non-root doctor, shlib and watch commands and output. |
+| `shard-<n>/work/**/shell-diagnostics/*.txt` | Per-shell failure diagnostics from interactive scenarios: session and pane state, every input step, and the last screen including scrollback. Written only when a scenario fails and never an assertion source. |
+| `shard-<n>/work/**/data/lion/history/*.toml` | Persisted package-scenario snapshots. |
+| Other files under `shard-<n>/work/` | Temporary shell configuration, `recos/`, and package fixture files. |
 
 If the build fails before container creation, the diagnostics directory may be
 empty; use the terminal build output. For Docker connection errors, verify the
@@ -170,7 +197,8 @@ command log, then inspect the saved snapshots or shell files. Fix the cause and
 rerun the runner; do not remove isolation checks to make the test pass.
 
 GitHub Actions runs this suite in a separate job on pull requests and pushes to
-`main`, and uploads `e2e-artifacts.*` on failure. Locally, diagnostics are
+`main`, sets `LION_E2E_SHARDS: "4"` explicitly (easy to lower for a slow
+runner) and uploads `e2e-artifacts.*` on failure. Locally, diagnostics are
 gitignored and can be deleted after inspection.
 
 ## Alpha testing
