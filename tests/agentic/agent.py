@@ -883,6 +883,16 @@ def _state_failure(state: _LoopState, termination: str, message: str) -> Scenari
     )
 
 
+def _timeout_failure(state: _LoopState, scenario: Scenario, *, between_calls: bool = False) -> ScenarioRunError:
+    """The scenario-timeout failure with the place the deadline hit."""
+    suffix = " between tool calls" if between_calls else ""
+    return _state_failure(
+        state,
+        "scenario_timeout",
+        f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s{suffix}",
+    )
+
+
 async def _drive_session(
     stack: AsyncExitStack,
     state: _LoopState,
@@ -927,9 +937,7 @@ async def _drive_session(
         state.steps = step
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise _state_failure(
-                state, "scenario_timeout", f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s"
-            )
+            raise _timeout_failure(state, scenario)
         transcript.event(
             "chat_request",
             messages=[dict(message) for message in messages],
@@ -999,11 +1007,7 @@ async def _drive_session(
         for call in reply.tool_calls:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise _state_failure(
-                    state,
-                    "scenario_timeout",
-                    f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s between tool calls",
-                )
+                raise _timeout_failure(state, scenario, between_calls=True)
             started = time.monotonic()
             is_error, text = await _call_tool(session, call)
             duration = time.monotonic() - started
@@ -1069,9 +1073,7 @@ async def _drive(
                     chat_function=chat_function,
                 )
         except TimeoutError as exc:
-            raise _state_failure(
-                state, "scenario_timeout", f"scenario {scenario.name!r} exceeded {SCENARIO_TIMEOUT_SECONDS:.0f}s"
-            ) from exc
+            raise _timeout_failure(state, scenario) from exc
     except BaseException as exc:
         failure = exc
         raise
