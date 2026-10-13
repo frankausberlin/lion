@@ -443,12 +443,14 @@ def test_read_only_commands_leave_filesystem_unchanged(runner: Runner, env: dict
 
 
 def test_scan_leaves_only_the_stored_entry_and_lock(runner: Runner, env: dict[str, str]) -> None:
-    """A real scan stages atomically: no temporary files survive the publish."""
+    """A real scan stages atomically: only the entry, the lock and the wiki survive."""
     data = Path(env["XDG_DATA_HOME"])
     created = _scan(runner, env)
 
     files = {path.relative_to(data).as_posix() for path in data.rglob("*") if path.is_file()}
-    assert files == {"lion/.history.lock", f"lion/history/{Path(str(created['path'])).name}"}
+    expected = {"lion/.history.lock", f"lion/history/{Path(str(created['path'])).name}"}
+    expected |= {f"lion/wiki/{name}.md" for name in _SECTIONS} | {"lion/wiki/index.md"}
+    assert files == expected
 
 
 def test_old_snapshot_without_dash_is_additive(runner: Callable[..., str], env: dict[str, str]) -> None:

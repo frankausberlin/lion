@@ -113,13 +113,14 @@ skip the suite to prevent accidental system mutations.
 | [Records ADR](test_records_adr.py) | Drives real interactive zsh sessions, annotates them with typed `#-LION:`/`#+LION:`/`#.LION:` comment lines plus a mixed paste whose here-document body holds a decoy marker and a partially quoted delimiter (`<<'EO'F`, which closes on `EOF`), and reads results only from recording files via `lion records`. Checks the folded ADR (title/component/decision/status, anchor, `uses` unknown), that neither decoy becomes an annotation, the `records` JSON views, read-only preservation of the data directory, and a scripted-`$EDITOR` `records edit` roundtrip whose overlay `doctor` accepts. |
 | [Doctor shlib](test_doctor_shlib.py) | Installs the real shell library and inspects the resulting `shlib.*` findings: clean install, missing reference copy, drifted `.zshrc`, missing directory, `dash/` defects, ambiguous markers and a foreign `ZDOTDIR`. |
 | [Records classifier](test_classify_recording.py) | Classifies real recordings through the installed CLI: block order and the silent filter, segment- and block-scope matches, the JSON and text contracts, the terse in-session `lion watch R`/`R-` reads, a user rule file (merge/override by `id`, merged version and hash, doctor `classify.ruleset`) with a loud invalid-rules failure, and the no-record path staying read-only. |
+| [Wiki on scan](test_wiki_on_scan.py) | One fresh-home journey through real permissions: `scan` writes `index.md` plus the eight collector pages with relative links and a `snapshot_ref` matching the stored entry, and prints the escape-free index with the `wiki:` line; `status` shows the unchanged index read-only; `doctor` reports `wiki.freshness` ok; `lstat` manifests prove that `status` and `doctor` leave the history and wiki byte-identical. |
 
 The package scenario retains four distinct history entries even when removal
 restores the initial collector data. The shlib scenario compares shell behavior
 before and after flattening. Read-only scenarios compare an `lstat`-based
-filesystem manifest, so the permanently retained `lion/.history.lock` is the
-only path a successful `scan` may add and a `doctor` run may add only its
-`recos/` directory and one script. The classifier scenario asserts on a terse command's output as
+filesystem manifest, so a successful `scan` may add only the permanently
+retained `lion/.history.lock` and its derived `lion/wiki/` pages, and a
+`doctor` run may add only its `recos/` directory and one script. The classifier scenario asserts on a terse command's output as
 the feature channel — the in-session `lion watch R`/`R-` reads — while every
 persisted fact is read from the recording files; other scenarios use the
 terminal text only for prompt, silence and readiness checks.
