@@ -694,7 +694,10 @@ def test_matrix_metrics_keep_denominators_and_errors(tmp_path: Path) -> None:
     assert metrics["expected_tool_called"] == {"numerator": 2, "denominator": 3, "value": pytest.approx(2 / 3)}
     assert metrics["expected_tool_succeeded"] == {"numerator": 2, "denominator": 3, "value": pytest.approx(2 / 3)}
     assert metrics["task_completed"] == {"numerator": 1, "denominator": 3, "value": pytest.approx(1 / 3)}
-    assert _section(metrics, "done_reasons")["replies"] == 4
+    reasons = _section(metrics, "done_reasons")
+    assert reasons["replies"] == 4
+    assert reasons["abnormal"] == 0
+    assert _section(reasons, "counts") == {"stop": 4}
 
 
 # --- 11. determinism and metadata --------------------------------------------

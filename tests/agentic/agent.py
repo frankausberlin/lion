@@ -1361,7 +1361,9 @@ def _aggregate_metrics(entries: Sequence[AttemptRecord]) -> dict[str, object]:
 
     Every attempt counts, including the report-only matrix and harness errors:
     the outcomes stay visible as their own counts, and the ratios never replace
-    them. Task completion (the checks) and answer quality stay separate.
+    them. Task completion (the checks) and answer quality stay separate. The
+    ``done_reasons`` histogram keeps its reply and abnormal totals namespaced,
+    so a model reason can never shadow them.
     """
     expected = [entry for entry in entries if entry.metrics.expected_tool]
     with_calls = [entry for entry in entries if entry.metrics.calls_count > 0]
@@ -1404,7 +1406,7 @@ def _aggregate_metrics(entries: Sequence[AttemptRecord]) -> dict[str, object]:
         "tool_errors": _ratio(sum(entry.metrics.tool_errors for entry in entries), calls_total),
         "repeated_calls": _ratio(sum(entry.metrics.repeated_calls for entry in entries), calls_total),
         "empty_final_answer": _ratio(sum(1 for entry in completed if entry.metrics.empty_final_answer), len(completed)),
-        "done_reasons": {**reason_counts, "replies": replies, "abnormal": abnormal},
+        "done_reasons": {"counts": reason_counts, "replies": replies, "abnormal": abnormal},
         "duration_seconds": {
             "total": round(sum(entry.duration_seconds for entry in entries), 3),
             "max": round(max((entry.duration_seconds for entry in entries), default=0.0), 3),
