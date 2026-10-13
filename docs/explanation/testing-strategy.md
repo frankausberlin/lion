@@ -82,12 +82,22 @@ the container, so it is safe for CI.
 
 `just test-agent` runs an advisory LLM-as-tester suite (`tests/agentic/`,
 marker `agentic`): a local Ollama model drives `lion serve` over stdio through
-the real MCP client and answers eight scripted requests. Hard assertions stay
-model-independent — a required tool was called, the ADR write path produced a
-valid document, no recorded secret reached the model-visible text, a server
-error was delivered as an error. Tool selection and answer quality are
-reported, not asserted. Transcripts and `report.json` land under
-`agentic-artifacts.*/`.
+the real MCP client and answers eight scripted requests plus a nine-intent
+tool-selection matrix. Hard assertions stay model-independent and scan the
+whole call history — a required tool was called successfully with the fixture
+data, the ADR write path published exactly one valid document and nothing else,
+no recorded secret reached the model-visible text, a server error was delivered
+as an error. Tool selection, recovery, efficiency and answer quality are
+reported per attempt and aggregated with explicit denominators in
+`report.json`; they never fail the run.
+
+The run is bounded end to end (steps, tool calls, chat and scenario timeouts,
+measured teardown), every attempt is checkpointed atomically, and a preflight
+failure still leaves a readable report. Transcripts and `report.json` land
+under `agentic-artifacts.*/`; the suite identity, model digest and system
+prompt hash make two reports comparable. The harness semantics are pinned
+without a model by the ordinary `tests/test_agentic_harness.py`, which drives
+the real scenarios through injected session and chat fakes.
 
 It is deliberately **not** a fourth gate level: it needs a local model, and its
 determinism depends on the model digest and the Ollama build (temperature 0

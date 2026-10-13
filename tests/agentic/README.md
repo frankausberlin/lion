@@ -7,6 +7,9 @@ and its determinism depends on the model digest and the Ollama build. General
 testing rules live in [AGENTS.md](../../AGENTS.md#testing); the level model and
 why this is not a fourth gate live in
 [docs/explanation/testing-strategy.md](../../docs/explanation/testing-strategy.md).
+The harness semantics themselves (report contract, predicates, recovery
+metrics, budget terminations, metadata) are pinned without a model by
+[tests/test_agentic_harness.py](../test_agentic_harness.py).
 
 ## Prerequisites and execution
 
@@ -24,7 +27,9 @@ The recipe runs `uv run pytest tests/agentic -m agentic -v` without coverage.
 The `agentic` marker is excluded by `addopts`, so ordinary `pytest`, `just test`
 and `just check` never collect a running test from here. A missing Ollama
 service or model is a loud setup error with an action hint (start the service,
-pull the model) — never a skip, because the suite is explicitly opt-in.
+pull the model) — never a skip, because the suite is explicitly opt-in. The
+failure still writes `report.json` with `state = "preflight_error"`, so the
+artifact always exists.
 
 ## How it works
 
@@ -33,8 +38,30 @@ script) and talks to it through the official MCP SDK client, exactly like an
 external agent would. The harness reads the tool inventory from `tools/list`,
 converts it to the Ollama function format, and loops: send the conversation,
 execute the model's tool calls against the live server, feed the results (JSON
-or error text) back, at most 8 steps and 300 s per scenario. One model call
-times out after 120 s.
+or error text) back. The execution budget is end to end:
+
+| Limit | Value | Termination reason |
+| --- | --- | --- |
+| Model steps per scenario | `8` | `step_limit` |
+| Tool calls per model turn | `4` | `call_limit` |
+| Tool calls per scenario | `16` | `call_limit` |
+| One model call | `120 s` | `chat_timeout` |
+| Whole scenario | `300 s` | `scenario_timeout` |
+| Server teardown after a timeout | `15 s` (measured) | — |
+
+The chat request uses httpx with the remaining scenario budget, so a timeout is
+a real cancellation; the MCP SDK's shielded shutdown then reaps the `lion serve`
+subprocess inside the cleanup allowance, and each attempt records the measured
+teardown duration. Transport errors, unparseable responses, malformed tool
+arguments, missing server start and harness-internal exceptions map to the
+closed termination vocabulary (`transport_error`, `malformed_output`,
+`startup_error`, `harness_error`).
+
+Every attempt is registered in `report.json` before it starts and the report is
+checkpointed atomically after it — exactly one outcome (`passed`/`failed`/
+`error`) per attempt, with the partial data (calls, steps, token counts) on
+failures. An interrupted run stays readable (`state = "interrupted"`), and hard
+scenarios re-raise their failure only after the recording.
 
 One source of truth for sampling is `tests/agentic/agent.py`:
 
@@ -47,28 +74,31 @@ One source of truth for sampling is `tests/agentic/agent.py`:
 | `num_ctx` | `16384` | `LION_AGENT_NUM_CTX` overrides (lower it under VRAM pressure) |
 | `num_predict` | `1024` | enough for tool-call turns |
 | `keep_alive` | `30m` | keeps the model resident across scenarios |
+| `think` | not sent | the report records `effective: "model default"` |
 
 Environment overrides for experiments: `LION_AGENT_MODEL`,
-`LION_AGENT_OLLAMA_HOST`, `LION_AGENT_SEED`, `LION_AGENT_NUM_CTX`. The model
-digest and the resolved options are recorded in `report.json`; there is no
-pinning.
+`LION_AGENT_OLLAMA_HOST`, `LION_AGENT_SEED`, `LION_AGENT_NUM_CTX`. The system
+prompt is the builtin constant unless `LION_AGENT_SYSTEM_PROMPT_FILE` points at
+a readable, non-empty file; an unreadable or empty variant is a loud error, and
+the report pins its source, text and SHA-256. There is no pinning of the model.
 
 ## Scenarios
 
 | # | Scenario | Hard assertion | Reported |
 | --- | --- | --- | --- |
-| 1 | History overview (two states seeded) | `lion_history` or `lion_snapshot` called and a result delivered | answer quality |
-| 2 | Compare the two newest states | `lion_diff` resolves A → B, `changed` is true | argument choice |
-| 3 | `review_latest_changes` prompt as the user turn | `lion_diff` resolves A → B, `changed` is true | — |
-| 4 | Search for a unique token | `lion_search` called, the token appears in the result | hit list |
-| 5 | ADR write path | `lion_adr_add` called; file exists, mode `600`, `lion adr show` reads fields back; no other ledger writes | field completeness |
-| 6 | Recording requested, none stored | `lion_recording`/`lion_recordings` called and the error is delivered | final answer claims no success |
-| 7 | Redaction with a recorded secret | secret absent from every transcript entry, `***` in the tool result | `LION_SERVE_REDACT=0` variant shows the difference |
-| 8 | Tool-selection matrix (9 read intents) | — (report only) | first-tool hit ratio |
+| 1 | History overview (two states seeded) | a successful `lion_history` result lists both fixture refs, or a successful `lion_snapshot` result is fixture state B | answer quality |
+| 2 | Compare the two newest states | a successful `lion_diff` resolves A → B, `changed` is true | argument choice |
+| 3 | `review_latest_changes` prompt as the user turn | same A → B diff assertion | — |
+| 4 | Search for a unique token | a successful `lion_search` result contains the token | hit list |
+| 5 | ADR write path | exactly one published ADR: file exists, mode `600`, `title` and `decision` complete, the decision names `stdio`, `lion adr show` reads it back, no other ledger writes | field completeness |
+| 6 | Recording requested, none stored | `lion_recording` was called and the missing-recording error was delivered as an error result | final answer claims no success |
+| 7 | Redaction with a recorded secret | `***` in the tool result and the secret absent from every transcript entry | `LION_SERVE_REDACT=0` variant is report-only and shows the raw secret |
+| 8 | Tool-selection matrix (9 read intents) | — (report only; the first-tool expectation is the check, so a miss is a recorded `failed`) | first-tool hit ratio |
 
-Hard assertions are model-independent. Everything in the "Reported" column and
-the matrix ratio are written to `report.json` without failing the run: they are
-measurements of the model, not of LION.
+Hard assertions are model-independent and always scan the whole call history: a
+failed call followed by a successful retry counts as recovery, and a successful
+but wrong result (wrong direction, wrong reference, `changed: false`, missing
+fields, a second ADR) never passes.
 
 ## Artifacts
 
@@ -77,8 +107,50 @@ removed by `just clean`):
 
 | Artifact | Purpose |
 | --- | --- |
-| `report.json` | Model name, digest, capabilities, options, per-scenario outcomes (calls, durations, token counts, final text) and the tool-selection ratio. |
-| `transcripts/<scenario>.jsonl` | Every model-visible message: system prompt, user turn, assistant replies with tool calls, tool results (including errors) and the final answer. The redaction scenario asserts on these files. |
+| `report.json` | Run metadata, per-attempt outcomes and metrics, aggregate metrics, extras. |
+| `transcripts/<scenario>.jsonl` | Every model-visible message: tool inventory hash, system prompt, user turn, each `chat_request` with the messages as sent (plus the normalization hint), assistant replies with raw `tool_calls`, `thinking` and `done_reason`, tool results with `tool_name` and durations, and the final answer. The redaction scenario asserts on these files. |
+
+### Reading `report.json`
+
+`schema_version` is `1`. The top level carries `run` (`id`, `started_at`,
+`finished_at`, `state`: `running`/`complete`/`interrupted`/`preflight_error`),
+`model` (name, digest, capabilities), `host`, `options` (the resolved sampling
+options as sent), `think`, `system_prompt` (source, path, text, SHA-256),
+`environment` (Lion version, best-effort git commit/dirty, Ollama version),
+`suite` (scenario-and-seed identity hash plus the scenario names), `entries`,
+`metrics` and `extras`.
+
+Each attempt records `outcome`, `termination`, tool names, steps, tokens,
+durations (including teardown), final text, transcript path, the MCP
+`prompt_name` and SHA-256 of the rendered user text, the tool-inventory hash,
+the recovery fields, and per-attempt `metrics`:
+
+- `expected_tool`: the scenario's primary tool; `first_tool_hit`,
+  `expected_tool_called`, `expected_tool_succeeded`.
+- `arguments_valid_before_normalization`: every call sent arguments in the
+  shape the API expects (nothing had to be parsed or cleaned).
+- `calls_count`, `tool_errors`, `repeated_calls` (same `(name, arguments)`
+  twice in one attempt), `empty_final_answer`, `done_reasons`.
+
+`metrics` aggregates the same names with explicit `numerator`/`denominator`/
+`value` triples, so every ratio states its basis; harness errors stay visible
+as `attempts.error` and inside the denominators instead of disappearing.
+Recovery definitions (target tools only): `first_attempt_success` — the first
+target call succeeded and the task passed; `recovered_success` — the task
+passed although a target call had failed before (denominator: attempts with a
+failed target call). The matrix scenarios and the redaction-off variant are
+report-only: their outcomes and ratio count, but they never fail the run.
+Technical task completion (the checks) and answer quality stay separate.
+
+The `suite.sha256` covers every scenario definition (request, expected tools,
+MCP prompt, check) and the fixture seeds; the composition is pinned by a
+harness regression test. Two reports are comparable when this hash, the model
+digest, the system prompt hash and the options match.
+
+The ledger fixtures are deterministic: the A/B states, the ADR and the
+recording use fixed timestamps, so two runs produce identical references and
+bytes. The only live values are the boot id, PID and start ticks in a
+recording's segment header, which the liveness checks need.
 
 ## Determinism limits
 
@@ -89,3 +161,24 @@ not the sampling. Treat every result as advisory: a failing hard assertion is a
 signal to look at the transcript, and the matrix ratio is a trend line, not a
 gate. Run it when changing the MCP server, its prompts, its redaction or the
 tool inventory — not on every change.
+
+## Comparing runs
+
+To compare models, system prompts, MCP prompts or tool descriptions:
+
+1. Change one variable at a time and run the suite at least twice per variant;
+   repetitions are your error bar, not the mean.
+2. Check comparability first: same `suite.sha256`, same fixture seeds, and the
+   same sampling options; note the model digest, the Ollama version and the
+   `system_prompt.sha256` of every report.
+3. Compare per scenario, not only aggregate: a better mean can hide a lost
+   scenario. Read `outcome`/`termination` first, then `first_tool_hit`,
+   `expected_tool_succeeded`, `task_completed`, recovery and efficiency
+   (`steps`, durations, tokens, `repeated_calls`, `tool_errors`).
+4. Read the final answers and `done_reasons` before trusting a score; an
+   `empty_final_answer` or an abnormal `done_reason` (anything but `stop`)
+   marks a truncated or unusable result.
+5. The first scenario runs cold: check whether its duration or token counts
+   skew the run before drawing conclusions.
+6. MCP prompt scenarios (`review-prompt`) change the user turn; system-prompt
+   variants change every request. Keep the two experiments separate.
