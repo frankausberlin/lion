@@ -714,10 +714,6 @@ class ScenarioRun:
         """Every successful executed call of one tool, in order."""
         return [call for call in self.calls if call.name == name and not call.is_error]
 
-    def first_call(self, name: str) -> ToolCallRecord | None:
-        """The first executed call of one tool, or ``None``."""
-        return next((call for call in self.calls if call.name == name), None)
-
     def target_tool_names(self) -> tuple[str, ...]:
         """The scenario's target tools: every required plus every alternative."""
         return tuple(dict.fromkeys((*self.scenario.required_tools, *self.scenario.required_any)))
