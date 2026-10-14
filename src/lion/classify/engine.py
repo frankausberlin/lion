@@ -132,15 +132,20 @@ def _collect_matches(
     parsed: ParsedCommand,
     ruleset: RuleSet,
     compiled: Mapping[str, re.Pattern[str]],
+    with_segments: bool = False,
 ) -> tuple[tuple[Match, ...], tuple[tuple[Match, ...], ...]]:
     """Return the block's matches and the segment-scope matches per segment.
 
     The block matches are the deduplicated, deterministically ordered union of
-    all segment-scope and block-scope hits, exactly as before; the per-segment
-    tuples repeat the segment hits in parser order for the command view.
+    all segment-scope and block-scope hits, exactly as before. The per-segment
+    tuples are only collected (and returned) when ``with_segments`` asks for
+    them, so the default path without policies pays nothing for the command
+    view.
     """
     hits: dict[tuple[str, str, tuple[tuple[str, str], ...]], Match] = {}
-    segment_hits: list[dict[tuple[str, str, tuple[tuple[str, str], ...]], Match]] = [{} for _ in parsed.segments]
+    segment_hits: list[dict[tuple[str, str, tuple[tuple[str, str], ...]], Match]] | None = (
+        [{} for _ in parsed.segments] if with_segments else None
+    )
     stripped = [strip_prefixes(segment) for segment in parsed.segments]
     masked: list[str] | None = None
     for rule in ruleset.rules:
@@ -149,7 +154,7 @@ def _collect_matches(
             for position, segment in enumerate(stripped):
                 found = pattern.match(segment)
                 if found is not None:
-                    _record_hit(segment_hits[position], rule, found)
+                    _record_hit(hits if segment_hits is None else segment_hits[position], rule, found)
         else:
             if masked is None:
                 masked = _masked_lines(text)
@@ -157,6 +162,8 @@ def _collect_matches(
                 found = pattern.search(line)
                 if found is not None:
                     _record_hit(hits, rule, found)
+    if segment_hits is None:
+        return tuple(sorted(hits.values(), key=_match_order)), ()
     for local in segment_hits:
         for key, match in local.items():
             hits.setdefault(key, match)
@@ -202,7 +209,9 @@ def classify_events(
         commands: tuple[Command, ...] = ()
         matches: tuple[Match, ...] = ()
         if parsed.supported:
-            matches, segment_matches = _collect_matches(event.text, parsed, ruleset, compiled)
+            matches, segment_matches = _collect_matches(
+                event.text, parsed, ruleset, compiled, with_segments=bool(policies)
+            )
             if policies:
                 commands = tuple(
                     Command(
