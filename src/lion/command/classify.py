@@ -110,7 +110,7 @@ def _run(reference: str | None, json_output: bool) -> None:
             for match in block.matches:
                 typer.echo(f"        {_match_detail(match)}")
             continue
-        if not block.commands and not block.matches:
+        if not block.commands:
             typer.echo("        -")
             continue
         for match in block.matches:
