@@ -73,9 +73,10 @@ to one block; there is no first-match-wins. All rules share one bounded parsing
 of the shell input, so command text that is merely printed (for example `echo
 "sudo nala install"`) is never classified as an execution. A match is metadata
 only; it never claims that an action succeeded. The built-in defaults extend
-and override per rule id in `$XDG_CONFIG_HOME/lion/classifier.json`; the schema,
-the group catalog and the ERE subset live in
-[Classifiers](docs/reference/classifiers.md).
+and override per rule id in `$XDG_CONFIG_HOME/lion/classifier.json`, and the
+optional `$XDG_CONFIG_HOME/lion/policies.toml` evaluates each command against
+declared work rules; the schema, the group catalog, the ERE subset and the
+policy format live in [Classifiers](docs/reference/classifiers.md).
 
 |Group|Example triggers|Emitted information|
 |-|-|-|

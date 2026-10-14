@@ -14,6 +14,11 @@ sentinel character that is neither whitespace nor a word or boundary
 character, so a removed quote can neither join two words nor fake a segment
 start at a line that merely continues a quoted string. A match is metadata,
 never a claim about success.
+
+With a loaded policy file (ADR 0019) every supported block also carries one
+command per parsed segment, each with its own segment-scope matches and its
+policy results; block-scope matches stay block-level and are never policy
+evidence. The block matches remain the deduplicated union exactly as before.
 """
 
 import re
@@ -21,7 +26,7 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-from lion.classify.model import Block, Classification, Match, RuleSetInfo
+from lion.classify.model import Block, Classification, Command, Match, Policy, RuleSetInfo
 from lion.classify.parser import (
     PARSER_VERSION,
     ParsedCommand,
@@ -29,6 +34,7 @@ from lion.classify.parser import (
     parse_command,
     strip_prefixes,
 )
+from lion.classify.policies import evaluate_command
 from lion.classify.rules import SCOPE_SEGMENT, Rule, RuleSet, compile_pattern
 from lion.program.recording import Recording, SpoolEvent, load_events
 
@@ -121,23 +127,29 @@ def _record_hit(
         )
 
 
-def _matches_for(
+def _collect_matches(
     text: str,
     parsed: ParsedCommand,
     ruleset: RuleSet,
     compiled: Mapping[str, re.Pattern[str]],
-) -> tuple[Match, ...]:
-    """Return the deduplicated, deterministically ordered matches of one block."""
+) -> tuple[tuple[Match, ...], tuple[tuple[Match, ...], ...]]:
+    """Return the block's matches and the segment-scope matches per segment.
+
+    The block matches are the deduplicated, deterministically ordered union of
+    all segment-scope and block-scope hits, exactly as before; the per-segment
+    tuples repeat the segment hits in parser order for the command view.
+    """
     hits: dict[tuple[str, str, tuple[tuple[str, str], ...]], Match] = {}
+    segment_hits: list[dict[tuple[str, str, tuple[tuple[str, str], ...]], Match]] = [{} for _ in parsed.segments]
     stripped = [strip_prefixes(segment) for segment in parsed.segments]
     masked: list[str] | None = None
     for rule in ruleset.rules:
         pattern = compiled[rule.id]
         if rule.scope == SCOPE_SEGMENT:
-            for segment in stripped:
+            for position, segment in enumerate(stripped):
                 found = pattern.match(segment)
                 if found is not None:
-                    _record_hit(hits, rule, found)
+                    _record_hit(segment_hits[position], rule, found)
         else:
             if masked is None:
                 masked = _masked_lines(text)
@@ -145,7 +157,13 @@ def _matches_for(
                 found = pattern.search(line)
                 if found is not None:
                     _record_hit(hits, rule, found)
-    return tuple(sorted(hits.values(), key=_match_order))
+    for local in segment_hits:
+        for key, match in local.items():
+            hits.setdefault(key, match)
+    return (
+        tuple(sorted(hits.values(), key=_match_order)),
+        tuple(tuple(sorted(local.values(), key=_match_order)) for local in segment_hits),
+    )
 
 
 def classify_text(text: str, ruleset: RuleSet) -> tuple[Match, ...]:
@@ -156,14 +174,21 @@ def classify_text(text: str, ruleset: RuleSet) -> tuple[Match, ...]:
     parsed = parse_command(text)
     if not parsed.supported:
         return ()
-    return _matches_for(text, parsed, ruleset, _compile_rules(ruleset))
+    matches, _ = _collect_matches(text, parsed, ruleset, _compile_rules(ruleset))
+    return matches
 
 
-def classify_events(events: Sequence[SpoolEvent], ruleset: RuleSet) -> tuple[Block, ...]:
+def classify_events(
+    events: Sequence[SpoolEvent],
+    ruleset: RuleSet,
+    policies: tuple[Policy, ...] = (),
+) -> tuple[Block, ...]:
     """Build the classified blocks of chronologically ordered events.
 
     ``index`` numbers the blocks in event order, 1-based, counting only the
-    non-empty ``cmd`` events that are not silent reads.
+    non-empty ``cmd`` events that are not silent reads. With loaded policies
+    every supported block also carries one command per parsed segment with its
+    own segment-scope matches and policy results.
     """
     compiled = _compile_rules(ruleset)
     blocks: list[Block] = []
@@ -174,7 +199,20 @@ def classify_events(events: Sequence[SpoolEvent], ruleset: RuleSet) -> tuple[Blo
         parsed = parse_command(event.text)
         if _is_silent(parsed):
             continue
-        matches = () if not parsed.supported else _matches_for(event.text, parsed, ruleset, compiled)
+        commands: tuple[Command, ...] = ()
+        matches: tuple[Match, ...] = ()
+        if parsed.supported:
+            matches, segment_matches = _collect_matches(event.text, parsed, ruleset, compiled)
+            if policies:
+                commands = tuple(
+                    Command(
+                        index=position,
+                        text=segment,
+                        matches=segment_matches[position - 1],
+                        policy_results=evaluate_command(policies, segment_matches[position - 1]),
+                    )
+                    for position, segment in enumerate(parsed.segments, start=1)
+                )
         index += 1
         blocks.append(
             Block(
@@ -183,6 +221,7 @@ def classify_events(events: Sequence[SpoolEvent], ruleset: RuleSet) -> tuple[Blo
                 time=_instant(event.time),
                 text=event.text,
                 matches=matches,
+                commands=commands,
             )
         )
     return tuple(blocks)
@@ -192,6 +231,7 @@ def classify_recording(
     record: Recording,
     ruleset: RuleSet,
     events: Sequence[SpoolEvent] | None = None,
+    policies: tuple[Policy, ...] = (),
 ) -> Classification:
     """Classify one recording's blocks at read time (read-only).
 
@@ -201,9 +241,11 @@ def classify_recording(
         events: Optional pre-loaded events; loaded from the recording when
             omitted, so callers that already hold the events read the
             recording only once.
+        policies: Optional loaded policies; when non-empty every block also
+            carries per-command matches and policy results.
     """
     block_events = load_events(record) if events is None else events
-    blocks = classify_events(block_events, ruleset)
+    blocks = classify_events(block_events, ruleset, policies)
     return Classification(
         ref=record.ref,
         ruleset=RuleSetInfo(
@@ -213,6 +255,7 @@ def classify_recording(
         ),
         parser_version=PARSER_VERSION,
         blocks=blocks,
+        policies=policies,
     )
 
 

@@ -1,17 +1,21 @@
 """The ``lion classify`` command: read-only classification of recordings.
 
 The command resolves a recording like the other read commands, loads the merged
-rule set and renders the derived blocks; it never collects, never writes and
-never executes anything. ``preview`` and ``matches_text`` are shared with the
-terse ``lion watch R``/``R-`` output.
+rule set plus the optional policy file, and renders the derived blocks; it
+never collects, never writes and never executes anything. With loaded policies
+(ADR 0019) every command segment is evaluated against the declared work rules
+and shown with its own matches; block-scope matches stay block-level and are
+never policy evidence. ``preview`` and ``matches_text`` are shared with the
+terse ``lion watch R``/``R-`` output, which stays policy-free.
 """
 
 import json
+from collections.abc import Mapping
 
 import typer
 
-from lion.classify import engine, rules
-from lion.classify.model import Block, Match
+from lion.classify import engine, policies, rules
+from lion.classify.model import Block, Command, Match, PolicyResult
 from lion.classify.parser import PARSER_VERSION
 from lion.classify.text import sanitize_controls
 from lion.command import fail
@@ -59,6 +63,17 @@ def _match_detail(match: Match) -> str:
     return f"{match.group}: {fields}"
 
 
+def _command_text(command: Command) -> str:
+    """Return the terminal-safe single-line text of one command."""
+    return sanitize_controls(" ".join(command.text.split()))
+
+
+def _policy_line(result: PolicyResult, texts: Mapping[str, str]) -> str:
+    """Return one ``policy <id> <status>: <text>`` line, terminal-safe."""
+    text = sanitize_controls(" ".join(texts.get(result.policy_id, "").split()))
+    return f"policy {sanitize_controls(result.policy_id)} {result.status}: {text}"
+
+
 def _run(reference: str | None, json_output: bool) -> None:
     record = _resolve(reference)
     if record is None:
@@ -74,7 +89,8 @@ def _run(reference: str | None, json_output: bool) -> None:
             typer.echo("No recording stored. Run 'lion watch start'.")
         return
     ruleset = rules.load_ruleset()
-    classification = engine.classify_recording(record, ruleset)
+    configured = policies.load_policies()
+    classification = engine.classify_recording(record, ruleset, policies=configured)
     if json_output:
         typer.echo(json.dumps(classification.to_dict()))
         return
@@ -83,13 +99,32 @@ def _run(reference: str | None, json_output: bool) -> None:
     if not classification.blocks:
         typer.echo("  No blocks.")
         return
+    scopes = {rule.id: rule.scope for rule in ruleset.rules}
+    policy_texts = {policy.id: policy.text for policy in classification.policies}
     for block in classification.blocks:
         typer.echo(f"  #{block.index}  $ {preview(block.text)}")
-        if not block.matches:
+        if not classification.policies:
+            if not block.matches:
+                typer.echo("        -")
+                continue
+            for match in block.matches:
+                typer.echo(f"        {_match_detail(match)}")
+            continue
+        if not block.commands and not block.matches:
             typer.echo("        -")
             continue
         for match in block.matches:
-            typer.echo(f"        {_match_detail(match)}")
+            if scopes.get(match.rule_id) == rules.SCOPE_BLOCK:
+                typer.echo(f"        {_match_detail(match)}")
+        for command in block.commands:
+            typer.echo(f"    command {command.index}: {_command_text(command)}")
+            if command.matches:
+                for match in command.matches:
+                    typer.echo(f"      {_match_detail(match)}")
+            else:
+                typer.echo("      -")
+            for result in command.policy_results:
+                typer.echo(f"      {_policy_line(result, policy_texts)}")
 
 
 def run(reference: str | None = None, json_output: bool = False) -> None:

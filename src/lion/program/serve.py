@@ -22,8 +22,9 @@ from typing import TYPE_CHECKING
 
 from lion import __version__
 from lion.classify import engine as classify_engine
+from lion.classify import policies as classify_policies
 from lion.classify import rules as classify_rules
-from lion.classify.model import Classification
+from lion.classify.model import Classification, Command, Match
 from lion.classify.parser import PARSER_VERSION
 from lion.program import adrs, annotations, prompts, recording, redaction, storage, wiki
 from lion.program.annotations import Adr, AdrIssue
@@ -182,32 +183,51 @@ def _adr_detail_json(adr: Adr, refs: list[str]) -> dict[str, object]:
     }
 
 
+def _match_json(match: Match) -> dict[str, object]:
+    """Return one match with its fields redacted."""
+    return {
+        "rule_id": match.rule_id,
+        "source": match.source,
+        "group": match.group,
+        "fields": redaction.redact_fields(match.fields),
+        "guard": match.guard,
+    }
+
+
+def _command_json(command: Command) -> dict[str, object]:
+    """Return one command with its text redacted."""
+    return {
+        "index": command.index,
+        "text": redaction.redact(command.text),
+        "matches": [_match_json(match) for match in command.matches],
+        "policy_results": [result.to_dict() for result in command.policy_results],
+    }
+
+
 def _classification_json(classification: Classification) -> dict[str, object]:
     """Return the ``lion classify --json`` shape with recorded text redacted."""
-    return {
+    payload: dict[str, object] = {
         "ref": classification.ref,
         "ruleset": classification.ruleset.to_dict(),
         "parser_version": classification.parser_version,
-        "blocks": [
-            {
-                "index": block.index,
-                "segment": block.segment,
-                "time": block.time,
-                "text": redaction.redact(block.text),
-                "matches": [
-                    {
-                        "rule_id": match.rule_id,
-                        "source": match.source,
-                        "group": match.group,
-                        "fields": redaction.redact_fields(match.fields),
-                        "guard": match.guard,
-                    }
-                    for match in block.matches
-                ],
-            }
-            for block in classification.blocks
-        ],
     }
+    include_commands = bool(classification.policies)
+    if include_commands:
+        payload["policies"] = [policy.to_dict() for policy in classification.policies]
+    blocks: list[dict[str, object]] = []
+    for block in classification.blocks:
+        block_payload: dict[str, object] = {
+            "index": block.index,
+            "segment": block.segment,
+            "time": block.time,
+            "text": redaction.redact(block.text),
+            "matches": [_match_json(match) for match in block.matches],
+        }
+        if include_commands:
+            block_payload["commands"] = [_command_json(command) for command in block.commands]
+        blocks.append(block_payload)
+    payload["blocks"] = blocks
+    return payload
 
 
 # --- tools ------------------------------------------------------------------
@@ -312,8 +332,9 @@ def _default_recording(reference: str | None) -> Recording | None:
 def lion_classify(reference: str | None = None) -> dict[str, object]:
     """Classify the recorded input blocks of a recording (read-only).
 
-    The classification is derived from the raw events on every call; block
-    texts and match fields are redacted best-effort.
+    The classification is derived from the raw events on every call; block and
+    command texts and match fields are redacted best-effort. With a policy file
+    every command is evaluated against the declared work rules.
 
     Args:
         reference: Recording reference; defaults to the active recording, then
@@ -324,7 +345,8 @@ def lion_classify(reference: str | None = None) -> dict[str, object]:
     if record is None:
         return {"ref": None, "ruleset": None, "parser_version": PARSER_VERSION, "blocks": []}
     ruleset = classify_rules.load_ruleset()
-    classification = classify_engine.classify_recording(record, ruleset)
+    configured = classify_policies.load_policies()
+    classification = classify_engine.classify_recording(record, ruleset, policies=configured)
     return _classification_json(classification)
 
 

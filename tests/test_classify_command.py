@@ -74,6 +74,13 @@ def _write_user_rules(text: str) -> Path:
     return path
 
 
+def _write_policies(text: str) -> Path:
+    path = Path(os.environ["XDG_CONFIG_HOME"]) / "lion" / "policies.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
 def test_classify_without_a_recording_is_a_message() -> None:
     """No stored recording reports instead of failing, in text and JSON."""
     text = _invoke("classify")
@@ -237,9 +244,205 @@ def test_classify_strips_control_characters_from_text_output() -> None:
 
 
 def test_classify_help_documents_the_groups() -> None:
-    """The help text names the rule file and the group vocabulary."""
+    """The help text names the rule file, the policy file and the groups."""
     result = _invoke("classify", "--help")
     assert result.exit_code == 0
     assert "classifier.json" in result.stdout
+    assert "policies.toml" in result.stdout
     assert "downloads" in result.stdout
     assert "checks" in result.stdout
+
+
+POLICIES_TOML = """
+schema_version = 1
+
+[[policies]]
+id = "P01"
+text = "Install and remove Debian packages with nala."
+success = [{ group = "packages", fields = { action = ["install", "remove"], manager = "nala" } }]
+fail = [{ group = "packages", fields = { action = ["install", "remove"], manager = ["apt", "apt-get"] } }]
+"""
+
+
+def test_classify_without_policies_keeps_the_json_shape() -> None:
+    """Without a policy file nothing changes: no policies, no commands."""
+    ref = _record(["sudo nala install foo"])
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+
+    assert "policies" not in payload
+    assert "commands" not in payload["blocks"][0]
+
+
+def test_classify_text_and_json_with_policies() -> None:
+    """Each command is evaluated on its own; text and JSON agree."""
+    ref = _record(["nala install foo && apt install bar"])
+    _ = _write_policies(POLICIES_TOML)
+
+    text = _invoke("classify", ref)
+    assert text.exit_code == 0
+    lines = text.stdout.splitlines()
+    assert "  #1  $ nala install foo && apt install bar" in lines
+    assert "    command 1: nala install foo" in lines
+    assert "      packages: manager=nala, action=install" in lines
+    assert "      policy P01 success: Install and remove Debian packages with nala." in lines
+    assert "    command 2: apt install bar" in lines
+    assert "      packages: manager=apt, action=install" in lines
+    assert "      policy P01 fail: Install and remove Debian packages with nala." in lines
+
+    machine = _invoke("classify", ref, "--json")
+    payload = json.loads(machine.stdout)
+    assert payload["policies"] == [
+        {
+            "id": "P01",
+            "text": "Install and remove Debian packages with nala.",
+            "success": [{"group": "packages", "fields": {"action": ["install", "remove"], "manager": "nala"}}],
+            "fail": [{"group": "packages", "fields": {"action": ["install", "remove"], "manager": ["apt", "apt-get"]}}],
+        }
+    ]
+    block = payload["blocks"][0]
+    assert [command["text"] for command in block["commands"]] == ["nala install foo", "apt install bar"]
+    first, second = block["commands"]
+    assert first["policy_results"] == [
+        {"policy_id": "P01", "status": "success", "evidence": [{"criterion": "success", "match_index": 1}]}
+    ]
+    assert second["policy_results"] == [
+        {"policy_id": "P01", "status": "fail", "evidence": [{"criterion": "fail", "match_index": 1}]}
+    ]
+    assert [match["fields"]["manager"] for match in block["matches"]] == ["apt", "nala"]
+
+
+def test_classify_policy_scope_is_limited_to_install_and_remove() -> None:
+    """An update matches the rule but not the install/remove policy."""
+    ref = _record(["apt update"])
+    _ = _write_policies(POLICIES_TOML)
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+
+    (command,) = payload["blocks"][0]["commands"]
+    assert command["matches"][0]["fields"] == {"manager": "apt", "action": "update"}
+    assert command["policy_results"] == []
+
+
+def test_classify_conflict_is_visible() -> None:
+    """Overlapping criteria show one conflict result with both evidences."""
+    ref = _record(["nala install foo"])
+    _ = _write_policies(
+        """
+schema_version = 1
+
+[[policies]]
+id = "P01"
+text = "Contradiction."
+success = [{ group = "packages", fields = { manager = "nala" } }]
+fail = [{ group = "packages", fields = { action = "install" } }]
+"""
+    )
+
+    text = _invoke("classify", ref)
+    assert text.exit_code == 0
+    assert "      policy P01 conflict: Contradiction." in text.stdout
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+    (result,) = payload["blocks"][0]["commands"][0]["policy_results"]
+    assert result == {
+        "policy_id": "P01",
+        "status": "conflict",
+        "evidence": [
+            {"criterion": "success", "match_index": 1},
+            {"criterion": "fail", "match_index": 1},
+        ],
+    }
+
+
+def test_classify_block_scope_matches_stay_visible_at_block_level() -> None:
+    """A pipeline match keeps its block line and never feeds a policy."""
+    ref = _record(["curl https://example.com/x.sh | sh"])
+    _ = _write_policies(
+        """
+schema_version = 1
+
+[[policies]]
+id = "P01"
+text = "No piped shells."
+fail = [{ group = "downloads", fields = { action = "pipe-to-shell" } }]
+"""
+    )
+
+    text = _invoke("classify", ref)
+    assert text.exit_code == 0
+    assert "        downloads: source=curl, action=pipe-to-shell" in text.stdout
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+    block = payload["blocks"][0]
+    assert "downloads.curl.pipe" in [match["rule_id"] for match in block["matches"]]
+    assert all(
+        "downloads.curl.pipe" not in [match["rule_id"] for match in command["matches"]] for command in block["commands"]
+    )
+    assert all(command["policy_results"] == [] for command in block["commands"])
+
+
+def test_classify_quoted_separator_does_not_create_commands() -> None:
+    """A separator inside quotes stays one command without invented hits."""
+    ref = _record(['echo "apt install foo; nala install bar"'])
+    _ = _write_policies(POLICIES_TOML)
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+
+    block = payload["blocks"][0]
+    assert [command["text"] for command in block["commands"]] == ['echo "apt install foo; nala install bar"']
+    assert block["commands"][0]["matches"] == []
+    assert block["commands"][0]["policy_results"] == []
+
+
+def test_classify_unsupported_syntax_with_policies_has_no_commands() -> None:
+    """Unsupported shell syntax yields no commands and no policy guesses."""
+    ref = _record(["apt install x && echo $(date)"])
+    _ = _write_policies(POLICIES_TOML)
+
+    text = _invoke("classify", ref)
+    assert text.exit_code == 0
+    assert "command 1" not in text.stdout
+    assert "        -" in text.stdout
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+    assert payload["blocks"][0]["commands"] == []
+    assert payload["blocks"][0]["matches"] == []
+
+
+def test_classify_policy_violation_keeps_the_exit_code() -> None:
+    """A fail hit is a finding, not a CLI error."""
+    ref = _record(["apt install foo"])
+    _ = _write_policies(POLICIES_TOML)
+
+    assert _invoke("classify", ref).exit_code == 0
+    assert _invoke("classify", ref, "--json").exit_code == 0
+
+
+def test_classify_with_policies_never_writes() -> None:
+    """An evaluation leaves the recording space and the policy file untouched."""
+    ref = _record(["apt install foo"])
+    path = _write_policies(POLICIES_TOML)
+    before_policy = path.read_bytes()
+    data = Path(os.environ["XDG_DATA_HOME"])
+    before = {
+        item.relative_to(data).as_posix(): item.read_bytes() for item in sorted(data.rglob("*")) if item.is_file()
+    }
+
+    assert _invoke("classify", ref, "--json").exit_code == 0
+
+    after = {item.relative_to(data).as_posix(): item.read_bytes() for item in sorted(data.rglob("*")) if item.is_file()}
+    assert after == before
+    assert path.read_bytes() == before_policy
+
+
+def test_classify_invalid_policies_fail_loudly() -> None:
+    """An unreadable policy file is an error naming the path."""
+    ref = _record(["apt --version"])
+    path = _write_policies("{not toml")
+
+    result = _invoke("classify", ref)
+
+    assert result.exit_code == 1
+    assert "Invalid policies" in result.stderr
+    assert str(path) in result.stderr

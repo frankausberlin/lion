@@ -378,6 +378,53 @@ def test_classify_without_recordings_is_empty() -> None:
     assert _call("lion_classify") == _cli_json("classify", "--json")
 
 
+def _write_policies(text: str) -> Path:
+    path = Path(os.environ["XDG_CONFIG_HOME"]) / "lion" / "policies.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+POLICIES_TOML = """
+schema_version = 1
+
+[[policies]]
+id = "P01"
+text = "Install and remove Debian packages with nala."
+success = [{ group = "packages", fields = { action = ["install", "remove"], manager = "nala" } }]
+fail = [{ group = "packages", fields = { action = ["install", "remove"], manager = ["apt", "apt-get"] } }]
+"""
+
+
+def test_classify_with_policies_matches_cli_json() -> None:
+    """With an active policy file the tool mirrors the extended CLI contract."""
+    ref = stopped_recording([("cmd", "nala install foo && apt install bar")])
+    _ = _write_policies(POLICIES_TOML)
+
+    payload = _mapping(_call("lion_classify", {"reference": ref}))
+
+    assert payload == _cli_json("classify", ref, "--json")
+    assert "policies" in payload
+    block = _mapping(_sequence(payload["blocks"])[0])
+    commands = [_mapping(command) for command in _sequence(block["commands"])]
+    assert [command["text"] for command in commands] == ["nala install foo", "apt install bar"]
+    statuses = [_mapping(_sequence(command["policy_results"])[0])["status"] for command in commands]
+    assert statuses == ["success", "fail"]
+
+
+def test_classify_with_policies_redacts_command_texts() -> None:
+    """Command texts are redacted like block texts, even with policies active."""
+    ref = stopped_recording([("cmd", "export API_KEY=super-secret && apt install foo")])
+    _ = _write_policies(POLICIES_TOML)
+
+    payload = json.dumps(_call("lion_classify", {"reference": ref}))
+
+    assert "super-secret" not in payload
+    assert "API_KEY=***" in payload
+    assert '"commands"' in payload
+    assert '"status": "fail"' in payload
+
+
 # --- ADR list and show --------------------------------------------------------
 
 

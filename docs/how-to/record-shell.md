@@ -147,7 +147,11 @@ lion watch R-     # only the previous block, one line
 A match is metadata, never proof that a command succeeded. Set your own rules
 in `~/.config/lion/classifier.json` (one JSON file, rules override the
 built-ins by id); the full schema, the group catalog and the ERE subset live in
-[Classifiers](../reference/classifiers.md).
+[Classifiers](../reference/classifiers.md). Declare your own work rules (for
+example "install Debian packages with nala") in
+`~/.config/lion/policies.toml`; `lion classify` then evaluates every command
+segment and shows `policy <id> <success|fail|conflict>` lines (read-only,
+never blocking).
 
 ## Comments as captured input
 

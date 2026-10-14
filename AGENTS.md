@@ -190,18 +190,25 @@ just audit       # dependency vulnerability scan
   bounded shell parser (`parse_command`, `strip_prefixes`, stable reason codes,
   `PARSER_VERSION = "classify/1"`); `rules.py` loads, validates, merges and
   hashes the declarative JSON rules (bundled `default_rules.json` plus the
-  optional user file `$XDG_CONFIG_HOME/lion/classifier.json`, override by `id`)
-  and validates the POSIX-ERE subset, translating `[[:…:]]` classes for
-  Python `re`; `model.py` holds `Match`/`Block`/`Classification` with their
-  JSON shapes; `engine.py` builds the blocks (non-empty, non-silent `cmd`
-  events only), matches segment scope anchored after the prefix strip and
-  block scope on masked lines, deduplicates by `(group, rule_id, fields)` and
-  orders deterministically; `text.py` (`sanitize_controls`) strips C0/C1
+  optional user file `$XDG_CONFIG_HOME/lion/classifier.json`, override by
+  `id`) and validates the POSIX-ERE subset, translating `[[:…:]]` classes for
+  Python `re`; `policies.py` loads and validates the optional TOML policy file
+  `$XDG_CONFIG_HOME/lion/policies.toml` (structured patterns over the same
+  group/field catalog, no negation) and evaluates each command segment
+  read-only per policy (`success`/`fail`/`conflict`), with block-scope matches
+  never counting as evidence (ADR 0019); `model.py` holds
+  `Match`/`Command`/`Policy`/`Block`/`Classification` with their JSON shapes;
+  `engine.py` builds the blocks (non-empty, non-silent `cmd` events only),
+  matches segment scope anchored after the prefix strip and block scope on
+  masked lines, deduplicates by `(group, rule_id, fields)`, orders
+  deterministically and attaches per-command matches plus policy results when
+  policies are loaded; `text.py` (`sanitize_controls`) strips C0/C1
   control characters from every terminal-facing classifier text; `checks.py`
   owns the doctor check `classify.ruleset`. `command/classify.py` implements
-  `lion classify` and shares `preview`/`matches_text` with the terse
-  `watch R`/`R-` reads in `command/watch.py` (both text-only, read-only, never
-  collect).
+  `lion classify` (policies change only its output, never its exit code) and
+  shares `preview`/`matches_text` with the terse `watch R`/`R-` reads in
+  `command/watch.py` (both text-only, read-only, never collect, and
+  policy-free).
 - `program/serve.py` owns the MCP server behind `lion serve`: eleven tools
   that mirror the existing `--json` contracts (`lion_history`, `lion_snapshot`,
   `lion_diff`, `lion_recordings`, `lion_recording`, `lion_classify`,
@@ -317,6 +324,19 @@ just audit       # dependency vulnerability scan
   carries a deterministic hash, invalid files fail loudly with their path,
   the doctor topic `classify` reports `classify.ruleset`, and the
   `scan`/`status`/`watch` JSON contracts stay unchanged.
+- Command policies are optional read-time data in `policies.toml` (ADR 0019):
+  each policy has `id`, `text` and optional `success`/`fail` pattern lists
+  over the closed group/field catalog (list = OR across groups, fields = AND,
+  list value = OR, missing field never matches, no negation); a missing or
+  empty file activates nothing, an invalid file fails loudly with its path,
+  and unknown keys, unknown groups/fields, duplicate ids and wrong types are
+  errors. Evaluation is per command segment only (block-scope matches such as
+  `curl … | sh` are never evidence), a policy outcome never changes the exit
+  code, results carry `criterion`/`match_index` evidence and appear in file
+  order; the JSON gains `policies` and per-block `commands` only while a file
+  is active (otherwise byte-identical), mirrored by `lion_classify` in
+  `serve`, whose command texts are redacted like block texts; `watch R`/`R-`
+  and `records` stay policy-free.
 - `serve` never collects: every tool reads the ledger except `lion_adr_add`/
   `lion_adr_update`, which write only into the standalone ADR store under the
   ADR 0017 rules. Tool payloads equal the CLI `--json` contracts for the same

@@ -13,7 +13,8 @@ Two read-only surfaces share the same engine:
   recording for use inside a recorded session.
 
 See [ADR 0015](../decisions/0015-classifier-rules-read-time-ere.md) for the
-decision and [Recordings](recordings.md) for the underlying event grammar.
+rules and [ADR 0019](../decisions/0019-command-policies.md) for the optional
+policy layer; [Recordings](recordings.md) owns the underlying event grammar.
 
 ## Blocks
 
@@ -153,6 +154,76 @@ untrusted recorded text can never freeze a read or the watch dog. The check is
 deliberately conservative; disjoint alternations such as `(a|b)+` and single
 optional groups such as `([[:space:]]+-[^[:space:]]+)?` stay allowed.
 
+## Policies
+
+An optional policy file `$XDG_CONFIG_HOME/lion/policies.toml` (default
+`~/.config/lion/policies.toml`, TOML) evaluates each **command segment** of a
+block against declared work rules (ADR 0019). A missing file or an empty
+policy list activates nothing and leaves every output unchanged; a present but
+unreadable or invalid file is a loud error naming the path. Policies are
+read-only data: nothing is stored, no command is executed, and a policy
+outcome never changes the exit code.
+
+A policy carries an `id`, a human-readable `text` and the optional criteria
+`success` and `fail`. A criterion is a list of patterns over the closed group
+and field catalog: the list means OR (also across groups), the fields inside
+one pattern mean AND, and a list value means OR over the values. A missing
+field never matches; an empty field table matches every match of the group.
+There is no negation, no regex and no expression language.
+
+```toml
+schema_version = 1
+
+[[policies]]
+id = "P01"
+text = "Install and remove Debian packages with nala."
+success = [{ group = "packages", fields = { action = ["install", "remove"], manager = "nala" } }]
+fail = [{ group = "packages", fields = { action = ["install", "remove"], manager = ["apt", "apt-get"] } }]
+
+[[policies]]
+id = "P02"
+text = "Use uv for global Python packages."
+```
+
+Top-level fields:
+
+|Field|Type|Meaning|
+|-|-|-|
+|`schema_version`|int|must be `1`|
+|`policies`|list|possibly empty list of policy tables; `id` must be unique|
+
+Policy table:
+
+|Field|Required|Meaning|
+|-|-|-|
+|`id`|yes|unique, non-empty identifier without control characters|
+|`text`|yes|non-empty rule text (newline and tab allowed)|
+|`success`|no|non-empty list of patterns counting as compliant|
+|`fail`|no|non-empty list of patterns counting as a violation|
+
+A pattern table has the required `group` (the closed vocabulary) and the
+optional `fields` table: every named field must be in that group's catalog and
+carry a non-empty string or a non-empty list of non-empty strings. Unknown
+keys, unknown groups or fields, wrong types and duplicate ids fail loudly.
+
+Evaluation is per command, never per block or line: a block with
+`nala install foo && apt install bar` yields two evaluations, and a `success`
+hit in one command never influences a `fail` hit in another. For one policy
+and one command the result is at most one of:
+
+|Outcome|Meaning|
+|-|-|
+|`success`|At least one match satisfies a `success` pattern and none satisfies a `fail` pattern|
+|`fail`|At least one match satisfies a `fail` pattern and none satisfies a `success` pattern|
+|`conflict`|Both criteria are satisfied|
+
+Only segment-scope matches are evaluated: a block-scope match such as
+`curl … | sh` stays visible on the block but is never attributed to a single
+command. The contributing matches stay attached as evidence (`criterion` and
+1-based `match_index` into the command's matches); results appear in policy
+file order. A policy without a hit produces no result, and a policy without
+criteria stays a valid working instruction.
+
 ## `lion classify`
 
 ```
@@ -169,6 +240,12 @@ Text output shows one header line plus one `#<index>  $ <preview>` line per
 block (`<preview>` is the block collapsed to one line and cut at 40
 characters), followed by one line per match (`<group>: <field>=<value>, …`) or
 `-` for a block without matches.
+
+With an active policy file the block shows only its block-scope matches
+(indented as before), followed by one `command <n>: <text>` line per parsed
+segment; a command shows its own matches or `-`, plus one
+`policy <id> <success|fail|conflict>: <text>` line per policy result. Blocks
+with unsupported syntax show `-` and no commands.
 
 JSON shape:
 
@@ -200,6 +277,49 @@ JSON shape:
 `source` is `default` or `user` (the layer that provided the effective rule).
 Blocks without matches appear with `"matches": []`.
 
+With an active policy file the payload gains a top-level `policies` list (the
+loaded definitions with `id`, `text` and the present `success`/`fail`
+patterns) and every block gains `commands`:
+
+```json
+{
+  "policies": [
+    {
+      "id": "P01",
+      "text": "Install and remove Debian packages with nala.",
+      "fail": [{"group": "packages", "fields": {"action": ["install", "remove"], "manager": ["apt", "apt-get"]}}]
+    }
+  ],
+  "blocks": [
+    {
+      "index": 1,
+      "commands": [
+        {
+          "index": 1,
+          "text": "apt install bar",
+          "matches": [
+            {
+              "rule_id": "packages.apt",
+              "source": "default",
+              "group": "packages",
+              "fields": {"manager": "apt", "action": "install"},
+              "guard": "none"
+            }
+          ],
+          "policy_results": [
+            {"policy_id": "P01", "status": "fail", "evidence": [{"criterion": "fail", "match_index": 1}]}
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+The command matches repeat the segment-scope hits of that segment; the
+existing block `matches` stay the deduplicated union and every other field is
+unchanged. Without a policy file the payload is byte-identical to before.
+
 ## `lion watch R` and `R-`
 
 Inside an active recording (read-only, no collection):
@@ -224,3 +344,8 @@ Without an active recording both print `No active recording.` and exit `0`;
   preview; see [Recordings](recordings.md) for the masking rules.
 - Silent-read filtering, quote masking and the supported syntax subset are
   deliberately conservative; everything outside them yields no matches.
+- Policies evaluate only per command segment: block-scope matches
+  (`curl … | sh`) are never policy evidence, and a block whose syntax leaves
+  the parser subset yields no commands and no evaluation.
+- The policy language has no negation: a missing field never matches, and
+  there is no `!=`, no regex and no expression evaluation.

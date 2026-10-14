@@ -236,11 +236,18 @@ $XDG_CONFIG_HOME/lion/classifier.json.
 The groups are packages, services, containers, shell, downloads, interruptions
 and checks. A match is metadata derived from the input text, never a claim that
 a command ran or succeeded; unsupported shell syntax yields no matches.
+
+The optional policy file $XDG_CONFIG_HOME/lion/policies.toml evaluates every
+command segment against declared work rules: a policy carries a human-readable
+text and optional success/fail patterns over the group and field catalog.
 """
 
 CLASSIFY_EPILOG = """Read-only: it never collects a state, never changes a recording and never
 executes anything. The classification is derived from the raw events on every
 run; the JSON carries the rule set version and hash plus one object per block.
+With a policy file every block also carries one object per command segment with
+its own matches and policy results; a policy outcome never changes the exit
+code.
 
 Examples:
 
@@ -249,7 +256,7 @@ Examples:
   lion classify --json         emit the classification as a single JSON object
 
 Inside an active recording, 'lion watch R' lists the blocks tersely and
-'lion watch R-' shows only the previous block.
+'lion watch R-' shows only the previous block; both stay policy-free.
 """
 
 SERVE_HELP = """Run an MCP server over stdio for MCP clients (editors, agents): a read-only

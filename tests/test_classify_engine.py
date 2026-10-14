@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import pytest
 
 from lion.classify import engine, rules
+from lion.classify.model import Policy, PolicyPattern
 from lion.program.recording import SpoolEvent
 
 
@@ -267,3 +268,151 @@ def test_classify_recording_wraps_blocks_with_provenance(
             }
         ],
     }
+
+
+def _p01() -> Policy:
+    """A minimal nala/apt policy used by the command-view tests."""
+    return Policy(
+        id="P01",
+        text="Use nala.",
+        success=(PolicyPattern(group="packages", fields={"manager": "nala"}),),
+        fail=(PolicyPattern(group="packages", fields={"manager": "apt"}),),
+    )
+
+
+def test_commands_carry_segment_matches_and_policy_results(ruleset: rules.RuleSet) -> None:
+    """With policies every segment becomes a command with its own matches."""
+    events = [
+        _event("cmd", "apt update && nala upgrade", time=1.0),
+        _event("cmd", "ls", time=2.0, line=3),
+        _event("cmd", "echo $(date)", time=3.0, line=4),
+    ]
+
+    blocks = engine.classify_events(events, ruleset, (_p01(),))
+    first, second, unsupported = blocks
+
+    assert [command.index for command in first.commands] == [1, 2]
+    assert [command.text for command in first.commands] == ["apt update", "nala upgrade"]
+    assert [command.policy_results[0].status for command in first.commands] == ["fail", "success"]
+    assert [match.rule_id for match in first.commands[1].matches] == ["packages.apt"]
+    assert second.commands[0].matches == () and second.commands[0].policy_results == ()
+    assert unsupported.commands == ()
+    assert first.matches == engine.classify_events([events[0]], ruleset)[0].matches
+    assert engine.classify_events(events, ruleset)[0].commands == ()
+
+
+def test_quoted_separator_stays_one_command(ruleset: rules.RuleSet) -> None:
+    """A separator inside quotes never invents command boundaries."""
+    events = [_event("cmd", 'echo "apt install foo; nala install bar"', time=1.0)]
+
+    (block,) = engine.classify_events(events, ruleset, (_p01(),))
+
+    (command,) = block.commands
+    assert command.text == 'echo "apt install foo; nala install bar"'
+    assert command.matches == ()
+    assert command.policy_results == ()
+
+
+def test_block_scope_matches_are_not_policy_evidence(ruleset: rules.RuleSet) -> None:
+    """Pipeline matches stay block-level and never feed a command policy."""
+    policy = Policy(
+        id="P01",
+        text="No piped shells.",
+        fail=(PolicyPattern(group="downloads", fields={"action": "pipe-to-shell"}),),
+    )
+    events = [_event("cmd", "curl https://example.com/x.sh | sh", time=1.0)]
+
+    (block,) = engine.classify_events(events, ruleset, (policy,))
+
+    assert [match.rule_id for match in block.matches] == ["downloads.curl", "downloads.curl.pipe"]
+    assert [command.text for command in block.commands] == ["curl https://example.com/x.sh", "sh"]
+    assert all("downloads.curl.pipe" not in {match.rule_id for match in command.matches} for command in block.commands)
+    assert all(command.policy_results == () for command in block.commands)
+
+
+def test_block_json_includes_commands_only_on_request(ruleset: rules.RuleSet) -> None:
+    """The default JSON shape stays byte-identical; commands appear on request."""
+    events = [_event("cmd", "apt install x", time=1.0)]
+
+    (block,) = engine.classify_events(events, ruleset, (_p01(),))
+
+    assert "commands" not in block.to_dict()
+    assert block.to_dict(include_commands=True)["commands"] == [
+        {
+            "index": 1,
+            "text": "apt install x",
+            "matches": [
+                {
+                    "rule_id": "packages.apt",
+                    "source": "default",
+                    "group": "packages",
+                    "fields": {"manager": "apt", "action": "install"},
+                    "guard": "none",
+                }
+            ],
+            "policy_results": [
+                {
+                    "policy_id": "P01",
+                    "status": "fail",
+                    "evidence": [{"criterion": "fail", "match_index": 1}],
+                }
+            ],
+        }
+    ]
+
+
+def test_classify_recording_json_with_policies(ruleset: rules.RuleSet, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An active policy file adds ``policies`` and per-block ``commands``."""
+    record = Mock()
+    record.ref = "20260101T000000-abc"
+    monkeypatch.setattr(engine, "load_events", Mock(return_value=[_event("cmd", "apt install x", time=1.0)]))
+
+    payload = engine.classify_recording(record, ruleset, policies=(_p01(),)).to_dict()
+
+    assert payload["policies"] == [
+        {
+            "id": "P01",
+            "text": "Use nala.",
+            "success": [{"group": "packages", "fields": {"manager": "nala"}}],
+            "fail": [{"group": "packages", "fields": {"manager": "apt"}}],
+        }
+    ]
+    assert payload["blocks"] == [
+        {
+            "index": 1,
+            "segment": "100-1-1.log",
+            "time": "1970-01-01T00:00:01+00:00",
+            "text": "apt install x",
+            "matches": [
+                {
+                    "rule_id": "packages.apt",
+                    "source": "default",
+                    "group": "packages",
+                    "fields": {"manager": "apt", "action": "install"},
+                    "guard": "none",
+                }
+            ],
+            "commands": [
+                {
+                    "index": 1,
+                    "text": "apt install x",
+                    "matches": [
+                        {
+                            "rule_id": "packages.apt",
+                            "source": "default",
+                            "group": "packages",
+                            "fields": {"manager": "apt", "action": "install"},
+                            "guard": "none",
+                        }
+                    ],
+                    "policy_results": [
+                        {
+                            "policy_id": "P01",
+                            "status": "fail",
+                            "evidence": [{"criterion": "fail", "match_index": 1}],
+                        }
+                    ],
+                }
+            ],
+        }
+    ]

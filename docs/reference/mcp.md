@@ -119,8 +119,11 @@ one recording (`latest`/`active` and unique prefixes resolve; see
 
 `lion_classify` derives the classification from the raw events on every call
 (nothing is persisted); without a recording the result carries
-`{"ref": null, "ruleset": null, "blocks": []}` instead of failing. The
-[classifier reference](classifiers.md) owns the block and match shapes.
+`{"ref": null, "ruleset": null, "blocks": []}` instead of failing. With a
+policy file every command segment is evaluated against the declared work
+rules, and command texts are redacted like block texts. The
+[classifier reference](classifiers.md) owns the block, command and match
+shapes.
 
 ### ADRs of both origins
 

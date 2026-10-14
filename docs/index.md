@@ -45,7 +45,8 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Standalone ADRs](reference/adrs.md) — decisions without a recording: the
   document schema, ids, the `lion adr` views and the `doctor` topic.
 - [Classifiers](reference/classifiers.md) — the rule file schema, the group
-  catalog, the ERE subset and the `lion classify`/`watch R` views.
+  catalog, the ERE subset, the policy file and the `lion classify`/`watch R`
+  views.
 - [MCP server](reference/mcp.md) — `lion serve`: tools, resources, prompts,
   payload shapes and redaction.
 - [Collectors](reference/collectors.md) — the fields each collector records.
@@ -84,3 +85,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0016 — The wiki is a derived OKF v0.2 artifact written by scan](decisions/0016-wiki-derived-okf-artifact.md)
 - [0017 — Standalone ADRs live beside the recordings](decisions/0017-standalone-adrs.md)
 - [0018 — The MCP server is a read-only mirror plus ADR writing](decisions/0018-mcp-serve-read-mirror.md)
+- [0019 — Command policies: TOML patterns evaluated per command](decisions/0019-command-policies.md)
