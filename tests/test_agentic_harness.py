@@ -1176,6 +1176,56 @@ def test_render_messages_openrouter_shape() -> None:
     assert rendered[3] == {"role": "tool", "tool_call_id": "call_2", "content": "second"}
 
 
+def test_render_messages_openrouter_normalizes_arguments_to_json_strings() -> None:
+    """Object-shaped and missing arguments become JSON strings on the wire."""
+    messages = [
+        {
+            "role": "assistant",
+            "content": "",
+            "tool_calls": [
+                {"function": {"name": "lion_history", "arguments": {"limit": 1}}},
+                {"function": {"name": "lion_history"}},
+            ],
+        },
+    ]
+    rendered = agent_module.render_messages(OPENROUTER_SETTINGS, messages)
+
+    assert rendered[0]["tool_calls"] == [
+        {"id": "call_1", "type": "function", "function": {"name": "lion_history", "arguments": '{"limit": 1}'}},
+        {"id": "call_2", "type": "function", "function": {"name": "lion_history", "arguments": "{}"}},
+    ]
+
+
+def test_openrouter_follow_up_sends_arguments_as_json_string(tmp_path: Path) -> None:
+    """The second OpenRouter request renders object-shaped arguments as a JSON string."""
+    session = FakeSession({"lion_history": "{}"})
+    chat = ScriptedChat(
+        [
+            _reply(tool_calls=(_tool_call("lion_history", {"limit": 1}, arguments_raw={"limit": 1}, normalized=True),)),
+            _reply(content="done"),
+        ]
+    )
+    scenario = _scenario("openrouter-followup", required_tools=("lion_history",))
+    record = run_attempt(
+        scenario,
+        _env(tmp_path, chat=chat, session=session, settings=OPENROUTER_SETTINGS),
+        _report(tmp_path, OPENROUTER_SETTINGS),
+        hard=False,
+    )
+
+    assert record.outcome is AttemptOutcome.PASSED
+    assert len(chat.requests) == 2
+    assistant = chat.requests[1][2]
+    assert assistant["role"] == "assistant"
+    assert assistant["tool_calls"] == [
+        {
+            "id": "call_lion_history",
+            "type": "function",
+            "function": {"name": "lion_history", "arguments": '{"limit": 1}'},
+        }
+    ]
+
+
 # --- 15. provider preflight (mock transport) ----------------------------------
 
 

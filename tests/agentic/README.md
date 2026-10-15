@@ -122,7 +122,10 @@ OpenAI shape: assistant tool calls with `id` and `type: "function"` (a missing
 `id` is synthesized as `call_<n>`), `thinking` dropped, tool results as
 `{"role": "tool", "tool_call_id": ..., "content": ...}` without `tool_name`
 (a tool result without an id is paired with the preceding assistant calls in
-order). The transcript records exactly the rendered request.
+order). Assistant tool-call arguments are sent as the JSON string the API
+expects: a non-string value is `json.dumps`-ed, a missing or `None` value
+becomes `"{}"`, and an existing string stays untouched. The transcript records
+exactly the rendered request.
 
 Every attempt is registered in `report.json` before it starts (the `pending`
 field of the checkpoint) and the report is checkpointed atomically after it —

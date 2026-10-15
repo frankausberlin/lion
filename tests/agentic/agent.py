@@ -764,7 +764,10 @@ def render_messages(settings: AgentSettings, messages: Sequence[Mapping[str, obj
     ``thinking`` field is dropped, and tool results become
     ``{"role": "tool", "tool_call_id": ..., "content": ...}`` without
     ``tool_name``. Tool results without an id are paired with the ids of the
-    preceding assistant tool calls in order.
+    preceding assistant tool calls in order. Assistant tool-call arguments are
+    normalized to the JSON string the API expects: a non-string value is
+    ``json.dumps``-ed and a missing or ``None`` value becomes ``"{}"``, while
+    an existing string stays untouched.
     """
     if settings.provider is Provider.OLLAMA:
         return [dict(message) for message in messages]
@@ -782,13 +785,13 @@ def render_messages(settings: AgentSettings, messages: Sequence[Mapping[str, obj
                     call_id = _text_value(call.get("id")) or f"call_{index}"
                     pending_ids.append(call_id)
                     function = call.get("function")
-                    calls.append(
-                        {
-                            "id": call_id,
-                            "type": "function",
-                            "function": dict(cast("dict[str, object]", function)) if isinstance(function, dict) else {},
-                        }
-                    )
+                    rendered_function = dict(cast("dict[str, object]", function)) if isinstance(function, dict) else {}
+                    arguments = rendered_function.get("arguments")
+                    if not isinstance(arguments, str):
+                        rendered_function["arguments"] = json.dumps(
+                            arguments if arguments is not None else {}, ensure_ascii=False
+                        )
+                    calls.append({"id": call_id, "type": "function", "function": rendered_function})
                 entry["tool_calls"] = calls
             rendered.append(entry)
         elif role == "tool":
