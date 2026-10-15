@@ -14,7 +14,7 @@ schema_version = 1
 
 [provider]
 name = "openrouter"                       # "openrouter" | "ollama"
-model = "openrouter/free"                 # OpenRouter free-models router
+model = "deepseek/deepseek-v4.1-flash"    # OpenRouter model (paid; avoids free-pool limits)
 base_url = "https://openrouter.ai/api/v1" # OpenRouter only
 # host = "http://127.0.0.1:11434"         # Ollama only (default)
 # For provider = "ollama" set a local model, for example:

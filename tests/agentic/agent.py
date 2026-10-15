@@ -76,7 +76,7 @@ from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, GetPromptResult, TextContent, Tool
 
 DEFAULT_OLLAMA_MODEL = "JetBrains/mellum2-instruct-q4_k_m:latest"
-DEFAULT_OPENROUTER_MODEL = "openrouter/free"
+DEFAULT_OPENROUTER_MODEL = "deepseek/deepseek-v4.1-flash"
 DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_HOST = "http://127.0.0.1:11434"
 PROVIDER_ENV = "LION_AGENT_PROVIDER"
@@ -315,8 +315,9 @@ def _env_text(source: Mapping[str, str], name: str) -> str | None:
 def load_agentic_config(path: Path | None = None, env: Mapping[str, str] | None = None) -> AgenticConfig:
     """Load and strictly validate the agentic config, then apply the env overrides.
 
-    A missing file yields the builtin defaults (OpenRouter, ``openrouter/free``,
-    English evaluation report, enabled). A present but unreadable or invalid
+    A missing file yields the builtin defaults (OpenRouter,
+    ``deepseek/deepseek-v4.1-flash``, English evaluation report, enabled). A
+    present but unreadable or invalid
     file is a loud :class:`AgenticConfigError` naming the path: an experiment
     never partially applies a broken config. Precedence per field is
     builtin default < file < environment.

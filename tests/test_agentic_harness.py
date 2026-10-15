@@ -1217,12 +1217,18 @@ def test_check_provider_openrouter_verifies_model_and_tools() -> None:
             "/api/v1/key": httpx.Response(200, json={"data": {"label": "test"}}),
             "/api/v1/models": httpx.Response(
                 200,
-                json={"data": [{"id": "openrouter/free", "supported_parameters": ["tools", "temperature"]}]},
+                json={
+                    "data": [
+                        {"id": agent_module.DEFAULT_OPENROUTER_MODEL, "supported_parameters": ["tools", "temperature"]}
+                    ]
+                },
             ),
         }
     )
     model = agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
-    assert model == VerifiedModel(name="openrouter/free", digest="", capabilities=("tools", "temperature"))
+    assert model == VerifiedModel(
+        name=agent_module.DEFAULT_OPENROUTER_MODEL, digest="", capabilities=("tools", "temperature")
+    )
 
 
 def test_check_provider_openrouter_unknown_capabilities_are_not_an_error() -> None:
@@ -1230,7 +1236,7 @@ def test_check_provider_openrouter_unknown_capabilities_are_not_an_error() -> No
     transport = _routes(
         {
             "/api/v1/key": httpx.Response(200, json={}),
-            "/api/v1/models": httpx.Response(200, json={"data": [{"id": "openrouter/free"}]}),
+            "/api/v1/models": httpx.Response(200, json={"data": [{"id": agent_module.DEFAULT_OPENROUTER_MODEL}]}),
         }
     )
     model = agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
@@ -1241,7 +1247,10 @@ def test_check_provider_openrouter_unknown_capabilities_are_not_an_error() -> No
     ("payload", "message"),
     [
         ({"data": [{"id": "other/model"}]}, "does not list model"),
-        ({"data": [{"id": "openrouter/free", "supported_parameters": ["temperature"]}]}, "does not support tool calls"),
+        (
+            {"data": [{"id": agent_module.DEFAULT_OPENROUTER_MODEL, "supported_parameters": ["temperature"]}]},
+            "does not support tool calls",
+        ),
     ],
     ids=["unlisted-model", "no-tools"],
 )
@@ -1329,7 +1338,7 @@ def test_evaluation_writes_the_markdown_report(tmp_path: Path) -> None:
 
     assert result["status"] == "ok"
     assert result["language"] == "english"
-    assert result["model"] == "openrouter/free"
+    assert result["model"] == agent_module.DEFAULT_OPENROUTER_MODEL
     target = artifacts / f"agentic-report-{report.run_id}.md"
     assert target.is_file()
     assert target.read_text(encoding="utf-8") == "# Evaluation\n\nEverything passed.\n"

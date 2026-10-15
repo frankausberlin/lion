@@ -33,7 +33,7 @@ def test_missing_file_yields_builtin_defaults(tmp_path: Path) -> None:
     config = load_agentic_config(tmp_path / "absent.toml", env={})
     assert config == AgenticConfig()
     assert config.provider.name == "openrouter"
-    assert config.provider.model == "openrouter/free"
+    assert config.provider.model == "deepseek/deepseek-v4.1-flash"
     assert config.provider.base_url == "https://openrouter.ai/api/v1"
     assert config.report.enabled is True
     assert config.report.language == "english"
@@ -171,7 +171,7 @@ def test_settings_select_the_provider_endpoint_and_key(tmp_path: Path) -> None:
     openrouter_config = load_agentic_config(tmp_path / "absent.toml", env={})
     openrouter = AgentSettings.from_config(openrouter_config, env={"OPENROUTER_API_KEY": "sk-test-key"})
     assert openrouter.provider is Provider.OPENROUTER
-    assert openrouter.model == "openrouter/free"
+    assert openrouter.model == "deepseek/deepseek-v4.1-flash"
     assert openrouter.endpoint == "https://openrouter.ai/api/v1"
     assert openrouter.api_key == "sk-test-key"
 

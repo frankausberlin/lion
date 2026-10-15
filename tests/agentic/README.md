@@ -25,7 +25,7 @@ schema_version = 1
 
 [provider]
 name = "openrouter"                       # "openrouter" | "ollama"
-model = "openrouter/free"                 # OpenRouter free-models router
+model = "deepseek/deepseek-v4.1-flash"    # OpenRouter model (paid; avoids free-pool limits)
 base_url = "https://openrouter.ai/api/v1" # OpenRouter only
 # host = "http://127.0.0.1:11434"         # Ollama only (default)
 
@@ -53,8 +53,8 @@ OpenRouter (default):
   the key against `GET /key` (an HTTP 401/403 is a loud key error) and then
   `GET /models`: the configured model must be listed and
   `tools` must appear in its `supported_parameters`. A model entry without a
-  parameter list means unknown capabilities and is accepted (the
-  `openrouter/free` router may not enumerate them).
+  parameter list means unknown capabilities and is accepted (some entries,
+  including free-routed ones, may not enumerate them).
 
 Ollama (opt-in):
 
@@ -79,11 +79,11 @@ setup error with an action hint — never a skip, because the suite is
 explicitly opt-in. The failure still writes `report.json` with
 `state = "preflight_error"`, so the artifact always exists.
 
-The shared free pool behind `openrouter/free` rate-limits upstream models
-(HTTP 429 with `limit_source: upstream_provider_shared_pool`): a transient
-429 lands as a recorded `transport_error` and fails its hard scenario, so a
-run whose routed model is rate-limited needs a re-run, a specific `:free`
-model via `LION_AGENT_MODEL`, or a key with its own limits. The evaluation
+Free routing (`openrouter/free` or a `:free` model) goes through a shared,
+rate-limited pool (HTTP 429 with `limit_source: upstream_provider_shared_pool`):
+a transient 429 lands as a recorded `transport_error` and fails its hard
+scenario, so a run on a rate-limited pool needs a re-run or a model with its
+own limits. The default model runs outside the free pool; the evaluation
 report attributes such errors to the upstream provider.
 
 ## How it works
@@ -261,9 +261,9 @@ printed at the end of the run.
 
 `temperature 0` with a fixed seed is approximately deterministic only for the
 same model digest and the same provider build; a different digest, quantization
-or provider version can change the output, and the `openrouter/free` router
-may route to a different free model per request (its digest is empty and
-cannot pin comparability). Partial CPU offload changes speed,
+or provider version can change the output, and `openrouter/free`/`:free`
+routing may dispatch to a different upstream model per request (its digest is
+empty and cannot pin comparability). Partial CPU offload changes speed,
 not the sampling. Treat every result as advisory: a failing hard assertion is a
 signal to look at the transcript, and the matrix ratio is a trend line, not a
 gate. Run it when changing the MCP server, its prompts, its redaction or the
