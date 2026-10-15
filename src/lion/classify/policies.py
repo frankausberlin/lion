@@ -160,7 +160,7 @@ def load_policies(path: Path | None = None) -> tuple[Policy, ...]:
     if extra:
         raise _invalid(resolved, f"unknown top-level field(s): {', '.join(extra)}")
     schema_version = data.get("schema_version")
-    if isinstance(schema_version, bool) or schema_version != SCHEMA_VERSION:
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version != SCHEMA_VERSION:
         raise _invalid(resolved, f"schema_version must be {SCHEMA_VERSION}")
     policies_raw = data.get("policies")
     if not isinstance(policies_raw, list):

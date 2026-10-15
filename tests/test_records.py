@@ -449,6 +449,7 @@ def test_invalid_overlay_fails_loudly() -> None:
     cases = [
         "broken = [",
         'schema_version = 2\n[fields]\ntitle = "T"\n',
+        'schema_version = 1.0\n[fields]\ntitle = "T"\n',
         "schema_version = 1\n",
         'schema_version = 1\n[fields]\ntitle = ""\n',
     ]

@@ -939,7 +939,7 @@ def parse_overlay_document(raw: bytes, source: Path) -> AdrOverlay:
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise _invalid_overlay(source, str(exc)) from exc
     version = data.get("schema_version")
-    if isinstance(version, bool) or version != OVERLAY_SCHEMA_VERSION:
+    if not isinstance(version, int) or isinstance(version, bool) or version != OVERLAY_SCHEMA_VERSION:
         raise _invalid_overlay(source, f"schema_version must be {OVERLAY_SCHEMA_VERSION}")
     fields_raw = data.get("fields")
     if not isinstance(fields_raw, dict):

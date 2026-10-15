@@ -110,6 +110,7 @@ INVALID_DOCUMENTS = [
     pytest.param("schema_version = 1\npolicies = []\nextra = 1\n", "unknown top-level field", id="unknown_top_key"),
     pytest.param("schema_version = 2\npolicies = []\n", "schema_version must be 1", id="schema_version"),
     pytest.param("schema_version = true\npolicies = []\n", "schema_version must be 1", id="schema_bool"),
+    pytest.param("schema_version = 1.0\npolicies = []\n", "schema_version must be 1", id="schema_float"),
     pytest.param("policies = []\n", "schema_version must be 1", id="schema_missing"),
     pytest.param("schema_version = 1\n", "policies must be a list of tables", id="policies_missing"),
     pytest.param('schema_version = 1\npolicies = "x"\n', "policies must be a list of tables", id="policies_not_list"),

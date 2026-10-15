@@ -603,7 +603,7 @@ def _load_document(path: Path, origin: str) -> tuple[str | None, tuple[Rule, ...
     if extra:
         raise _invalid(path, f"unknown top-level field(s): {', '.join(extra)}")
     schema_version = document.get("schema_version")
-    if isinstance(schema_version, bool) or schema_version != SCHEMA_VERSION:
+    if not isinstance(schema_version, int) or isinstance(schema_version, bool) or schema_version != SCHEMA_VERSION:
         raise _invalid(path, f"schema_version must be {SCHEMA_VERSION}")
     version = document.get("version")
     if version is not None and (not isinstance(version, str) or not version.strip() or has_controls(version)):

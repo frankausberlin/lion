@@ -41,6 +41,7 @@ SCHEMA_CASES = [
     pytest.param([1], "top level must be a JSON object", id="top_level"),
     pytest.param({"schema_version": 2, "rules": [CUSTOM_RULE]}, "schema_version must be 1", id="schema_version"),
     pytest.param({"schema_version": True, "rules": [CUSTOM_RULE]}, "schema_version must be 1", id="schema_bool"),
+    pytest.param({"schema_version": 1.0, "rules": [CUSTOM_RULE]}, "schema_version must be 1", id="schema_float"),
     pytest.param(
         _document([CUSTOM_RULE], version=""),
         "version must be a non-empty string",

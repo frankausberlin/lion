@@ -145,7 +145,7 @@ def parse_adr_document(raw: bytes, path: Path) -> AdrDocument:
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise _invalid(path, str(exc)) from exc
     version = data.get("schema_version")
-    if isinstance(version, bool) or version != ADR_SCHEMA_VERSION:
+    if not isinstance(version, int) or isinstance(version, bool) or version != ADR_SCHEMA_VERSION:
         raise _invalid(path, f"schema_version must be {ADR_SCHEMA_VERSION}")
     ref = data.get("id")
     if not isinstance(ref, str) or not ref.strip():

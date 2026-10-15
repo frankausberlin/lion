@@ -95,6 +95,7 @@ def test_load_rejects_every_invalid_document(tmp_path: Path) -> None:
     cases = [
         "broken = [",
         'schema_version = 2\nid = "adr-x"\ncreated_at = "2026-01-01T00:00:00+00:00"\n[fields]\ntitle = "T"\n',
+        'schema_version = 1.0\nid = "adr-x"\ncreated_at = "2026-01-01T00:00:00+00:00"\n[fields]\ntitle = "T"\n',
         'schema_version = 1\ncreated_at = "2026-01-01T00:00:00+00:00"\n[fields]\ntitle = "T"\n',
         'schema_version = 1\nid = "adr-x"\n[fields]\ntitle = "T"\n',
         'schema_version = 1\nid = "adr-x"\ncreated_at = "not-a-time"\n[fields]\ntitle = "T"\n',
