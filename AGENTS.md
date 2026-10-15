@@ -490,9 +490,13 @@ just audit       # dependency vulnerability scan
   checklists and scenario guidance; [docs/explanation/testing-strategy.md](docs/explanation/testing-strategy.md)
   explains the test levels and why the container cannot replace a real machine.
 - `just test-agent` runs the opt-in agentic QA suite (`tests/agentic/`, marker
-  `agentic`) against a local Ollama model; it is advisory, needs the local
-  model, and is never part of `just check` or CI. Its harness semantics are
-  pinned model-free by `tests/test_agentic_harness.py`; the level model is in
+  `agentic`) against a configured provider (OpenRouter by default via
+  `OPENROUTER_API_KEY` and `tests/agentic/agentic.toml`; Ollama opt-in); it is
+  advisory and never part of `just check` or CI. The run ends with one
+  evaluation chat call that writes `agentic-report-<run-id>.md` next to
+  `report.json`. Its harness semantics are
+  pinned model-free by `tests/test_agentic_harness.py` (configuration and
+  provider settings by `tests/test_agentic_config.py`); the level model is in
   [docs/explanation/testing-strategy.md](docs/explanation/testing-strategy.md),
   and the deterministic ledger fixtures use the optional `now` seam of
   `program/recording.py`. Run `just test-agent` locally when changing the

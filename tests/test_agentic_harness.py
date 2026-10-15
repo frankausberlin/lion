@@ -1,17 +1,20 @@
-"""Deterministic regression tests for the agentic QA harness (no Ollama, no network).
+"""Deterministic regression tests for the agentic QA harness (no provider, no network).
 
-The opt-in suite against a local model is advisory; this module pins the
-harness semantics that must hold regardless of the model: the attempt/report
-contract, the scenario predicates, the recovery metrics, the message fidelity,
-the execution budget's termination reasons and the comparability metadata. The
+The opt-in suite against a configured model is advisory; this module pins the
+harness semantics that must hold regardless of the provider: the attempt/report
+contract, the scenario predicates, the recovery metrics, the message rendering
+and fidelity, the provider preflight, the evaluation report, the execution
+budget's termination reasons and the comparability metadata. The
 real scenarios and checks come from :mod:`tests.agentic.suite`; the session and
-the chat are injected fakes built from ``mcp.types`` objects, so nothing here
-starts a server or calls Ollama.
+the chat are injected fakes built from ``mcp.types`` objects, and the provider
+HTTP calls run against ``httpx.MockTransport``, so nothing here starts a
+server, calls a provider or touches the network.
 """
 
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -28,21 +31,24 @@ from tests.agentic import ledger, suite
 from tests.agentic.agent import (
     AgentEnvironment,
     AgentError,
+    AgenticConfig,
     AgentReport,
+    AgentSettings,
     AttemptOutcome,
     AttemptRecord,
     ChatFunction,
     ChatReply,
     ChatTimeoutError,
     ChatTransportError,
-    OllamaModel,
-    OllamaSettings,
+    Provider,
+    ReportConfig,
     Scenario,
     ScenarioCheck,
     ScenarioRun,
     SessionFactory,
     SessionLike,
     ToolCall,
+    VerifiedModel,
     run_attempt,
 )
 from tests.ledger_fixtures import A_REF, B_REF, add_adr
@@ -51,6 +57,18 @@ _TOOLS: tuple[Tool, ...] = (
     Tool(name="lion_diff", description="Compare two stored states.", input_schema={"type": "object", "properties": {}}),
     Tool(name="lion_history", description="List stored states.", input_schema={"type": "object", "properties": {}}),
     Tool(name="lion_recordings", description="List recordings.", input_schema={"type": "object", "properties": {}}),
+)
+
+OLLAMA_SETTINGS = AgentSettings(
+    provider=Provider.OLLAMA,
+    model=agent_module.DEFAULT_OLLAMA_MODEL,
+    endpoint=agent_module.DEFAULT_HOST,
+)
+OPENROUTER_SETTINGS = AgentSettings(
+    provider=Provider.OPENROUTER,
+    model=agent_module.DEFAULT_OPENROUTER_MODEL,
+    endpoint=agent_module.DEFAULT_OPENROUTER_BASE_URL,
+    api_key="sk-test-key",
 )
 
 Result = CallToolResult | str | Exception
@@ -110,7 +128,7 @@ class ScriptedChat:
 
     async def __call__(
         self,
-        settings: OllamaSettings,
+        settings: AgentSettings,
         messages: Sequence[Mapping[str, object]],
         tools: Sequence[Mapping[str, object]],
         timeout: float,
@@ -180,6 +198,7 @@ def _env(
     chat: ChatFunction,
     session: SessionLike | None = None,
     session_factory: SessionFactory | None = None,
+    settings: AgentSettings | None = None,
 ) -> AgentEnvironment:
     data = root / "data"
     home = root / "home"
@@ -188,7 +207,7 @@ def _env(
     return AgentEnvironment(
         data_home=data,
         server_env={"HOME": str(home), "XDG_DATA_HOME": str(data)},
-        settings=OllamaSettings(),
+        settings=AgentSettings() if settings is None else settings,
         artifacts=root / "artifacts",
         system_prompt=agent_module.BUILTIN_SYSTEM_PROMPT,
         session_factory=_factory(session if session is not None else FakeSession())
@@ -205,9 +224,9 @@ def _one_tool_env(root: Path, name: str = "lion_history", payload: str = "{}") -
     return _env(root, chat=chat, session=session)
 
 
-def _report(tmp_path: Path) -> AgentReport:
-    report = AgentReport(tmp_path / "report.json", OllamaSettings())
-    report.set_model(OllamaModel(name="fake", digest="deadbeef", capabilities=("tools",)))
+def _report(tmp_path: Path, settings: AgentSettings | None = None) -> AgentReport:
+    report = AgentReport(tmp_path / "report.json", AgentSettings() if settings is None else settings)
+    report.set_model(VerifiedModel(name="fake", digest="deadbeef", capabilities=("tools",)))
     return report
 
 
@@ -312,7 +331,7 @@ def test_report_registers_the_attempt_before_it_starts(tmp_path: Path) -> None:
     during: list[dict[str, object]] = []
 
     async def chat(
-        settings: OllamaSettings,
+        settings: AgentSettings,
         messages: Sequence[Mapping[str, object]],
         tools: Sequence[Mapping[str, object]],
         timeout: float,
@@ -556,7 +575,9 @@ def test_multi_tool_response_keeps_name_order(tmp_path: Path) -> None:
     )
     report = _report(tmp_path)
     scenario = _scenario("multi-tool", required_tools=("lion_history", "lion_recordings"))
-    record = run_attempt(scenario, _env(tmp_path, chat=chat, session=session), report, hard=True)
+    record = run_attempt(
+        scenario, _env(tmp_path, chat=chat, session=session, settings=OLLAMA_SETTINGS), report, hard=True
+    )
 
     assert record.outcome is AttemptOutcome.PASSED
     assert session.calls == [("lion_history", {}), ("lion_recordings", {})]
@@ -581,7 +602,7 @@ def test_thinking_stays_in_the_follow_up_request(tmp_path: Path) -> None:
     report = _report(tmp_path)
     record = run_attempt(
         _scenario("thinking", required_tools=("lion_history",)),
-        _env(tmp_path, chat=chat, session=session),
+        _env(tmp_path, chat=chat, session=session, settings=OLLAMA_SETTINGS),
         report,
         hard=True,
     )
@@ -596,7 +617,7 @@ def test_thinking_stays_in_the_follow_up_request(tmp_path: Path) -> None:
 
 
 async def _slow_chat(
-    settings: OllamaSettings,
+    settings: AgentSettings,
     messages: Sequence[Mapping[str, object]],
     tools: Sequence[Mapping[str, object]],
     timeout: float,
@@ -824,11 +845,11 @@ def _raising(exc: Exception) -> Callable[[httpx.Request], httpx.Response]:
     return handler
 
 
-def _chat_via(handler: Callable[[httpx.Request], httpx.Response]) -> ChatReply:
-    """Run the real chat parser against a mock transport."""
+def _ollama_chat_via(handler: Callable[[httpx.Request], httpx.Response]) -> ChatReply:
+    """Run the real Ollama chat parser against a mock transport."""
     return asyncio.run(
         agent_module.chat(
-            OllamaSettings(),
+            OLLAMA_SETTINGS,
             [{"role": "user", "content": "list states"}],
             [{"type": "function", "function": {"name": "lion_history"}}],
             transport=httpx.MockTransport(handler),
@@ -837,7 +858,7 @@ def _chat_via(handler: Callable[[httpx.Request], httpx.Response]) -> ChatReply:
 
 
 def test_chat_parses_reply_fidelity() -> None:
-    """The chat seam parses the wire shape: content, thinking, tool calls and counters."""
+    """The Ollama chat seam parses the wire shape: content, thinking, tool calls and counters."""
     bodies: list[dict[str, object]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -857,7 +878,7 @@ def test_chat_parses_reply_fidelity() -> None:
             },
         )
 
-    reply = _chat_via(handler)
+    reply = _ollama_chat_via(handler)
 
     assert reply.content == "checking"
     assert reply.thinking == "look at the ledger first"
@@ -870,8 +891,9 @@ def test_chat_parses_reply_fidelity() -> None:
     assert call.arguments_raw == {"limit": 2}
     assert call.normalized is False
     assert call.raw == {"function": {"name": "lion_history", "arguments": {"limit": 2}}}
+    assert call.tool_call_id == ""
 
-    settings = OllamaSettings()
+    settings = OLLAMA_SETTINGS
     body = bodies[0]
     assert body["model"] == settings.model
     assert body["stream"] is False
@@ -897,7 +919,7 @@ def test_chat_normalizes_tool_arguments(arguments: object, normalized: bool, exp
         body = {"tool_calls": [{"function": {"name": "lion_history", "arguments": arguments}}]}
         return httpx.Response(200, json={"message": body})
 
-    (call,) = _chat_via(handler).tool_calls
+    (call,) = _ollama_chat_via(handler).tool_calls
     assert call.arguments == expected
     assert call.arguments_raw == arguments
     assert call.normalized is normalized
@@ -920,7 +942,7 @@ def test_chat_rejects_malformed_arguments(arguments: object, message: str) -> No
         return httpx.Response(200, json={"message": body})
 
     with pytest.raises(AgentError, match=message):
-        _chat_via(handler)
+        _ollama_chat_via(handler)
 
 
 def test_chat_rejects_tool_call_without_name() -> None:
@@ -930,7 +952,7 @@ def test_chat_rejects_tool_call_without_name() -> None:
         return httpx.Response(200, json={"message": {"tool_calls": [{"function": {"arguments": {}}}]}})
 
     with pytest.raises(AgentError, match="without a name"):
-        _chat_via(handler)
+        _ollama_chat_via(handler)
 
 
 @pytest.mark.parametrize(
@@ -949,10 +971,558 @@ def test_chat_maps_transport_and_parse_failures(
 ) -> None:
     """Transport errors, HTTP errors and unparseable bodies map to the loud chat errors."""
     with pytest.raises(error, match=message):
-        _chat_via(handler)
+        _ollama_chat_via(handler)
 
 
-# --- 13. closed vocabularies --------------------------------------------------
+# --- 13. OpenRouter wire (mock transport) -------------------------------------
+
+
+def _openrouter_chat_via(handler: Callable[[httpx.Request], httpx.Response]) -> ChatReply:
+    """Run the real OpenRouter chat parser against a mock transport."""
+    return asyncio.run(
+        agent_module.chat(
+            OPENROUTER_SETTINGS,
+            [{"role": "user", "content": "list states"}],
+            [{"type": "function", "function": {"name": "lion_history"}}],
+            transport=httpx.MockTransport(handler),
+        )
+    )
+
+
+def test_openrouter_chat_wire_shape_and_parsing() -> None:
+    """The OpenRouter seam sends the OpenAI shape and parses content, tools, thinking and usage."""
+    requests: list[httpx.Request] = []
+    bodies: list[dict[str, object]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        bodies.append(cast("dict[str, object]", json.loads(request.content)))
+        return httpx.Response(
+            200,
+            json={
+                "model": "qwen/qwen3-8b:free",
+                "choices": [
+                    {
+                        "message": {
+                            "content": "checking",
+                            "reasoning": "look at the ledger first",
+                            "tool_calls": [
+                                {
+                                    "id": "call_abc",
+                                    "type": "function",
+                                    "function": {"name": "lion_history", "arguments": '{"limit": 2}'},
+                                }
+                            ],
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 7},
+            },
+        )
+
+    reply = _openrouter_chat_via(handler)
+
+    assert reply.content == "checking"
+    assert reply.thinking == "look at the ledger first"
+    assert reply.done_reason == "tool_calls"
+    assert reply.model == "qwen/qwen3-8b:free"
+    assert reply.prompt_eval_count == 11
+    assert reply.eval_count == 7
+    (call,) = reply.tool_calls
+    assert call.name == "lion_history"
+    assert call.arguments == {"limit": 2}
+    assert call.arguments_raw == '{"limit": 2}'
+    assert call.normalized is False  # a JSON string is the native shape of this API
+    assert call.tool_call_id == "call_abc"
+
+    request = requests[0]
+    assert request.url.path == "/api/v1/chat/completions"
+    assert request.headers["Authorization"] == "Bearer sk-test-key"
+    body = bodies[0]
+    assert body["model"] == OPENROUTER_SETTINGS.model
+    assert body["stream"] is False
+    assert body["messages"] == [{"role": "user", "content": "list states"}]
+    assert body["tools"] == [{"type": "function", "function": {"name": "lion_history"}}]
+    assert body["temperature"] == 0.0
+    assert body["top_p"] == 1.0
+    assert body["seed"] == 42
+    assert body["max_tokens"] == OPENROUTER_SETTINGS.options.num_predict
+    assert "options" not in body
+    assert "keep_alive" not in body
+    assert "top_k" not in body
+    assert "num_ctx" not in body
+
+
+@pytest.mark.parametrize(
+    ("arguments", "normalized", "expected"),
+    [
+        ('{"reference": "1", "note": null}', True, {"reference": "1"}),
+        ('{"reference": "1"}', False, {"reference": "1"}),
+        (None, True, {}),
+    ],
+    ids=["string-with-null", "clean-string", "missing-arguments"],
+)
+def test_openrouter_arguments_keep_the_native_string_shape(
+    arguments: object, normalized: bool, expected: dict[str, object]
+) -> None:
+    """A clean JSON string stays native; null cleanup and a missing field count as normalization."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [
+                                {"id": "call_1", "function": {"name": "lion_history", "arguments": arguments}}
+                            ]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+
+    (call,) = _openrouter_chat_via(handler).tool_calls
+    assert call.arguments == expected
+    assert call.normalized is normalized
+
+
+def test_openrouter_rejects_unparseable_arguments() -> None:
+    """A non-JSON tool-argument string stays a loud AgentError for OpenRouter."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "choices": [
+                    {
+                        "message": {
+                            "tool_calls": [{"id": "call_1", "function": {"name": "lion_history", "arguments": "{nope"}}]
+                        },
+                        "finish_reason": "tool_calls",
+                    }
+                ]
+            },
+        )
+
+    with pytest.raises(AgentError, match="unparseable tool arguments"):
+        _openrouter_chat_via(handler)
+
+
+def test_openrouter_rejects_a_reply_without_choices() -> None:
+    """An empty ``choices`` list is malformed output, not an empty answer."""
+    with pytest.raises(AgentError, match="without choices"):
+        _openrouter_chat_via(_responder(httpx.Response(200, json={"choices": []})))
+
+
+def test_openrouter_chat_maps_transport_failures() -> None:
+    """Timeouts, transport errors and HTTP errors map to the closed chat failures."""
+    with pytest.raises(ChatTimeoutError, match="timed out after"):
+        _openrouter_chat_via(_raising(httpx.ReadTimeout("read timed out")))
+    with pytest.raises(ChatTransportError, match="OpenRouter is not reachable"):
+        _openrouter_chat_via(_raising(httpx.ConnectError("connection refused")))
+    with pytest.raises(ChatTransportError, match="HTTP 500"):
+        _openrouter_chat_via(_responder(httpx.Response(500, text="upstream failed")))
+
+
+# --- 14. message rendering ----------------------------------------------------
+
+
+def test_render_messages_ollama_passthrough() -> None:
+    """The Ollama rendering passes the internal messages through, thinking included."""
+    messages = [
+        {"role": "system", "content": "sys"},
+        {
+            "role": "assistant",
+            "content": "",
+            "thinking": "internal trace",
+            "tool_calls": [{"function": {"name": "lion_history", "arguments": {"limit": 1}}}],
+        },
+        {"role": "tool", "tool_name": "lion_history", "tool_call_id": "", "content": "{}"},
+    ]
+    assert agent_module.render_messages(OLLAMA_SETTINGS, messages) == messages
+
+
+def test_render_messages_openrouter_shape() -> None:
+    """The OpenRouter rendering emits id/type tool calls, drops thinking and pairs tool results."""
+    messages = [
+        {"role": "system", "content": "sys"},
+        {
+            "role": "assistant",
+            "content": "",
+            "thinking": "internal trace",
+            "tool_calls": [
+                {"id": "call_abc", "type": "function", "function": {"name": "lion_history", "arguments": "{}"}},
+                {"function": {"name": "lion_diff", "arguments": "{}"}},
+            ],
+        },
+        {"role": "tool", "tool_name": "lion_history", "tool_call_id": "call_abc", "content": "first"},
+        {"role": "tool", "tool_name": "lion_diff", "tool_call_id": "", "content": "second"},
+    ]
+    rendered = agent_module.render_messages(OPENROUTER_SETTINGS, messages)
+
+    assert rendered[0] == {"role": "system", "content": "sys"}
+    assistant = rendered[1]
+    assert "thinking" not in assistant
+    assert assistant["tool_calls"] == [
+        {"id": "call_abc", "type": "function", "function": {"name": "lion_history", "arguments": "{}"}},
+        {"id": "call_2", "type": "function", "function": {"name": "lion_diff", "arguments": "{}"}},
+    ]
+    assert rendered[2] == {"role": "tool", "tool_call_id": "call_abc", "content": "first"}
+    assert rendered[3] == {"role": "tool", "tool_call_id": "call_2", "content": "second"}
+
+
+# --- 15. provider preflight (mock transport) ----------------------------------
+
+
+def _routes(routes: Mapping[str, httpx.Response]) -> httpx.MockTransport:
+    def handler(request: httpx.Request) -> httpx.Response:
+        response = routes.get(request.url.path)
+        if response is None:
+            return httpx.Response(404, text=f"no route for {request.url.path}")
+        return response
+
+    return httpx.MockTransport(handler)
+
+
+def test_check_provider_openrouter_requires_the_key() -> None:
+    """A missing key is loud before any request and names the escape hatch."""
+    settings = AgentSettings(provider=Provider.OPENROUTER, model="openrouter/free")
+    with pytest.raises(AgentError, match="OPENROUTER_API_KEY is not set"):
+        agent_module.check_provider(settings)
+
+
+def test_check_provider_openrouter_rejects_a_rejected_key() -> None:
+    """HTTP 401/403 from the key endpoint is a loud key error."""
+    transport = _routes({"/api/v1/key": httpx.Response(401, json={"error": "invalid key"})})
+    with pytest.raises(AgentError, match="rejected the API key"):
+        agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
+
+
+def test_check_provider_openrouter_unreachable_is_loud() -> None:
+    """A transport failure on the key endpoint is the loud unreachable message."""
+    transport = httpx.MockTransport(_raising(httpx.ConnectError("connection refused")))
+    with pytest.raises(AgentError, match="OpenRouter is not reachable"):
+        agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
+
+
+def test_check_provider_openrouter_verifies_model_and_tools() -> None:
+    """A listed tool-capable model becomes the verified model with an empty digest."""
+    transport = _routes(
+        {
+            "/api/v1/key": httpx.Response(200, json={"data": {"label": "test"}}),
+            "/api/v1/models": httpx.Response(
+                200,
+                json={"data": [{"id": "openrouter/free", "supported_parameters": ["tools", "temperature"]}]},
+            ),
+        }
+    )
+    model = agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
+    assert model == VerifiedModel(name="openrouter/free", digest="", capabilities=("tools", "temperature"))
+
+
+def test_check_provider_openrouter_unknown_capabilities_are_not_an_error() -> None:
+    """A model entry without a parameter list has unknown capabilities, not broken ones."""
+    transport = _routes(
+        {
+            "/api/v1/key": httpx.Response(200, json={}),
+            "/api/v1/models": httpx.Response(200, json={"data": [{"id": "openrouter/free"}]}),
+        }
+    )
+    model = agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
+    assert model.capabilities == ()
+
+
+@pytest.mark.parametrize(
+    ("payload", "message"),
+    [
+        ({"data": [{"id": "other/model"}]}, "does not list model"),
+        ({"data": [{"id": "openrouter/free", "supported_parameters": ["temperature"]}]}, "does not support tool calls"),
+    ],
+    ids=["unlisted-model", "no-tools"],
+)
+def test_check_provider_openrouter_rejects_unusable_models(payload: dict[str, object], message: str) -> None:
+    """An unlisted model or one without tool support is a loud preflight error."""
+    transport = _routes(
+        {
+            "/api/v1/key": httpx.Response(200, json={}),
+            "/api/v1/models": httpx.Response(200, json=payload),
+        }
+    )
+    with pytest.raises(AgentError, match=message):
+        agent_module.check_provider(OPENROUTER_SETTINGS, transport=transport)
+
+
+def test_check_provider_ollama_verifies_model_and_tools() -> None:
+    """The Ollama preflight keeps reading /api/tags and /api/show."""
+    transport = _routes(
+        {
+            "/api/tags": httpx.Response(200, json={"models": [{"name": OLLAMA_SETTINGS.model, "digest": "deadbeef"}]}),
+            "/api/show": httpx.Response(200, json={"capabilities": ["completion", "tools"]}),
+        }
+    )
+    model = agent_module.check_provider(OLLAMA_SETTINGS, transport=transport)
+    assert model == VerifiedModel(name=OLLAMA_SETTINGS.model, digest="deadbeef", capabilities=("completion", "tools"))
+
+
+# --- 16. evaluation report ----------------------------------------------------
+
+
+class EvalChat:
+    """A chat fake for the evaluation call: one scripted answer, every request recorded."""
+
+    def __init__(self, answer: str | Exception) -> None:
+        """Bind the scripted answer (a string or an exception to raise)."""
+        self.answer = answer
+        self.requests: list[dict[str, object]] = []
+
+    async def __call__(
+        self,
+        settings: AgentSettings,
+        messages: Sequence[Mapping[str, object]],
+        tools: Sequence[Mapping[str, object]],
+        timeout: float,
+    ) -> ChatReply:
+        """Record the request and return (or raise) the scripted answer."""
+        self.requests.append(
+            {
+                "settings": settings,
+                "messages": [dict(message) for message in messages],
+                "tools": [dict(tool) for tool in tools],
+                "timeout": timeout,
+            }
+        )
+        if isinstance(self.answer, Exception):
+            raise self.answer
+        return ChatReply(
+            content=self.answer,
+            thinking="",
+            tool_calls=(),
+            prompt_eval_count=1,
+            eval_count=1,
+            done_reason="stop",
+        )
+
+
+def _completed_report(tmp_path: Path) -> AgentReport:
+    report = _report(tmp_path)
+    run_attempt(
+        _scenario("evaluation", required_tools=("lion_history",)),
+        _one_tool_env(tmp_path / "env"),
+        report,
+        hard=False,
+    )
+    report.finalize()
+    return report
+
+
+def test_evaluation_writes_the_markdown_report(tmp_path: Path) -> None:
+    """A completed run gets one bounded tool-less chat call and a markdown report file."""
+    report = _completed_report(tmp_path)
+    artifacts = tmp_path / "artifacts"
+    chat_fake = EvalChat("# Evaluation\n\nEverything passed.")
+    result = agent_module.evaluate_report(report, AgentSettings(), AgenticConfig(), artifacts, chat_function=chat_fake)
+
+    assert result["status"] == "ok"
+    assert result["language"] == "english"
+    assert result["model"] == "openrouter/free"
+    target = artifacts / f"agentic-report-{report.run_id}.md"
+    assert target.is_file()
+    assert target.read_text(encoding="utf-8") == "# Evaluation\n\nEverything passed.\n"
+    assert result["report_path"] == str(target)
+    extras = _section(_load(report.path), "extras")
+    assert _section(extras, "evaluation") == result
+
+    (request,) = chat_fake.requests
+    assert request["tools"] == []
+    assert request["timeout"] == agent_module.EVALUATION_TIMEOUT_SECONDS
+    settings = cast("AgentSettings", request["settings"])
+    assert settings.options.num_predict == agent_module.EVALUATION_MAX_TOKENS
+    assert settings.options.temperature == 0.0
+    messages = cast("list[dict[str, object]]", request["messages"])
+    assert len(messages) == 2
+    assert "Write the report in English." in str(messages[0]["content"])
+    input_text = str(messages[1]["content"])
+    assert input_text.startswith("# Agentic QA run summary")
+    assert "### evaluation" in input_text
+
+
+@pytest.mark.parametrize(
+    ("language", "instruction"),
+    [("english", "Write the report in English."), ("german", "Schreibe den Bericht auf Deutsch.")],
+    ids=["english", "german"],
+)
+def test_evaluation_language_instruction(tmp_path: Path, language: str, instruction: str) -> None:
+    """The configured language selects the appended system-prompt instruction."""
+    report = _completed_report(tmp_path)
+    chat_fake = EvalChat("# Report")
+    config = AgenticConfig(report=ReportConfig(language=language))
+    result = agent_module.evaluate_report(
+        report, AgentSettings(), config, tmp_path / "artifacts", chat_function=chat_fake
+    )
+
+    assert result["language"] == language
+    (request,) = chat_fake.requests
+    messages = cast("list[dict[str, object]]", request["messages"])
+    assert instruction in str(messages[0]["content"])
+    assert "evaluation analyst" in str(messages[0]["content"])
+
+
+def test_evaluation_strips_a_surrounding_code_fence(tmp_path: Path) -> None:
+    """A model that wraps its answer in one markdown fence still yields a clean report."""
+    report = _completed_report(tmp_path)
+    artifacts = tmp_path / "artifacts"
+    agent_module.evaluate_report(
+        report, AgentSettings(), AgenticConfig(), artifacts, chat_function=EvalChat("```markdown\n# Report\n```")
+    )
+    assert (artifacts / f"agentic-report-{report.run_id}.md").read_text(encoding="utf-8") == "# Report\n"
+
+
+@pytest.mark.parametrize(
+    "answer", ["", "   \n", AgentError("upstream failed")], ids=["empty-answer", "blank-answer", "chat-error"]
+)
+def test_evaluation_failure_is_advisory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], answer: str | Exception
+) -> None:
+    """An empty answer or a chat failure lands in the extras as error, never as an exception."""
+    report = _completed_report(tmp_path)
+    artifacts = tmp_path / "artifacts"
+    result = agent_module.evaluate_report(
+        report, AgentSettings(), AgenticConfig(), artifacts, chat_function=EvalChat(answer)
+    )
+
+    assert result["status"] == "error"
+    assert isinstance(result["error"], str) and result["error"]
+    assert result["report_path"] is None
+    assert not list(artifacts.glob("agentic-report-*.md"))
+    assert "warning" in capsys.readouterr().err
+    extras = _section(_load(report.path), "extras")
+    assert _section(extras, "evaluation")["status"] == "error"
+
+
+def test_evaluation_disabled_makes_no_chat_call(tmp_path: Path) -> None:
+    """``report.enabled = false`` records ``disabled`` and never calls the model."""
+    report = _completed_report(tmp_path)
+    chat_fake = EvalChat("# never used")
+    config = AgenticConfig(report=ReportConfig(enabled=False))
+    result = agent_module.evaluate_report(
+        report, AgentSettings(), config, tmp_path / "artifacts", chat_function=chat_fake
+    )
+
+    assert result["status"] == "disabled"
+    assert chat_fake.requests == []
+    assert _section(_section(_load(report.path), "extras"), "evaluation")["status"] == "disabled"
+
+
+def test_evaluation_skips_without_a_complete_run(tmp_path: Path) -> None:
+    """A preflight error and an interrupted run record ``skipped`` without a chat call."""
+    chat_fake = EvalChat("# never used")
+    artifacts = tmp_path / "artifacts"
+
+    preflight = _report(tmp_path / "preflight")
+    preflight.mark_preflight_error("no credential")
+    result = agent_module.evaluate_report(
+        preflight, AgentSettings(), AgenticConfig(), artifacts, chat_function=chat_fake
+    )
+    assert result["status"] == "skipped"
+
+    interrupted = _report(tmp_path / "interrupted")
+    interrupted.mark_interrupted()
+    interrupted.finalize()
+    result = agent_module.evaluate_report(
+        interrupted, AgentSettings(), AgenticConfig(), artifacts, chat_function=chat_fake
+    )
+    assert result["status"] == "skipped"
+
+    assert chat_fake.requests == []
+    assert not artifacts.exists()
+
+
+def test_api_key_stays_out_of_report_and_transcript(tmp_path: Path) -> None:
+    """The key travels only in the request header; report and transcript never carry it."""
+    settings = AgentSettings(
+        provider=Provider.OPENROUTER,
+        model="openrouter/free",
+        endpoint="https://openrouter.ai/api/v1",
+        api_key="sk-live-super-secret",
+    )
+    authorizations: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        authorizations.append(request.headers["Authorization"])
+        return httpx.Response(
+            200,
+            json={
+                "model": "some/free-model",
+                "choices": [{"message": {"content": "done"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 1, "completion_tokens": 1},
+            },
+        )
+
+    async def chat_via_http(
+        chat_settings: AgentSettings,
+        messages: Sequence[Mapping[str, object]],
+        tools: Sequence[Mapping[str, object]],
+        timeout: float,
+    ) -> ChatReply:
+        return await agent_module.chat(chat_settings, messages, tools, timeout, transport=httpx.MockTransport(handler))
+
+    env = _env(tmp_path, chat=chat_via_http, settings=settings)
+    report = _report(tmp_path, settings)
+    run_attempt(_scenario("secret"), env, report, hard=True)
+    report.finalize()
+
+    assert authorizations == ["Bearer sk-live-super-secret"]
+    report_text = (tmp_path / "report.json").read_text(encoding="utf-8")
+    transcript_text = (env.artifacts / "transcripts" / "secret.jsonl").read_text(encoding="utf-8")
+    assert "sk-live-super-secret" not in report_text
+    assert "sk-live-super-secret" not in transcript_text
+
+
+# --- 17. report schema --------------------------------------------------------
+
+
+def test_report_schema_two_pins_the_provider_and_endpoint(tmp_path: Path) -> None:
+    """Schema 2 replaces ``host`` with ``provider`` and ``endpoint`` and exposes path/run_id."""
+    report = _report(tmp_path)
+    payload = _load(tmp_path / "report.json")
+
+    assert payload["schema_version"] == 2
+    assert payload["provider"] == "openrouter"
+    assert payload["endpoint"] == "https://openrouter.ai/api/v1"
+    assert "host" not in payload
+    assert report.path == tmp_path / "report.json"
+    assert re.fullmatch(r"\d{8}T\d{6}Z-[0-9a-f]{6}", report.run_id)
+
+
+def test_tool_call_done_reason_counts_as_normal(tmp_path: Path) -> None:
+    """OpenAI-style providers report ``tool_calls`` on tool turns; it is not abnormal."""
+    session = FakeSession({"lion_history": "{}"})
+    chat = ScriptedChat(
+        [
+            _reply(tool_calls=(_tool_call("lion_history"),), done_reason="tool_calls"),
+            _reply(content="done"),
+        ]
+    )
+    report = _report(tmp_path)
+    record = run_attempt(
+        _scenario("done-reasons", required_tools=("lion_history",)),
+        _env(tmp_path, chat=chat, session=session),
+        report,
+        hard=True,
+    )
+    assert record.metrics.done_reasons == ("tool_calls", "stop")
+
+    report.finalize()
+    reasons = _section(_section(_load(tmp_path / "report.json"), "metrics"), "done_reasons")
+    assert reasons["abnormal"] == 0
+    assert _section(reasons, "counts") == {"stop": 1, "tool_calls": 1}
+
+
+# --- 18. closed vocabularies --------------------------------------------------
 
 
 def test_attempt_record_rejects_unknown_termination() -> None:
@@ -976,7 +1546,7 @@ def test_report_rejects_unknown_run_state(tmp_path: Path, monkeypatch: pytest.Mo
         report.write()
 
 
-# --- 14. scenario names -------------------------------------------------------
+# --- 19. scenario names -------------------------------------------------------
 
 
 @pytest.mark.parametrize("name", ["", ".", "..", "sub/scenario"], ids=["empty", "dot", "dotdot", "slash"])

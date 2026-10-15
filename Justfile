@@ -75,9 +75,9 @@ test-e2e *args:
 test-e2e-attach:
     bash scripts/test-e2e.sh --attach
 
-# Agentic QA against a local Ollama model (opt-in, advisory, never part of check/CI)
+# Agentic QA against a configured provider (OpenRouter by default; opt-in, advisory, never part of check/CI)
 test-agent:
-    uv run pytest tests/agentic -m agentic -v
+    uv run pytest tests/agentic -m agentic -v -s
 
 # Design report to .refactor/ (run | save <name> | compare <name>; advisory, never fails on findings)
 rate-design *args:

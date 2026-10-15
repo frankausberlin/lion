@@ -1,0 +1,25 @@
+# Agentic QA configuration (schema 1).
+#
+# Environment overrides (win over this file):
+#   LION_AGENT_PROVIDER        -> provider.name      ("openrouter" | "ollama")
+#   LION_AGENT_MODEL           -> provider.model
+#   LION_AGENT_BASE_URL        -> provider.base_url  (OpenRouter only)
+#   LION_AGENT_OLLAMA_HOST     -> provider.host      (Ollama only)
+#   LION_AGENT_REPORT_LANGUAGE -> report.language    ("english" | "german")
+#   LION_AGENT_SEED, LION_AGENT_NUM_CTX, LION_AGENT_SYSTEM_PROMPT_FILE
+# The OpenRouter API key is read from OPENROUTER_API_KEY only and is never
+# written to the report or the transcripts.
+
+schema_version = 1
+
+[provider]
+name = "openrouter"                       # "openrouter" | "ollama"
+model = "openrouter/free"                 # OpenRouter free-models router
+base_url = "https://openrouter.ai/api/v1" # OpenRouter only
+# host = "http://127.0.0.1:11434"         # Ollama only (default)
+# For provider = "ollama" set a local model, for example:
+# model = "JetBrains/mellum2-instruct-q4_k_m:latest"
+
+[report]
+enabled = true
+language = "english"                      # "english" | "german"

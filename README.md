@@ -200,7 +200,7 @@ just check            # full quality gate
 just clean            # remove caches and generated artifacts
 just test-e2e         # opt-in Docker suite, excluded from just check
 just test-e2e-attach  # same suite, but keep the container to watch a live tmux session
-just test-agent       # opt-in agentic QA against a local Ollama model
+just test-agent       # opt-in agentic QA against a configured provider (OpenRouter by default)
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup, workflow and conventions, the

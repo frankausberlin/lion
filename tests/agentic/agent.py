@@ -1,19 +1,25 @@
-"""Agentic QA harness: drive ``lion serve`` over stdio with a local Ollama model.
+"""Agentic QA harness: drive ``lion serve`` over stdio with a chat model.
 
 The opt-in suite in :mod:`tests.agentic.test_mcp_agentic` uses this module as
 its engine. A scenario is a user request (or a rendered MCP prompt) that a
-local Ollama model answers by calling the ``lion serve`` MCP tools; the model
+configured provider answers by calling the ``lion serve`` MCP tools; the model
 talks to the real server over stdio through the official MCP SDK client, and
 every model-visible message is written to a JSONL transcript.
 
 Design rules:
 
-- The endpoint, model and sampling options are one source of truth
-  (:class:`OllamaSettings`, :class:`OllamaOptions`); environment variables only
-  override them for experiments. ``temperature 0`` and a fixed seed reduce,
+- The provider, model, endpoint and sampling options are one source of truth
+  (:class:`AgentSettings`, :class:`SamplingOptions`), resolved from
+  ``tests/agentic/agentic.toml`` and overridable by ``LION_AGENT_*``
+  environment variables; OpenRouter is the default and Ollama stays opt-in
+  via ``provider = "ollama"``. ``temperature 0`` and a fixed seed reduce,
   but never remove, variation — the suite is advisory.
-- Environment problems fail loudly with an action hint (start Ollama, pull the
-  model); nothing is skipped.
+- The internal messages are rendered exactly once per request into the
+  provider wire shape (:func:`render_messages`); the transcript records what
+  was sent. The API key lives only in the request header, never in a report,
+  transcript or extras.
+- Environment problems fail loudly with an action hint (export the API key,
+  start Ollama, pull the model); nothing is skipped.
 - Hard assertions stay model-independent: a required tool was called, a custom
   scenario check passed, no recorded secret reached the model-visible text.
   Answer quality and tool-selection ratios are reported, not asserted.
@@ -29,12 +35,17 @@ Design rules:
   :data:`CLEANUP_ALLOWANCE_SECONDS` (the MCP SDK's shielded shutdown bounds
   every internal wait, so no ``lion serve`` process is left behind).
 - ``report.json`` is comparable across runs: it pins the run metadata (Lion
-  and Ollama versions, best-effort git state, model digest and capabilities,
-  the sampling options and the system prompt with its SHA-256), the suite
+  and Ollama versions when applicable, best-effort git state, model digest and
+  capabilities, the sampling options and the system prompt with its SHA-256),
+  the suite
   identity, per-attempt prompt and tool-inventory hashes, and per-attempt plus
   aggregated metrics with explicit denominators. Technical task completion and
   answer quality stay separate: the checks decide the outcome, the metrics
   describe the model.
+- After the report is final, :func:`evaluate_report` runs one bounded chat
+  call over a condensed summary of the report and writes
+  ``agentic-report-<run-id>.md`` next to it; a failing evaluation is advisory
+  (recorded as ``extras.evaluation`` and warned on stderr, never raised).
 
 Nothing here imports Typer or the ``lion`` package: the server runs as a real
 subprocess, exactly like a client would start it.
@@ -49,6 +60,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import AsyncExitStack
 from dataclasses import dataclass, field, replace
@@ -63,15 +75,22 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 from mcp.types import CallToolResult, GetPromptResult, TextContent, Tool
 
-DEFAULT_MODEL = "JetBrains/mellum2-instruct-q4_k_m:latest"
+DEFAULT_OLLAMA_MODEL = "JetBrains/mellum2-instruct-q4_k_m:latest"
+DEFAULT_OPENROUTER_MODEL = "openrouter/free"
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 DEFAULT_HOST = "http://127.0.0.1:11434"
+PROVIDER_ENV = "LION_AGENT_PROVIDER"
 MODEL_ENV = "LION_AGENT_MODEL"
+BASE_URL_ENV = "LION_AGENT_BASE_URL"
 HOST_ENV = "LION_AGENT_OLLAMA_HOST"
+REPORT_LANGUAGE_ENV = "LION_AGENT_REPORT_LANGUAGE"
+API_KEY_ENV = "OPENROUTER_API_KEY"
 SEED_ENV = "LION_AGENT_SEED"
 NUM_CTX_ENV = "LION_AGENT_NUM_CTX"
 SYSTEM_PROMPT_FILE_ENV = "LION_AGENT_SYSTEM_PROMPT_FILE"
 REPO_ROOT = Path(__file__).resolve().parents[2]
-NORMAL_DONE_REASON = "stop"
+AGENTIC_CONFIG_PATH = Path(__file__).resolve().parent / "agentic.toml"
+NORMAL_DONE_REASONS = frozenset({"stop", "tool_calls"})
 MAX_STEPS = 8
 MAX_CALLS_PER_RESPONSE = 4
 MAX_TOTAL_CALLS = 16
@@ -79,8 +98,11 @@ CHAT_TIMEOUT_SECONDS = 120.0
 SCENARIO_TIMEOUT_SECONDS = 300.0
 CLEANUP_ALLOWANCE_SECONDS = 15.0
 CLI_TIMEOUT_SECONDS = 60.0
+EVALUATION_TIMEOUT_SECONDS = 240.0
+EVALUATION_MAX_TOKENS = 2048
+EVALUATION_FINAL_TEXT_LIMIT = 800
 TRANSCRIPTS_DIR = "transcripts"
-REPORT_SCHEMA_VERSION = 1
+REPORT_SCHEMA_VERSION = 2
 RUN_STATES: tuple[str, ...] = ("running", "complete", "interrupted", "preflight_error")
 TERMINATIONS: tuple[str, ...] = (
     "completed",
@@ -161,6 +183,192 @@ class ChatTimeoutError(AgentError):
     """The chat request exceeded its own timeout inside the scenario budget."""
 
 
+# --- configuration -----------------------------------------------------------
+
+
+class AgenticConfigError(ValueError):
+    """The agentic config file is unreadable, invalid or outside the schema."""
+
+
+class Provider(StrEnum):
+    """The chat providers the harness speaks to."""
+
+    OPENROUTER = "openrouter"
+    OLLAMA = "ollama"
+
+
+REPORT_LANGUAGES: tuple[str, ...] = ("english", "german")
+
+
+@dataclass(frozen=True)
+class ProviderConfig:
+    """The provider selection: name, model and the provider's endpoint."""
+
+    name: str = Provider.OPENROUTER.value
+    model: str = DEFAULT_OPENROUTER_MODEL
+    base_url: str = DEFAULT_OPENROUTER_BASE_URL
+    host: str = DEFAULT_HOST
+
+
+@dataclass(frozen=True)
+class ReportConfig:
+    """The evaluation-report toggle and language."""
+
+    enabled: bool = True
+    language: str = "english"
+
+
+@dataclass(frozen=True)
+class AgenticConfig:
+    """The validated agentic config; builtin defaults apply when no file exists."""
+
+    schema_version: int = 1
+    provider: ProviderConfig = ProviderConfig()
+    report: ReportConfig = ReportConfig()
+
+
+_ALLOWED_KEYS = frozenset({"schema_version", "provider", "report"})
+_ALLOWED_PROVIDER_KEYS = frozenset({"name", "model", "base_url", "host"})
+_ALLOWED_REPORT_KEYS = frozenset({"enabled", "language"})
+
+
+def _invalid_config(path: Path, message: str) -> AgenticConfigError:
+    return AgenticConfigError(f"Invalid agentic config '{path}': {message}")
+
+
+def _nonempty_str(table: Mapping[str, object], key: str, path: Path, what: str) -> str | None:
+    """One optional non-empty string field of a config table."""
+    value = table.get(key)
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip():
+        raise _invalid_config(path, f"{what} must be a non-empty string")
+    return value
+
+
+def _parse_provider(document: Mapping[str, object], path: Path) -> ProviderConfig:
+    """Validate the optional ``[provider]`` table against the builtin defaults."""
+    raw = document.get("provider")
+    if raw is None:
+        return ProviderConfig()
+    if not isinstance(raw, dict):
+        raise _invalid_config(path, "provider must be a TOML table")
+    table = cast("dict[str, object]", raw)
+    extra = sorted(set(table) - _ALLOWED_PROVIDER_KEYS)
+    if extra:
+        raise _invalid_config(path, f"unknown key(s) in [provider]: {', '.join(extra)}")
+    name = _nonempty_str(table, "name", path, "provider.name") or ProviderConfig.name
+    if name not in tuple(provider.value for provider in Provider):
+        known = ", ".join(provider.value for provider in Provider)
+        raise _invalid_config(path, f"provider.name must be one of {known}, got {name!r}")
+    model = _nonempty_str(table, "model", path, "provider.model") or ProviderConfig.model
+    base_url = _nonempty_str(table, "base_url", path, "provider.base_url") or ProviderConfig.base_url
+    host = _nonempty_str(table, "host", path, "provider.host") or ProviderConfig.host
+    return ProviderConfig(name=name, model=model, base_url=base_url, host=host)
+
+
+def _parse_report(document: Mapping[str, object], path: Path) -> ReportConfig:
+    """Validate the optional ``[report]`` table against the builtin defaults."""
+    raw = document.get("report")
+    if raw is None:
+        return ReportConfig()
+    if not isinstance(raw, dict):
+        raise _invalid_config(path, "report must be a TOML table")
+    table = cast("dict[str, object]", raw)
+    extra = sorted(set(table) - _ALLOWED_REPORT_KEYS)
+    if extra:
+        raise _invalid_config(path, f"unknown key(s) in [report]: {', '.join(extra)}")
+    enabled = table.get("enabled")
+    if enabled is not None and not isinstance(enabled, bool):
+        raise _invalid_config(path, "report.enabled must be a boolean")
+    language = _nonempty_str(table, "language", path, "report.language") or ReportConfig.language
+    if language not in REPORT_LANGUAGES:
+        known = ", ".join(REPORT_LANGUAGES)
+        raise _invalid_config(path, f"report.language must be one of {known}, got {language!r}")
+    return ReportConfig(enabled=ReportConfig.enabled if enabled is None else enabled, language=language)
+
+
+def _env_choice(source: Mapping[str, str], name: str, known: Sequence[str]) -> str | None:
+    """One optional closed-vocabulary environment override."""
+    raw = source.get(name)
+    if raw is None or raw == "":
+        return None
+    if raw not in known:
+        raise AgentError(f"{name} must be one of {', '.join(known)}, got {raw!r}")
+    return raw
+
+
+def _env_text(source: Mapping[str, str], name: str) -> str | None:
+    """One optional non-empty environment override."""
+    raw = source.get(name)
+    if raw is None or raw == "":
+        return None
+    if not raw.strip():
+        raise AgentError(f"{name} must be a non-empty string")
+    return raw
+
+
+def load_agentic_config(path: Path | None = None, env: Mapping[str, str] | None = None) -> AgenticConfig:
+    """Load and strictly validate the agentic config, then apply the env overrides.
+
+    A missing file yields the builtin defaults (OpenRouter, ``openrouter/free``,
+    English evaluation report, enabled). A present but unreadable or invalid
+    file is a loud :class:`AgenticConfigError` naming the path: an experiment
+    never partially applies a broken config. Precedence per field is
+    builtin default < file < environment.
+
+    Args:
+        path: Override the config location; defaults to
+            ``tests/agentic/agentic.toml``.
+        env: Override the environment; defaults to ``os.environ``.
+
+    Returns:
+        The resolved configuration.
+
+    Raises:
+        AgenticConfigError: If the file is unreadable, malformed, carries an
+            unknown key, a wrong ``schema_version`` or a wrongly typed value.
+        AgentError: If an environment override is invalid.
+    """
+    target = AGENTIC_CONFIG_PATH if path is None else path
+    source = os.environ if env is None else env
+    provider = ProviderConfig()
+    report = ReportConfig()
+    if target.is_symlink() or target.exists():
+        try:
+            raw = target.read_bytes()
+        except OSError as exc:
+            raise AgenticConfigError(f"Cannot load agentic config '{target}': {exc}") from exc
+        try:
+            document = cast("dict[str, object]", tomllib.loads(raw.decode("utf-8")))
+        except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
+            raise AgenticConfigError(f"Cannot load agentic config '{target}': {exc}") from exc
+        extra = sorted(set(document) - _ALLOWED_KEYS)
+        if extra:
+            raise _invalid_config(target, f"unknown key(s): {', '.join(extra)}")
+        schema_version = document.get("schema_version")
+        if (
+            not isinstance(schema_version, int)
+            or isinstance(schema_version, bool)
+            or schema_version != AgenticConfig.schema_version
+        ):
+            raise _invalid_config(target, f"schema_version must be {AgenticConfig.schema_version}")
+        provider = _parse_provider(document, target)
+        report = _parse_report(document, target)
+    provider = replace(
+        provider,
+        name=_env_choice(source, PROVIDER_ENV, tuple(entry.value for entry in Provider)) or provider.name,
+        model=_env_text(source, MODEL_ENV) or provider.model,
+        base_url=_env_text(source, BASE_URL_ENV) or provider.base_url,
+        host=_env_text(source, HOST_ENV) or provider.host,
+    )
+    report = replace(
+        report,
+        language=_env_choice(source, REPORT_LANGUAGE_ENV, REPORT_LANGUAGES) or report.language,
+    )
+    return AgenticConfig(schema_version=AgenticConfig.schema_version, provider=provider, report=report)
+
+
 # --- environment -------------------------------------------------------------
 
 
@@ -175,7 +383,7 @@ def _int_env(source: Mapping[str, str], name: str, default: int) -> int:
 
 
 @dataclass(frozen=True)
-class OllamaOptions:
+class SamplingOptions:
     """The per-request sampling options (one source of truth, no modelfile)."""
 
     temperature: float = 0.0
@@ -188,7 +396,7 @@ class OllamaOptions:
     keep_alive: str = "30m"
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "OllamaOptions":
+    def from_env(cls, env: Mapping[str, str] | None = None) -> "SamplingOptions":
         """Build the options, honouring the experiment overrides."""
         source = os.environ if env is None else env
         return cls(
@@ -208,32 +416,76 @@ class OllamaOptions:
             "num_predict": self.num_predict,
         }
 
+    def as_openrouter(self) -> dict[str, object]:
+        """The OpenAI-shaped sampling fields of an OpenRouter request.
+
+        Only the shared fields are sent; the Ollama-only options (``top_k``,
+        ``repeat_penalty``, ``num_ctx``, ``keep_alive``) are omitted.
+        """
+        return {
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "seed": self.seed,
+            "max_tokens": self.num_predict,
+        }
+
     def as_json(self) -> dict[str, object]:
         """The options plus ``keep_alive``, for the report."""
         return {**self.as_ollama(), "keep_alive": self.keep_alive}
 
 
 @dataclass(frozen=True)
-class OllamaSettings:
-    """Resolved endpoint, model and options of the local Ollama instance."""
+class AgentSettings:
+    """The resolved provider, endpoint, model, credential and options.
 
-    host: str = DEFAULT_HOST
-    model: str = DEFAULT_MODEL
-    options: OllamaOptions = OllamaOptions()
+    ``api_key`` is applied from the environment only and never serialized;
+    :meth:`as_json` is the report-facing shape without it. The unused endpoint
+    key of the other provider (``base_url`` for Ollama, ``host`` for
+    OpenRouter) is ignored.
+    """
+
+    provider: Provider = Provider.OPENROUTER
+    model: str = DEFAULT_OPENROUTER_MODEL
+    endpoint: str = DEFAULT_OPENROUTER_BASE_URL
+    api_key: str = ""
+    options: SamplingOptions = SamplingOptions()
 
     @classmethod
-    def from_env(cls, env: Mapping[str, str] | None = None) -> "OllamaSettings":
-        """Build the settings, honouring ``LION_AGENT_*`` overrides."""
+    def from_config(cls, config: AgenticConfig, env: Mapping[str, str] | None = None) -> "AgentSettings":
+        """Build the settings from the resolved config plus the credential env.
+
+        The provider, model and endpoints come from the already environment-
+        aware :func:`load_agentic_config`; this method adds the API key from
+        ``OPENROUTER_API_KEY`` (OpenRouter only) and the sampling overrides.
+        """
         source = os.environ if env is None else env
+        provider = Provider(config.provider.name)
+        if provider is Provider.OPENROUTER:
+            endpoint = config.provider.base_url
+            api_key = source.get(API_KEY_ENV, "")
+        else:
+            endpoint = config.provider.host
+            api_key = ""
         return cls(
-            host=source.get(HOST_ENV, DEFAULT_HOST),
-            model=source.get(MODEL_ENV, DEFAULT_MODEL),
-            options=OllamaOptions.from_env(source),
+            provider=provider,
+            model=config.provider.model,
+            endpoint=endpoint,
+            api_key=api_key,
+            options=SamplingOptions.from_env(source),
         )
+
+    def as_json(self) -> dict[str, object]:
+        """The report-facing facts; the API key is deliberately absent."""
+        return {
+            "provider": self.provider.value,
+            "model": self.model,
+            "endpoint": self.endpoint,
+            "options": self.options.as_json(),
+        }
 
 
 @dataclass(frozen=True)
-class OllamaModel:
+class VerifiedModel:
     """The verified model: name, digest and reported capabilities."""
 
     name: str
@@ -271,8 +523,13 @@ def _loads_object(text: str, what: str) -> dict[str, object]:
     return cast("dict[str, object]", parsed)
 
 
-def _unreachable_message(url: str, exc: Exception) -> str:
+def _unreachable_message(provider: Provider, url: str, exc: Exception) -> str:
     """The loud action-hint message for a transport-level failure."""
+    if provider is Provider.OPENROUTER:
+        return (
+            f"OpenRouter is not reachable at {url} ({exc}); check the network "
+            f"or point {BASE_URL_ENV} at another endpoint."
+        )
     return (
         f"Ollama is not reachable at {url} ({exc}); start it with 'ollama serve' "
         f"or point {HOST_ENV} at a running instance."
@@ -281,46 +538,124 @@ def _unreachable_message(url: str, exc: Exception) -> str:
 
 def _http_failure_message(url: str, response: httpx.Response) -> str:
     """The loud message for an HTTP error, including a body excerpt."""
-    return f"Ollama request to {url} failed with HTTP {response.status_code}: {response.text[:400]}"
+    return f"request to {url} failed with HTTP {response.status_code}: {response.text[:400]}"
 
 
-def _http_json(url: str, payload: Mapping[str, object] | None = None, timeout: float = 30.0) -> dict[str, object]:
-    """Call Ollama synchronously and parse a JSON object; every failure is loud."""
+def _http_json(
+    url: str,
+    payload: Mapping[str, object] | None = None,
+    timeout: float = 30.0,
+    *,
+    headers: Mapping[str, str] | None = None,
+    transport: httpx.BaseTransport | None = None,
+    provider: Provider = Provider.OLLAMA,
+) -> dict[str, object]:
+    """Call the provider synchronously and parse a JSON object; every failure is loud.
+
+    ``transport`` is an injectable seam: deterministic tests pass a
+    ``httpx.MockTransport``; the default opens a real connection.
+    """
     try:
-        with httpx.Client(timeout=timeout) as client:
-            response = client.get(url) if payload is None else client.post(url, json=payload)
+        with httpx.Client(timeout=timeout, transport=transport) as client:
+            if payload is None:
+                response = client.get(url, headers=headers)
+            else:
+                response = client.post(url, json=payload, headers=headers)
     except httpx.TransportError as exc:
-        raise AgentError(_unreachable_message(url, exc)) from exc
+        raise AgentError(_unreachable_message(provider, url, exc)) from exc
     if response.status_code >= 400:
         raise AgentError(_http_failure_message(url, response))
-    return _loads_object(response.text, f"Ollama response from {url}")
+    return _loads_object(response.text, f"provider response from {url}")
 
 
-def check_ollama(settings: OllamaSettings | None = None) -> OllamaModel:
-    """Verify endpoint, model and tool support; never skip.
+def _endpoint_url(endpoint: str, path: str) -> str:
+    """Join an endpoint base URL and one path, tolerating a trailing slash."""
+    return f"{endpoint.rstrip('/')}/{path}"
 
-    Raises:
-        AgentError: If Ollama is unreachable, the model is missing, or the
-            model does not advertise tool calls.
-    """
-    resolved = OllamaSettings.from_env() if settings is None else settings
-    tags = _http_json(f"{resolved.host}/api/tags")
+
+def _check_ollama(settings: AgentSettings, transport: httpx.BaseTransport | None) -> VerifiedModel:
+    """Verify the local Ollama endpoint, model and tool support."""
+    tags = _http_json(_endpoint_url(settings.endpoint, "api/tags"), transport=transport)
     entries = [_mapping(item) for item in _sequence(tags.get("models", []))]
-    entry = next((item for item in entries if item.get("name") == resolved.model), None)
+    entry = next((item for item in entries if item.get("name") == settings.model), None)
     if entry is None:
         known = ", ".join(sorted(str(item.get("name")) for item in entries)) or "none"
         raise AgentError(
-            f"Ollama model {resolved.model!r} is not installed at {resolved.host} (available: {known}). "
-            f"Run 'ollama pull {resolved.model}' or set {MODEL_ENV}."
+            f"Ollama model {settings.model!r} is not installed at {settings.endpoint} (available: {known}). "
+            f"Run 'ollama pull {settings.model}' or set {MODEL_ENV}."
         )
-    show = _http_json(f"{resolved.host}/api/show", {"model": resolved.model})
+    show = _http_json(_endpoint_url(settings.endpoint, "api/show"), {"model": settings.model}, transport=transport)
     capabilities = tuple(str(item) for item in _sequence(show.get("capabilities", [])))
     if "tools" not in capabilities:
         raise AgentError(
-            f"Ollama model {resolved.model!r} does not support tool calls (capabilities: {list(capabilities)}); "
+            f"Ollama model {settings.model!r} does not support tool calls (capabilities: {list(capabilities)}); "
             f"pick a tool-capable model via {MODEL_ENV}."
         )
-    return OllamaModel(name=resolved.model, digest=str(entry.get("digest", "")), capabilities=capabilities)
+    return VerifiedModel(name=settings.model, digest=str(entry.get("digest", "")), capabilities=capabilities)
+
+
+def _check_openrouter(settings: AgentSettings, transport: httpx.BaseTransport | None) -> VerifiedModel:
+    """Verify the OpenRouter key and the tool support of the configured model."""
+    if not settings.api_key:
+        raise AgentError(
+            f'{API_KEY_ENV} is not set; export it or set provider = "ollama" in tests/agentic/agentic.toml'
+        )
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
+    key_url = _endpoint_url(settings.endpoint, "key")
+    try:
+        with httpx.Client(timeout=30.0, transport=transport) as client:
+            response = client.get(key_url, headers=headers)
+    except httpx.TransportError as exc:
+        raise AgentError(_unreachable_message(Provider.OPENROUTER, key_url, exc)) from exc
+    if response.status_code in (401, 403):
+        raise AgentError(
+            f"OpenRouter rejected the API key from {API_KEY_ENV} (HTTP {response.status_code} at {key_url}); "
+            f"check the key."
+        )
+    if response.status_code >= 400:
+        raise AgentError(_http_failure_message(key_url, response))
+    models = _http_json(
+        _endpoint_url(settings.endpoint, "models"), headers=headers, transport=transport, provider=Provider.OPENROUTER
+    )
+    entries = [_mapping(item) for item in _sequence(models.get("data", []))]
+    entry = next((item for item in entries if item.get("id") == settings.model), None)
+    if entry is None:
+        raise AgentError(
+            f"OpenRouter does not list model {settings.model!r} at {settings.endpoint} "
+            f"(the endpoint lists {len(entries)} models); pick another model via {MODEL_ENV} "
+            f"or tests/agentic/agentic.toml."
+        )
+    raw_parameters = entry.get("supported_parameters")
+    if raw_parameters is None:
+        return VerifiedModel(name=settings.model, digest="", capabilities=())
+    capabilities = tuple(str(item) for item in _sequence(raw_parameters))
+    if "tools" not in capabilities:
+        raise AgentError(
+            f"OpenRouter model {settings.model!r} does not support tool calls "
+            f"(supported_parameters: {list(capabilities)}); pick a tool-capable model via {MODEL_ENV}."
+        )
+    return VerifiedModel(name=settings.model, digest="", capabilities=capabilities)
+
+
+def check_provider(settings: AgentSettings, *, transport: httpx.BaseTransport | None = None) -> VerifiedModel:
+    """Verify endpoint, model and tool support for the configured provider; never skip.
+
+    Args:
+        settings: The resolved provider settings.
+        transport: Injectable HTTP seam for deterministic tests.
+
+    Returns:
+        The verified model (for OpenRouter the digest is empty: a router may
+        route each request to a different free model).
+
+    Raises:
+        AgentError: If the provider is unreachable, the credential is missing
+            or rejected, the model is missing, or the model does not support
+            tool calls.
+    """
+    if settings.provider is Provider.OPENROUTER:
+        return _check_openrouter(settings, transport)
+    return _check_ollama(settings, transport)
 
 
 # --- chat --------------------------------------------------------------------
@@ -335,11 +670,12 @@ class ToolCall:
     arguments_raw: object
     normalized: bool
     raw: Mapping[str, object]
+    tool_call_id: str = ""
 
 
 @dataclass(frozen=True)
 class ChatReply:
-    """One non-streamed assistant reply."""
+    """One non-streamed assistant reply; ``model`` is the routed model when the provider reports one."""
 
     content: str
     thinking: str
@@ -347,17 +683,26 @@ class ChatReply:
     prompt_eval_count: int
     eval_count: int
     done_reason: str
+    model: str = ""
 
 
 def _int_value(value: object) -> int:
     return value if isinstance(value, int) else 0
 
 
-def _normalize_arguments(raw: object) -> tuple[dict[str, object], bool]:
+def _text_value(value: object) -> str:
+    """One optional string field; ``None`` (and a missing field) stay ``""``."""
+    return value if isinstance(value, str) else ""
+
+
+def _normalize_arguments(raw: object, *, string_is_native: bool = False) -> tuple[dict[str, object], bool]:
     """Accept object or JSON-string arguments, drop ``null`` values, and report changes.
 
-    ``normalized`` is ``False`` exactly when the value already was a JSON
-    object without ``null`` values — the shape the API expects.
+    ``normalized`` is ``False`` exactly when the value was delivered in the
+    shape the provider expects: a clean JSON object for Ollama, a cleanly
+    parseable JSON string for the OpenAI-shaped OpenRouter API. Only parsing
+    the unexpected shape, repairing malformed values or dropping ``null``
+    entries counts as normalization.
     """
     if raw is None:
         return {}, True
@@ -367,7 +712,7 @@ def _normalize_arguments(raw: object) -> tuple[dict[str, object], bool]:
             raw = json.loads(raw)
         except json.JSONDecodeError as exc:
             raise AgentError(f"model produced unparseable tool arguments: {raw[:200]!r}") from exc
-        changed = True
+        changed = not string_is_native
     if not isinstance(raw, dict):
         raise AgentError(f"model produced non-object tool arguments: {raw!r}")
     arguments: dict[str, object] = {}
@@ -400,44 +745,86 @@ def inventory_sha256(tools: Sequence[Mapping[str, object]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
-async def chat(
-    settings: OllamaSettings,
+def render_messages(settings: AgentSettings, messages: Sequence[Mapping[str, object]]) -> list[dict[str, object]]:
+    """Render the internal messages once into the provider wire shape.
+
+    The internal messages carry the union of both shapes: tool results keep
+    ``tool_name`` and ``tool_call_id``, assistants keep ``thinking`` and the
+    raw tool-call entries. The Ollama rendering passes the internal messages
+    through unchanged (``thinking`` included). The OpenRouter rendering emits
+    the OpenAI shape: assistant tool calls get ``id`` (synthesized as
+    ``call_<n>`` when the provider sent none) and ``type: "function"``, the
+    ``thinking`` field is dropped, and tool results become
+    ``{"role": "tool", "tool_call_id": ..., "content": ...}`` without
+    ``tool_name``. Tool results without an id are paired with the ids of the
+    preceding assistant tool calls in order.
+    """
+    if settings.provider is Provider.OLLAMA:
+        return [dict(message) for message in messages]
+    rendered: list[dict[str, object]] = []
+    pending_ids: list[str] = []
+    for message in messages:
+        role = message.get("role")
+        if role == "assistant":
+            entry: dict[str, object] = {"role": "assistant", "content": message.get("content", "")}
+            raw_calls = message.get("tool_calls")
+            if isinstance(raw_calls, list):
+                calls: list[dict[str, object]] = []
+                for index, raw in enumerate(cast("list[object]", raw_calls), start=1):
+                    call = cast("dict[str, object]", raw) if isinstance(raw, dict) else {}
+                    call_id = _text_value(call.get("id")) or f"call_{index}"
+                    pending_ids.append(call_id)
+                    function = call.get("function")
+                    calls.append(
+                        {
+                            "id": call_id,
+                            "type": "function",
+                            "function": dict(cast("dict[str, object]", function)) if isinstance(function, dict) else {},
+                        }
+                    )
+                entry["tool_calls"] = calls
+            rendered.append(entry)
+        elif role == "tool":
+            call_id = _text_value(message.get("tool_call_id"))
+            if not call_id and pending_ids:
+                call_id = pending_ids.pop(0)
+            elif pending_ids and pending_ids[0] == call_id:
+                pending_ids.pop(0)
+            rendered.append({"role": "tool", "tool_call_id": call_id, "content": message.get("content", "")})
+        else:
+            rendered.append(dict(message))
+    return rendered
+
+
+async def _chat_ollama(
+    settings: AgentSettings,
     messages: Sequence[Mapping[str, object]],
     tools: Sequence[Mapping[str, object]],
-    timeout: float = CHAT_TIMEOUT_SECONDS,
-    transport: httpx.AsyncBaseTransport | None = None,
+    timeout: float,
+    transport: httpx.AsyncBaseTransport | None,
 ) -> ChatReply:
-    """Send one non-streamed ``/api/chat`` request.
-
-    ``transport`` is an injectable seam: deterministic tests pass an
-    ``httpx.MockTransport``; the default opens a real connection.
-
-    Raises:
-        ChatTimeoutError: If the request exceeds ``timeout``.
-        ChatTransportError: On transport errors, HTTP errors (with a body
-            excerpt) and unparseable responses.
-        AgentError: On malformed tool calls in an otherwise valid reply.
-    """
+    """Send one non-streamed ``/api/chat`` request to Ollama."""
     payload: dict[str, object] = {
         "model": settings.model,
         "messages": [dict(message) for message in messages],
-        "tools": [dict(tool) for tool in tools],
         "stream": False,
         "options": settings.options.as_ollama(),
         "keep_alive": settings.options.keep_alive,
     }
-    url = f"{settings.host}/api/chat"
+    if tools:
+        payload["tools"] = [dict(tool) for tool in tools]
+    url = _endpoint_url(settings.endpoint, "api/chat")
     try:
         async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
             response = await client.post(url, json=payload)
     except httpx.TimeoutException as exc:
-        raise ChatTimeoutError(f"Ollama chat request to {url} timed out after {timeout:.0f}s") from exc
+        raise ChatTimeoutError(f"chat request to {url} timed out after {timeout:.0f}s") from exc
     except httpx.TransportError as exc:
-        raise ChatTransportError(_unreachable_message(url, exc)) from exc
+        raise ChatTransportError(_unreachable_message(Provider.OLLAMA, url, exc)) from exc
     if response.status_code >= 400:
         raise ChatTransportError(_http_failure_message(url, response))
     try:
-        reply = _loads_object(response.text, f"Ollama response from {url}")
+        reply = _loads_object(response.text, f"provider response from {url}")
     except AgentError as exc:
         raise ChatTransportError(str(exc)) from exc
     message = _mapping(reply.get("message", {}))
@@ -451,19 +838,123 @@ async def chat(
         arguments_raw = function.get("arguments")
         arguments, normalized = _normalize_arguments(arguments_raw)
         calls.append(
-            ToolCall(name=name, arguments=arguments, arguments_raw=arguments_raw, normalized=normalized, raw=entry)
+            ToolCall(
+                name=name,
+                arguments=arguments,
+                arguments_raw=arguments_raw,
+                normalized=normalized,
+                raw=entry,
+                tool_call_id=_text_value(entry.get("id")),
+            )
         )
-    content = message.get("content", "")
-    thinking = message.get("thinking", "")
-    done_reason = reply.get("done_reason", "")
     return ChatReply(
-        content=content if isinstance(content, str) else str(content),
-        thinking=thinking if isinstance(thinking, str) else str(thinking),
+        content=_text_value(message.get("content")),
+        thinking=_text_value(message.get("thinking")),
         tool_calls=tuple(calls),
         prompt_eval_count=_int_value(reply.get("prompt_eval_count")),
         eval_count=_int_value(reply.get("eval_count")),
-        done_reason=done_reason if isinstance(done_reason, str) else str(done_reason),
+        done_reason=_text_value(reply.get("done_reason")),
+        model=_text_value(reply.get("model")),
     )
+
+
+async def _chat_openrouter(
+    settings: AgentSettings,
+    messages: Sequence[Mapping[str, object]],
+    tools: Sequence[Mapping[str, object]],
+    timeout: float,
+    transport: httpx.AsyncBaseTransport | None,
+) -> ChatReply:
+    """Send one non-streamed ``/chat/completions`` request to OpenRouter.
+
+    Only the shared sampling fields are sent; ``top_k``, ``repeat_penalty``,
+    ``num_ctx`` and ``keep_alive`` are Ollama-only. A JSON string is the
+    expected tool-argument shape of this API, so a cleanly parseable string
+    does not count as normalization.
+    """
+    payload: dict[str, object] = {
+        "model": settings.model,
+        "messages": [dict(message) for message in messages],
+        "stream": False,
+        **settings.options.as_openrouter(),
+    }
+    if tools:
+        payload["tools"] = [dict(tool) for tool in tools]
+    url = _endpoint_url(settings.endpoint, "chat/completions")
+    headers = {"Authorization": f"Bearer {settings.api_key}"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout, transport=transport) as client:
+            response = await client.post(url, json=payload, headers=headers)
+    except httpx.TimeoutException as exc:
+        raise ChatTimeoutError(f"chat request to {url} timed out after {timeout:.0f}s") from exc
+    except httpx.TransportError as exc:
+        raise ChatTransportError(_unreachable_message(Provider.OPENROUTER, url, exc)) from exc
+    if response.status_code >= 400:
+        raise ChatTransportError(_http_failure_message(url, response))
+    try:
+        reply = _loads_object(response.text, f"provider response from {url}")
+    except AgentError as exc:
+        raise ChatTransportError(str(exc)) from exc
+    choices = _sequence(reply.get("choices", []))
+    if not choices:
+        raise AgentError("model produced a reply without choices")
+    first = _mapping(choices[0])
+    message = _mapping(first.get("message", {}))
+    calls: list[ToolCall] = []
+    for item in _sequence(message.get("tool_calls", []) or []):
+        entry = _mapping(item)
+        function = _mapping(entry.get("function", {}))
+        name = function.get("name")
+        if not isinstance(name, str) or not name:
+            raise AgentError(f"model produced a tool call without a name: {item!r}")
+        arguments_raw = function.get("arguments")
+        arguments, normalized = _normalize_arguments(arguments_raw, string_is_native=True)
+        calls.append(
+            ToolCall(
+                name=name,
+                arguments=arguments,
+                arguments_raw=arguments_raw,
+                normalized=normalized,
+                raw=entry,
+                tool_call_id=_text_value(entry.get("id")),
+            )
+        )
+    usage = _mapping(reply.get("usage", {}))
+    finish_reason = first.get("finish_reason", "")
+    return ChatReply(
+        content=_text_value(message.get("content")),
+        thinking=_text_value(message.get("reasoning")),
+        tool_calls=tuple(calls),
+        prompt_eval_count=_int_value(usage.get("prompt_tokens")),
+        eval_count=_int_value(usage.get("completion_tokens")),
+        done_reason=_text_value(finish_reason),
+        model=_text_value(reply.get("model")),
+    )
+
+
+async def chat(
+    settings: AgentSettings,
+    messages: Sequence[Mapping[str, object]],
+    tools: Sequence[Mapping[str, object]],
+    timeout: float = CHAT_TIMEOUT_SECONDS,
+    transport: httpx.AsyncBaseTransport | None = None,
+) -> ChatReply:
+    """Send one non-streamed chat request to the configured provider.
+
+    The messages are expected in the provider wire shape already (rendered by
+    :func:`render_messages`); ``chat`` never renders a second time.
+    ``transport`` is an injectable seam: deterministic tests pass an
+    ``httpx.MockTransport``; the default opens a real connection.
+
+    Raises:
+        ChatTimeoutError: If the request exceeds ``timeout``.
+        ChatTransportError: On transport errors, HTTP errors (with a body
+            excerpt) and unparseable responses.
+        AgentError: On malformed tool calls in an otherwise valid reply.
+    """
+    if settings.provider is Provider.OPENROUTER:
+        return await _chat_openrouter(settings, messages, tools, timeout, transport)
+    return await _chat_ollama(settings, messages, tools, timeout, transport)
 
 
 class SessionLike(Protocol):
@@ -480,7 +971,7 @@ class SessionLike(Protocol):
 
 SessionFactory = Callable[[AsyncExitStack, StdioServerParameters], Awaitable[tuple[SessionLike, list[Tool]]]]
 ChatFunction = Callable[
-    [OllamaSettings, Sequence[Mapping[str, object]], Sequence[Mapping[str, object]], float],
+    [AgentSettings, Sequence[Mapping[str, object]], Sequence[Mapping[str, object]], float],
     Awaitable[ChatReply],
 ]
 
@@ -910,7 +1401,7 @@ async def _drive_session(
     stack: AsyncExitStack,
     state: _LoopState,
     scenario: Scenario,
-    settings: OllamaSettings,
+    settings: AgentSettings,
     server_env: Mapping[str, str],
     transcript: Transcript,
     *,
@@ -931,9 +1422,9 @@ async def _drive_session(
             user_text = content.text if isinstance(content, TextContent) else str(content)
     except Exception as exc:
         raise _state_failure(state, "startup_error", f"scenario {scenario.name!r} failed to start: {exc}") from exc
-    ollama_tools = to_ollama_tools(tools)
+    function_tools = to_ollama_tools(tools)
     state.user_text_sha256 = _sha256(user_text)
-    state.tool_inventory_sha256 = inventory_sha256(ollama_tools)
+    state.tool_inventory_sha256 = inventory_sha256(function_tools)
     transcript.event(
         "tools",
         count=len(tools),
@@ -951,13 +1442,14 @@ async def _drive_session(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise _timeout_failure(state, scenario)
+        rendered = render_messages(settings, messages)
         transcript.event(
             "chat_request",
-            messages=[dict(message) for message in messages],
+            messages=[dict(message) for message in rendered],
             normalizations=[dict(item) for item in state.normalizations],
         )
         try:
-            reply = await chat_function(settings, messages, ollama_tools, min(CHAT_TIMEOUT_SECONDS, remaining))
+            reply = await chat_function(settings, rendered, function_tools, min(CHAT_TIMEOUT_SECONDS, remaining))
         except ChatTimeoutError as exc:
             raise _state_failure(state, "chat_timeout", str(exc)) from exc
         except ChatTransportError as exc:
@@ -972,12 +1464,14 @@ async def _drive_session(
             text=reply.content,
             thinking=reply.thinking,
             done_reason=reply.done_reason,
+            model=reply.model,
             tool_calls=[
                 {
                     "name": call.name,
                     "arguments": call.arguments,
                     "arguments_raw": call.arguments_raw,
                     "normalized": call.normalized,
+                    "tool_call_id": call.tool_call_id,
                 }
                 for call in reply.tool_calls
             ],
@@ -1040,11 +1534,14 @@ async def _drive_session(
                 arguments=call.arguments,
                 arguments_raw=call.arguments_raw,
                 normalized=call.normalized,
+                tool_call_id=call.tool_call_id,
                 is_error=is_error,
                 text=text,
                 duration_seconds=duration,
             )
-            messages.append({"role": "tool", "tool_name": call.name, "content": text})
+            messages.append(
+                {"role": "tool", "tool_name": call.name, "tool_call_id": call.tool_call_id, "content": text}
+            )
         for call in reply.tool_calls:
             if call.normalized:
                 state.normalizations.append({"name": call.name, "arguments_raw": call.arguments_raw})
@@ -1058,7 +1555,7 @@ async def _drive_session(
 
 async def _drive(
     scenario: Scenario,
-    settings: OllamaSettings,
+    settings: AgentSettings,
     server_env: Mapping[str, str],
     transcript: Transcript,
     *,
@@ -1104,7 +1601,7 @@ async def _drive(
 
 def run_scenario(
     scenario: Scenario,
-    settings: OllamaSettings,
+    settings: AgentSettings,
     data_home: Path,
     artifacts: Path,
     server_env: Mapping[str, str],
@@ -1116,7 +1613,7 @@ def run_scenario(
     """Run one scenario end to end and return its outcome.
 
     ``session_factory`` and ``chat_function`` default to the real stdio session
-    and the real Ollama chat; deterministic tests inject fakes.
+    and the real provider chat; deterministic tests inject fakes.
 
     Raises:
         ScenarioRunError: On environment problems, malformed model output, a
@@ -1201,12 +1698,12 @@ class AgentEnvironment:
     """One isolated ledger plus the agent runner bound to it.
 
     ``session_factory`` and ``chat_function`` default to the real stdio session
-    and the real Ollama chat; deterministic tests replace them with fakes.
+    and the real provider chat; deterministic tests replace them with fakes.
     """
 
     data_home: Path
     server_env: dict[str, str]
-    settings: OllamaSettings
+    settings: AgentSettings
     artifacts: Path
     system_prompt: SystemPrompt
     session_factory: SessionFactory = _stdio_session
@@ -1394,7 +1891,7 @@ def _aggregate_metrics(entries: Sequence[AttemptRecord]) -> dict[str, object]:
         for reason in entry.metrics.done_reasons:
             replies += 1
             reason_counts[reason] = reason_counts.get(reason, 0) + 1
-            if reason != NORMAL_DONE_REASON:
+            if reason not in NORMAL_DONE_REASONS:
                 abnormal += 1
     calls_total = sum(entry.metrics.calls_count for entry in entries)
     return {
@@ -1459,21 +1956,24 @@ def _git_output(*args: str) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
-def collect_environment(settings: OllamaSettings) -> dict[str, object]:
-    """Best-effort run metadata: package and git state plus the Ollama build.
+def collect_environment(settings: AgentSettings) -> dict[str, object]:
+    """Best-effort run metadata: package and git state plus the provider build.
 
     The git fields are ``None`` when git is unavailable or the directory is not
-    a repository; that never fails the suite. The Ollama version stays loud:
-    this is called after the preflight succeeded.
+    a repository; that never fails the suite. For Ollama the server version
+    stays loud: this is called after the preflight succeeded. OpenRouter has no
+    version endpoint, so the field is absent.
     """
-    version = _http_json(f"{settings.host}/api/version")
     dirty = _git_output("status", "--porcelain", "--untracked-files=no")
-    return {
+    environment: dict[str, object] = {
         "lion_version": _package_version(),
         "git_commit": _git_output("rev-parse", "HEAD"),
         "git_dirty": None if dirty is None else bool(dirty),
-        "ollama_version": str(version.get("version", "")),
     }
+    if settings.provider is Provider.OLLAMA:
+        version = _http_json(_endpoint_url(settings.endpoint, "api/version"))
+        environment["ollama_version"] = str(version.get("version", ""))
+    return environment
 
 
 class AgentReport:
@@ -1485,11 +1985,11 @@ class AgentReport:
     ``state = "preflight_error"`` and no invented attempts.
     """
 
-    def __init__(self, path: Path, settings: OllamaSettings) -> None:
-        """Bind the report to its artifact path and the resolved Ollama settings."""
+    def __init__(self, path: Path, settings: AgentSettings) -> None:
+        """Bind the report to its artifact path and the resolved provider settings."""
         self._path = path
         self._settings = settings
-        self._model: OllamaModel | None = None
+        self._model: VerifiedModel | None = None
         self._system_prompt: SystemPrompt | None = None
         self._environment: dict[str, object] = {}
         self._suite: dict[str, object] = {}
@@ -1502,7 +2002,17 @@ class AgentReport:
         self._finished_at: str | None = None
         self._state = "running"
 
-    def set_model(self, model: OllamaModel) -> None:
+    @property
+    def path(self) -> Path:
+        """The artifact path of ``report.json``."""
+        return self._path
+
+    @property
+    def run_id(self) -> str:
+        """The run identifier (``%Y%m%dT%H%M%SZ-<hex>``)."""
+        return self._run_id
+
+    def set_model(self, model: VerifiedModel) -> None:
         """Record the verified model and write the first checkpoint."""
         self._model = model
         self.write()
@@ -1548,15 +2058,15 @@ class AgentReport:
         """Attach a summary value (for example the tool-selection ratio)."""
         self._extras[key] = value
 
-    def write(self) -> None:
-        """Write the report atomically: temp file, fsync, ``os.replace``.
+    def payload(self) -> dict[str, object]:
+        """The complete report payload as written to ``report.json``.
 
         Raises:
             AgentError: If the run state is outside the closed vocabulary.
         """
         if self._state not in RUN_STATES:
             raise AgentError(f"unknown run state: {self._state!r}; add it to RUN_STATES")
-        payload: dict[str, object] = {
+        return {
             "schema_version": REPORT_SCHEMA_VERSION,
             "run": {
                 "id": self._run_id,
@@ -1564,8 +2074,9 @@ class AgentReport:
                 "finished_at": self._finished_at,
                 "state": self._state,
             },
+            "provider": self._settings.provider.value,
             "model": None if self._model is None else self._model.as_json(),
-            "host": self._settings.host,
+            "endpoint": self._settings.endpoint,
             "options": self._settings.options.as_json(),
             "think": {"sent": False, "effective": "model default"},
             "system_prompt": None if self._system_prompt is None else self._system_prompt.as_json(),
@@ -1576,7 +2087,14 @@ class AgentReport:
             "metrics": _aggregate_metrics(self._entries),
             "extras": dict(self._extras),
         }
-        _write_json_atomic(self._path, payload)
+
+    def write(self) -> None:
+        """Write the report atomically: temp file, fsync, ``os.replace``.
+
+        Raises:
+            AgentError: If the run state is outside the closed vocabulary.
+        """
+        _write_json_atomic(self._path, self.payload())
 
     def finalize(self) -> None:
         """Close any open attempt, mark the run complete or interrupted, and write."""
@@ -1725,3 +2243,191 @@ def run_attempt(scenario: Scenario, env: AgentEnvironment, report: AgentReport, 
     if hard and error is not None:
         raise error
     return record
+
+
+# --- evaluation --------------------------------------------------------------
+
+
+EVALUATION_SYSTEM_PROMPT = (
+    "You are the evaluation analyst of the agentic QA harness. You receive a condensed "
+    "summary of one machine-generated report and write a concise markdown report covering: "
+    "the overall result, every failed or errored scenario with its probable cause, the metric "
+    "trends, and actionable recommendations. Base every statement on the summary; never invent data."
+)
+LANGUAGE_INSTRUCTIONS: dict[str, str] = {
+    "english": "Write the report in English.",
+    "german": "Schreibe den Bericht auf Deutsch.",
+}
+
+
+def _clip(text: str, limit: int) -> str:
+    """One bounded text excerpt for the evaluation input."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "…"
+
+
+def build_evaluation_input(payload: Mapping[str, object]) -> str:
+    """Condense one report payload into the evaluation prompt input.
+
+    The summary carries run metadata, provider, model and options, the suite
+    hash, the aggregate metrics and per attempt the outcome plus the fields the
+    analyst needs; the raw transcripts (and any credential) stay out of it.
+    """
+    run = _mapping(payload.get("run", {}))
+    raw_prompt = payload.get("system_prompt")
+    prompt_facts: dict[str, object] | None = None
+    if isinstance(raw_prompt, dict):
+        prompt = cast("dict[str, object]", raw_prompt)
+        prompt_facts = {key: prompt.get(key) for key in ("source", "path", "sha256")}
+    lines: list[str] = [
+        "# Agentic QA run summary",
+        f"run id: {run.get('id')}",
+        f"state: {run.get('state')}",
+        f"started: {run.get('started_at')}",
+        f"finished: {run.get('finished_at')}",
+        f"provider: {payload.get('provider')}",
+        f"model: {json.dumps(payload.get('model'), ensure_ascii=False)}",
+        f"endpoint: {payload.get('endpoint')}",
+        f"options: {json.dumps(payload.get('options'), ensure_ascii=False)}",
+        f"suite: {json.dumps(payload.get('suite'), ensure_ascii=False)}",
+        f"system prompt: {json.dumps(prompt_facts, ensure_ascii=False)}",
+        f"environment: {json.dumps(payload.get('environment'), ensure_ascii=False)}",
+        "aggregate metrics: " + json.dumps(payload.get("metrics"), ensure_ascii=False),
+        "",
+        "## attempts",
+    ]
+    for raw_entry in _sequence(payload.get("entries", [])):
+        entry = _mapping(raw_entry)
+        lines.extend(
+            [
+                f"### {entry.get('name')} (hard={entry.get('hard')})",
+                f"outcome: {entry.get('outcome')} ({entry.get('termination')})",
+                f"request: {entry.get('request')}",
+                f"failure: {entry.get('failure')}",
+                f"tools: {json.dumps(entry.get('tool_calls'), ensure_ascii=False)}",
+                f"steps: {entry.get('steps')}; duration: {entry.get('duration_seconds')}s "
+                f"(teardown {entry.get('teardown_seconds')}s)",
+                f"tokens: prompt {entry.get('prompt_eval_count')}, eval {entry.get('eval_count')}",
+                "metrics: " + json.dumps(entry.get("metrics"), ensure_ascii=False),
+                f"transcript: {entry.get('transcript')}",
+                f"final answer: {_clip(str(entry.get('final_text', '')), EVALUATION_FINAL_TEXT_LIMIT)}",
+                "",
+            ]
+        )
+    return "\n".join(lines)
+
+
+def _strip_code_fence(text: str) -> str:
+    """Strip one surrounding markdown code fence, if the model wrapped its answer."""
+    stripped = text.strip()
+    lines = stripped.splitlines()
+    if len(lines) < 2 or not lines[0].startswith("```") or lines[-1].strip() != "```":
+        return stripped
+    return "\n".join(lines[1:-1]).strip()
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    """Write text atomically: temp file in the target directory, fsync, ``os.replace``."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    tmp_path = Path(temporary)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, path)
+    except BaseException:
+        tmp_path.unlink(missing_ok=True)
+        raise
+
+
+async def _await_chat(
+    chat_function: ChatFunction,
+    settings: AgentSettings,
+    messages: Sequence[Mapping[str, object]],
+    tools: Sequence[Mapping[str, object]],
+    timeout: float,
+) -> ChatReply:
+    """Await one chat call; lets the synchronous evaluation run it via ``asyncio.run``."""
+    return await chat_function(settings, messages, tools, timeout)
+
+
+def _evaluation_result(
+    report: AgentReport,
+    settings: AgentSettings,
+    *,
+    status: str,
+    language: str,
+    report_path: Path | None = None,
+    error: str | None = None,
+) -> dict[str, object]:
+    """Record one evaluation outcome in the report extras, rewrite the report, and return it."""
+    result: dict[str, object] = {
+        "status": status,
+        "language": language,
+        "model": settings.model,
+        "report_path": None if report_path is None else str(report_path),
+        "error": error,
+    }
+    report.set_extra("evaluation", result)
+    report.write()
+    return result
+
+
+def evaluate_report(
+    report: AgentReport,
+    settings: AgentSettings,
+    config: AgenticConfig,
+    artifacts: Path,
+    *,
+    chat_function: ChatFunction = chat,
+) -> dict[str, object]:
+    """Evaluate one final report with a bounded chat call and write the markdown report.
+
+    Runs only when the evaluation report is enabled and the run state is
+    ``complete``; otherwise the extras record ``disabled``/``skipped`` and no
+    chat call happens. The evaluation is one non-streamed chat request without
+    tools over a condensed summary of the report; the answer is written
+    atomically to ``<artifacts>/agentic-report-<run-id>.md`` and its path is
+    recorded in ``extras.evaluation`` and printed to stdout. A failing
+    evaluation is advisory: it is recorded with status ``error`` and warned on
+    stderr, never raised.
+    """
+    language = config.report.language
+    if not config.report.enabled:
+        return _evaluation_result(report, settings, status="disabled", language=language)
+    run = report.payload().get("run")
+    if not isinstance(run, dict) or cast("dict[str, object]", run).get("state") != "complete":
+        return _evaluation_result(report, settings, status="skipped", language=language)
+    try:
+        input_text = build_evaluation_input(report.payload())
+        instruction = LANGUAGE_INSTRUCTIONS.get(language, LANGUAGE_INSTRUCTIONS["english"])
+        messages: list[dict[str, object]] = [
+            {"role": "system", "content": f"{EVALUATION_SYSTEM_PROMPT} {instruction}"},
+            {"role": "user", "content": input_text},
+        ]
+        evaluation_settings = replace(
+            settings, options=replace(settings.options, temperature=0.0, num_predict=EVALUATION_MAX_TOKENS)
+        )
+        reply = asyncio.run(
+            _await_chat(
+                chat_function,
+                evaluation_settings,
+                render_messages(evaluation_settings, messages),
+                [],
+                EVALUATION_TIMEOUT_SECONDS,
+            )
+        )
+        text = _strip_code_fence(reply.content)
+        if not text:
+            raise AgentError("the evaluation model returned an empty report")
+        target = artifacts / f"agentic-report-{report.run_id}.md"
+        _write_text_atomic(target, text + "\n")
+    except Exception as exc:
+        message = f"{type(exc).__name__}: {exc}"
+        print(f"warning: agentic evaluation failed: {message}", file=sys.stderr)
+        return _evaluation_result(report, settings, status="error", language=language, error=message)
+    print(f"agentic evaluation report: {target}")
+    return _evaluation_result(report, settings, status="ok", language=language, report_path=target)

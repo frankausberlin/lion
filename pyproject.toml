@@ -60,7 +60,7 @@ pythonpath = ["."]
 addopts = "-ra -q -m 'not e2e and not agentic'"
 markers = [
     "e2e: real system mutations, only inside the disposable test container",
-    "agentic: opt-in LLM-as-tester suite against a local Ollama model (advisory, never in check/CI)",
+    "agentic: opt-in LLM-as-tester suite against a configured provider (advisory, never in check/CI)",
 ]
 
 [tool.coverage.report]

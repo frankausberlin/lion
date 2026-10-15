@@ -1,9 +1,10 @@
-"""Agentic QA scenarios: a local LLM drives ``lion serve`` over stdio.
+"""Agentic QA scenarios: a configured LLM provider drives ``lion serve`` over stdio.
 
 Opt-in via ``just test-agent`` (marker ``agentic``): advisory, never part of
 ``just check`` or CI. The scenarios and their hard checks live in
 :mod:`tests.agentic.suite` (shared with the deterministic harness regression
-tests); this module binds them to the live Ollama environment. Every attempt
+tests); this module binds them to the live provider environment
+(OpenRouter by default, Ollama opt-in). Every attempt
 records exactly one outcome in ``report.json`` through ``run_attempt``;
 answer quality and the tool-selection ratio live there next to the
 per-scenario transcripts and never fail the run.

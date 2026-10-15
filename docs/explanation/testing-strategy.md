@@ -81,7 +81,9 @@ the container, so it is safe for CI.
 ## Agentic QA (opt-in)
 
 `just test-agent` runs an advisory LLM-as-tester suite (`tests/agentic/`,
-marker `agentic`): a local Ollama model drives `lion serve` over stdio through
+marker `agentic`): a model behind a configured provider (OpenRouter by
+default via `OPENROUTER_API_KEY` and `tests/agentic/agentic.toml`; Ollama
+opt-in) drives `lion serve` over stdio through
 the real MCP client and answers eight scripted requests plus a nine-intent
 tool-selection matrix. Hard assertions stay model-independent and scan the
 whole call history — a required tool was called and the scenario check passed
@@ -93,14 +95,19 @@ reported per attempt and aggregated with explicit denominators in
 
 The run is bounded end to end (steps, tool calls, chat and scenario timeouts,
 measured teardown), every attempt is checkpointed atomically, and a preflight
-failure still leaves a readable report. Transcripts and `report.json` land
+failure still leaves a readable report. After the run one evaluation chat call
+summarizes the report and writes `agentic-report-<run-id>.md` (language and
+toggle come from `agentic.toml`; a failing evaluation is advisory).
+Transcripts, `report.json` and the evaluation report land
 under `agentic-artifacts.*/`; the suite identity, model digest and system
 prompt hash make two reports comparable. The harness semantics are pinned
-without a model by the ordinary `tests/test_agentic_harness.py`, which drives
-the real scenarios through injected session and chat fakes.
+without a model by the ordinary `tests/test_agentic_harness.py` and
+`tests/test_agentic_config.py`, which drive the real scenarios through
+injected session and chat fakes and their provider HTTP calls through
+`httpx.MockTransport`.
 
-It is deliberately **not** a fourth gate level: it needs a local model, and its
-determinism depends on the model digest and the Ollama build (temperature 0
+It is deliberately **not** a fourth gate level: it needs a model, and its
+determinism depends on the model digest and the provider build (temperature 0
 and a fixed seed reduce, but do not remove, variation). It is therefore never
 part of `just check` or CI, and it never replaces the levels above — it
 complements them on the one surface they cannot reach: how an external agent
