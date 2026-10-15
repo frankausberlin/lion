@@ -56,7 +56,8 @@ the watch integration in interactive shells only; see
 | `artifact_stale` | boolean | artifact present but not matching `rules_hash` (including an unreadable header). |
 | `integration_mode` | string | `shlib`, `zshrc` or `unknown` (unreadable integration state). |
 | `integration_inserted` | boolean | whether the watch integration is present. |
-| `warnings` | array | actionable drift warnings: missing/stale artifact while enabled, artifact present while disabled, missing integration. |
+| `integration_modified` | boolean | the installed integration differs from the delivered version (for example after an upgrade); it cannot be trusted to load the guard. |
+| `warnings` | array | actionable drift warnings: missing/stale artifact while enabled, artifact present while disabled, missing or outdated integration. |
 
 `status` is read-only and validates loudly: a broken config or an invalid
 `classifier.json` fails with its path. Doctor reports the same state as the

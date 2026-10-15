@@ -88,6 +88,7 @@ shell (or `exec zsh`) is the sure way to disarm. `status` is read-only.
 | Symptom | Check |
 | --- | --- |
 | Nothing confirms | `lion watch dog status` (`enabled`, `artifact_present`); integration inserted (`lion shell status`) and the shell was started after `on`. |
+| Guard reports armed, but a new shell does not confirm | The integration is outdated (`integration_modified: true` in `lion watch dog status`); run `lion shell remove` and `lion shell insert`, then open a new shell. |
 | `doctor` reports a stale artifact | Rules changed; run `lion watch dog on`. |
 | `status` fails loudly | The config or `classifier.json` is broken; the error names the path. |
 | Confirmation appears after `off` | That shell loaded the guard earlier; start a new shell. |

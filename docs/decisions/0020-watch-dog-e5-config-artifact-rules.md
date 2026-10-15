@@ -57,8 +57,12 @@ rule change, `lion doctor` reports the stale artifact as `watch.dog` warn and
 **Loading goes through the watch integration** (single carrier, ADR 0011):
 the delivered script sources the artifact only in an interactive shell when it
 is readable, stays silent and never shows the guard when the artifact is
-absent. Shells that already loaded the guard keep it until the next shell
-starts even after `off` — the documented cost of a process-free key path.
+absent. An integration that differs from the delivered version (`shell status`
+reports `modified`, for example after an upgrade) is reported as such — status
+warnings and the `watch.dog.integration` finding ask for `lion shell remove`
+plus `lion shell insert` — and is never treated as a working carrier. Shells
+that already loaded the guard keep it until the next shell starts even after
+`off` — the documented cost of a process-free key path.
 
 ## Consequences
 

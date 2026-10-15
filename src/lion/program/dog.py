@@ -21,17 +21,16 @@ that artifact and the on/off state:
 of ``enable``) write, atomically and with mode ``600``.
 """
 
-import os
 import re
 import shutil
 import subprocess
-import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
 from lion.classify.rules import GUARD_CONFIRM, ClassifierRuleError, Rule, RuleSet, load_ruleset
 from lion.classify.text import has_controls
 from lion.program import shell
+from lion.program.atomic import write_text_atomic
 from lion.program.checks import CheckStatus, DoctorContext, Finding
 from lion.program.config import Config, ConfigError, config_path, load_config, write_config
 from lion.program.storage import get_data_dir
@@ -97,6 +96,7 @@ class DogStatus:
     artifact_stale: bool
     integration_mode: str
     integration_inserted: bool
+    integration_modified: bool
     warnings: tuple[str, ...]
 
     def to_dict(self) -> dict[str, object]:
@@ -113,6 +113,7 @@ class DogStatus:
             "artifact_stale": self.artifact_stale,
             "integration_mode": self.integration_mode,
             "integration_inserted": self.integration_inserted,
+            "integration_modified": self.integration_modified,
             "warnings": list(self.warnings),
         }
 
@@ -155,18 +156,22 @@ def render_rules(ruleset: RuleSet) -> str:
     """Render the deterministic Zsh artifact for the rule set's confirm rules.
 
     The output is a pure function of the merged rule list: header hash, the
-    transformed patterns and the parallel rule ids, in rule-set order. Patterns
-    with control characters are refused loudly (they can only come from a
-    hand-crafted user file and would render into unreadable Zsh).
+    transformed patterns and the parallel rule ids, in rule-set order. Control
+    characters in a pattern or an id are refused loudly: they can only come
+    from a hand-crafted user file, would render into unreadable Zsh and would
+    reach the terminal unescaped through the guard message.
 
     Raises:
-        DogError: If a confirm rule carries control characters in ``match``.
+        DogError: If a confirm rule carries control characters in ``match`` or
+            ``id``.
     """
     confirm = _confirm_rules(ruleset)
     lines = [f"{HASH_PREFIX}{ruleset.hash}", "typeset -ga LION_DOG_PATTERNS=("]
     for rule in confirm:
         if has_controls(rule.match):
             raise DogError(f"Rule '{rule.id}' has control characters in its pattern; refusing to compile it.")
+        if has_controls(rule.id):
+            raise DogError("A confirm rule has control characters in its id; refusing to compile it.")
         lines.append(f"  {_quote_zsh(transform_pattern(rule.match))}")
     lines.append(")")
     lines.append("typeset -ga LION_DOG_IDS=(")
@@ -195,23 +200,6 @@ def _zsh_compile_check(text: str) -> None:
         raise DogError("A guard pattern failed the Zsh regex check; no artifact was written.")
 
 
-def _write_atomic(path: Path, text: str) -> Path:
-    """Write ``text`` to ``path`` atomically (mode ``600``), replacing it."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            _ = stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return path
-
-
 def write_rules(ruleset: RuleSet | None = None) -> Path:
     """Render, validate and atomically write the guard artifact.
 
@@ -236,7 +224,7 @@ def write_rules(ruleset: RuleSet | None = None) -> Path:
     text = render_rules(loaded)
     validate_zsh(text)
     _zsh_compile_check(text)
-    return _write_atomic(rules_path(), text)
+    return write_text_atomic(rules_path(), text)
 
 
 def read_rules_hash() -> str | None:
@@ -254,14 +242,19 @@ def read_rules_hash() -> str | None:
     return found.group(1) if found is not None else None
 
 
-def _integration_info(home: Path | None) -> tuple[str, bool, str]:
-    """Return ``(mode, inserted, error)`` of the watch shell integration."""
+def _integration_info(home: Path | None) -> tuple[str, bool, bool, str]:
+    """Return ``(mode, inserted, modified, error)`` of the watch integration.
+
+    ``modified`` means the installed artifact differs from the delivered
+    integration: it is present, but it cannot be trusted to load the guard
+    (for example after an upgrade that extended the integration).
+    """
     try:
         target = shell.get_home() if home is None else home
         result = shell.status(target)
     except (OSError, ValueError) as exc:
-        return "unknown", False, f"Cannot read the watch integration state: {exc}"
-    return str(result.get("mode", "")), bool(result.get("inserted")), ""
+        return "unknown", False, False, f"Cannot read the watch integration state: {exc}"
+    return str(result.get("mode", "")), bool(result.get("inserted")), bool(result.get("modified")), ""
 
 
 def dog_status(home: Path | None = None) -> DogStatus:
@@ -286,13 +279,18 @@ def dog_status(home: Path | None = None) -> DogStatus:
     artifact = rules_path()
     artifact_present = artifact.is_symlink() or artifact.exists()
     artifact_hash = read_rules_hash()
-    mode, inserted, integration_error = _integration_info(home)
+    mode, inserted, modified, integration_error = _integration_info(home)
     warnings: list[str] = []
     if integration_error:
         warnings.append(integration_error)
     if config.watch_dog:
         if not inserted and not integration_error:
             warnings.append("Guard is enabled but the watch integration is not inserted; run 'lion shell insert'.")
+        elif modified:
+            warnings.append(
+                "The watch integration differs from the delivered version and may not load the guard; "
+                "run 'lion shell remove' and 'lion shell insert', then open a new shell."
+            )
         if not artifact_present:
             warnings.append("Guard is enabled but the compiled artifact is missing; run 'lion watch dog on'.")
         elif artifact_hash != ruleset.hash:
@@ -309,18 +307,24 @@ def dog_status(home: Path | None = None) -> DogStatus:
         artifact_stale=artifact_present and artifact_hash != ruleset.hash,
         integration_mode=mode,
         integration_inserted=inserted,
+        integration_modified=modified,
         warnings=tuple(warnings),
     )
 
 
 def _integration_warning(home: Path | None) -> str:
-    """Return the stderr warning for a missing integration, or an empty string."""
-    _mode, inserted, error = _integration_info(home)
+    """Return the stderr warning for a missing or outdated integration."""
+    _mode, inserted, modified, error = _integration_info(home)
     if error:
         return error
-    if inserted:
-        return ""
-    return "The watch integration is not inserted; run 'lion shell insert', then open a new shell."
+    if not inserted:
+        return "The watch integration is not inserted; run 'lion shell insert', then open a new shell."
+    if modified:
+        return (
+            "The watch integration differs from the delivered version and may not load the guard; "
+            "run 'lion shell remove' and 'lion shell insert', then open a new shell."
+        )
+    return ""
 
 
 def enable(home: Path | None = None) -> DogReport:
@@ -458,19 +462,23 @@ def dog_checks(ctx: DoctorContext) -> list[Finding]:
             )
         ]
     findings = [_state_finding(status)]
-    if status.enabled and not status.integration_inserted:
-        detail = (
-            status.warnings[0]
-            if status.integration_mode == "unknown" and status.warnings
-            else "Guard is enabled but the watch integration is not inserted."
-        )
+    if status.enabled and (not status.integration_inserted or status.integration_modified):
+        if status.integration_mode == "unknown" and status.warnings:
+            detail = status.warnings[0]
+            hint = "Run 'lion shell insert', then open a new shell."
+        elif not status.integration_inserted:
+            detail = "Guard is enabled but the watch integration is not inserted."
+            hint = "Run 'lion shell insert', then open a new shell."
+        else:
+            detail = "Guard is enabled but the watch integration differs from the delivered version."
+            hint = "Run 'lion shell remove' and 'lion shell insert', then open a new shell."
         findings.append(
             Finding(
                 topic="watch",
                 name="watch.dog.integration",
                 status=CheckStatus.WARN,
                 message=detail,
-                hint="Run 'lion shell insert', then open a new shell.",
+                hint=hint,
             )
         )
     return findings

@@ -35,10 +35,10 @@ from collections.abc import Mapping, Sequence
 from pathlib import Path
 
 # Measured 2026-10-13 in one serial container (junit of e2e-artifacts.z6WLLe,
-# 82 tests, ~94.6 s); test_watch_dog.py measured 2026-10-15 (sharded run,
-# e2e-artifacts.RHhZvA). Refresh the numbers from the newest junit.xml when a
-# file changed significantly or a new file appears; an unknown file
-# automatically uses FALLBACK_WEIGHT.
+# 82 tests, ~94.6 s); test_watch_dog.py measured 2026-10-15 (sharded runs,
+# e2e-artifacts.RHhZvA and .RYnHy9). Refresh the numbers from the newest
+# junit.xml when a file changed significantly or a new file appears; an
+# unknown file automatically uses FALLBACK_WEIGHT.
 WEIGHTS: Mapping[str, float] = {
     "test_watch_lifecycle.py": 18.9,
     "test_collector_dash.py": 11.3,
@@ -56,7 +56,7 @@ WEIGHTS: Mapping[str, float] = {
     "test_mcp_serve.py": 2.4,
     "test_watch_user.py": 2.0,
     "test_watch_masking.py": 1.3,
-    "test_watch_dog.py": 4.5,
+    "test_watch_dog.py": 4.9,
     "test_wiki_on_scan.py": 1.1,
     "test_runner.py": 1.0,
     "test_shlib_lifecycle.py": 0.6,

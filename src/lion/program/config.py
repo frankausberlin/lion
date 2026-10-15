@@ -9,8 +9,6 @@ Writing is atomic (``os.replace``, mode ``600``) and creates the parent
 directories on demand; only ``write_config`` writes.
 """
 
-import os
-import tempfile
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,6 +17,7 @@ from typing import cast
 import tomli_w
 
 from lion.classify.rules import get_config_dir
+from lion.program.atomic import write_text_atomic
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -128,9 +127,9 @@ def load_config(path: Path | None = None) -> Config:
 def write_config(config: Config, path: Path | None = None) -> Path:
     """Write the config atomically (mode ``600``) and return its path.
 
-    The parent directories are created on demand; the file is written and
-    fsynced to a temporary file in the same directory and then moved into
-    place with :func:`os.replace`, so a reader never sees a partial file.
+    The parent directories are created on demand; the write is atomic
+    (temporary file, fsync, :func:`os.replace`), so a reader never sees a
+    partial file.
 
     Args:
         config: The complete configuration to persist.
@@ -143,17 +142,5 @@ def write_config(config: Config, path: Path | None = None) -> Path:
         OSError: If the directory or the file cannot be written.
     """
     target = config_path() if path is None else path
-    target.parent.mkdir(parents=True, exist_ok=True)
     document: dict[str, object] = {"schema_version": config.schema_version, "watch": {"dog": config.watch_dog}}
-    fd, name = tempfile.mkstemp(prefix=f".{target.name}.", suffix=".tmp", dir=target.parent)
-    temporary = Path(name)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as stream:
-            os.fchmod(stream.fileno(), 0o600)
-            _ = stream.write(tomli_w.dumps(document))
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(temporary, target)
-    finally:
-        temporary.unlink(missing_ok=True)
-    return target
+    return write_text_atomic(target, tomli_w.dumps(document))

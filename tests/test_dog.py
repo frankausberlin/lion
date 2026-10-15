@@ -141,6 +141,32 @@ def test_render_rules_refuses_control_characters(tmp_path: Path) -> None:
         dog.render_rules(ruleset)
 
 
+def test_render_rules_refuses_control_characters_in_ids(tmp_path: Path) -> None:
+    """A rule id with control characters never reaches the artifact or zle -M."""
+    user = tmp_path / "classifier.json"
+    user.write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "rules": [
+                    {
+                        "id": "packages.evil\u001b]52;c;x\u0007",
+                        "group": "packages",
+                        "match": "^apt[[:space:]]+install",
+                        "emit": {"manager": "apt", "action": "install"},
+                        "guard": "confirm",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    ruleset = classify_rules.load_ruleset(user)
+
+    with pytest.raises(DogError, match="control characters in its id"):
+        dog.render_rules(ruleset)
+
+
 # --- zsh compile check --------------------------------------------------------
 
 
@@ -267,6 +293,34 @@ def test_status_reports_drift(env: SimpleNamespace) -> None:
     disabled = dog.dog_status(env.home)
     assert disabled.enabled is False
     assert "disabled in the config" in disabled.warnings[0]
+
+
+def test_status_reports_modified_integration(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An outdated integration is visible and warns while the guard is enabled."""
+    _insert_integration(env.home, monkeypatch)
+    dog.enable(env.home)
+    rc = env.home / ".zshrc"
+    rc.write_text(rc.read_text(encoding="utf-8").replace("ADR 0014", "ADR 0014 (old)"), encoding="utf-8")
+
+    status = dog.dog_status(env.home)
+
+    assert status.integration_inserted is True
+    assert status.integration_modified is True
+    assert status.to_dict()["integration_modified"] is True
+    assert any("differs from the delivered version" in warning for warning in status.warnings)
+
+
+def test_enable_warns_about_a_modified_integration(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enabling with an outdated integration points at remove + insert."""
+    _insert_integration(env.home, monkeypatch)
+    rc = env.home / ".zshrc"
+    rc.write_text(rc.read_text(encoding="utf-8").replace("ADR 0014", "ADR 0014 (old)"), encoding="utf-8")
+
+    report = dog.enable(env.home)
+
+    assert len(report.warnings) == 1
+    assert "'lion shell remove' and 'lion shell insert'" in report.warnings[0]
+    assert load_config().watch_dog is True
 
 
 def test_status_integration_missing_warns_while_enabled(env: SimpleNamespace) -> None:
@@ -462,6 +516,22 @@ def test_doctor_warns_when_integration_missing(env: SimpleNamespace) -> None:
     assert "'lion shell insert'" in findings[1].hint
 
 
+def test_doctor_warns_when_integration_modified(env: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Enabled and fresh but with an outdated integration warns for remove + insert."""
+    _insert_integration(env.home, monkeypatch)
+    dog.enable(env.home)
+    rc = env.home / ".zshrc"
+    rc.write_text(rc.read_text(encoding="utf-8").replace("ADR 0014", "ADR 0014 (old)"), encoding="utf-8")
+
+    findings = dog.dog_checks(_ctx(env.home))
+
+    assert [finding.name for finding in findings] == ["watch.dog", "watch.dog.integration"]
+    assert findings[0].status == CheckStatus.OK
+    assert findings[1].status == CheckStatus.WARN
+    assert "differs from the delivered version" in findings[1].message
+    assert "'lion shell remove' and 'lion shell insert'" in findings[1].hint
+
+
 def test_doctor_errors_on_broken_config_and_rules(env: SimpleNamespace) -> None:
     """A broken config or classifier file is an error with its path."""
     path = config_path()
@@ -518,6 +588,7 @@ def test_command_status_json_contract(env: SimpleNamespace) -> None:
         "artifact_stale",
         "integration_mode",
         "integration_inserted",
+        "integration_modified",
         "warnings",
     }
     assert payload["enabled"] is False

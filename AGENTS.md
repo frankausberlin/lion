@@ -121,7 +121,9 @@ just audit       # dependency vulnerability scan
   `status.py`, `history.py`, `diff.py` and `classify.py` read only; `doctor.py`
   only publishes the reco; `shlib.py` manages `~/.shlib` and takes `--json` for
   `status` only; `adr.py` writes and reads the standalone ADR store), plus the
-  shared `diagnostics.py` stderr-warning helper. The English CLI
+  shared `diagnostics.py` stderr-warning helper and the shared
+  `output.py` report/status printers (messages to stdout, warnings to stderr,
+  `key: value` or JSON for status). The English CLI
   help texts (epilogs and sub-app help) live in `main.py` and are imported by
   `cli.py`. `shlib` is a Typer
   sub-app with `status`/`install`/`uninstall`. A command group with a `status`
@@ -185,13 +187,19 @@ just audit       # dependency vulnerability scan
   (`$XDG_CONFIG_HOME/lion/config.toml`, ADR 0009; the first real consumer):
   the frozen `Config`, `config_path()`/`load_config()` (missing file =
   defaults; anything else strict and loud with the path) and the atomic
-  `write_config()` (mode `600`); only the guard toggles write it.
+  `write_config()` (mode `600`); only the guard toggles write it. Both writers
+  (config, artifact) share `program/atomic.write_text_atomic` (temp file +
+  fsync + `os.replace`, mode `600`); recordings/ADRs keep their link-based
+  `stage_text` publishing.
   `program/dog.py` owns the watch guard (ADR 0014/0020): `get_dog_dir()`/
   `rules_path()` under `$XDG_DATA_HOME/lion/dog`, the pure
-  `render_rules(ruleset)` (confirm rules only, header hash, deterministic), the
-  compile gate (`zsh -n` plus one Zsh `=~` run over all patterns; control
-  characters refused), `write_rules()` (`os.replace`, `600`),
-  `read_rules_hash()`, the read-only `dog_status()`/`DogStatus` and
+  `render_rules(ruleset)` (confirm rules only, header hash, deterministic;
+  control characters in a pattern or an id are refused), the
+  compile gate (`zsh -n` plus one Zsh `=~` run over all patterns),
+  `write_rules()` (atomic, `600`),
+  `read_rules_hash()`, the read-only `dog_status()`/`DogStatus` (including
+  `integration_modified`: an integration that differs from the delivered
+  version may not load the guard) and
   `enable()`/`disable()` (`enable`: config first, artifact second — fail-safe;
   idempotent refresh; `disable`: artifact first) plus `dog_checks`.
   Layout: `typeset -ga LION_DOG_PATTERNS/LION_DOG_IDS`, leading `^` widened to
@@ -330,11 +338,15 @@ just audit       # dependency vulnerability scan
   write, so a previous artifact survives. Matching is best-effort on the raw
   ZLE buffer (leading `^` widened to `(^|[;&|[:space:]])(sudo[[:space:]]+)?`;
   block patterns unchanged; only the first `rm` flag token recognized; second
-  Enter = buffer equality; edits re-arm); changes apply to new shells only,
+  Enter = buffer equality; a `line-pre-redraw` hook invalidates the armed
+  state on every buffer change, so edits, Ctrl-U and Ctrl-C re-arm); changes
+  apply to new shells only,
   and shells that already loaded the guard keep it until restart. The
-  integration is the only loader; `watch.dog`/`watch.dog.integration` are the
-  doctor findings (stale/missing artifact, disabled-but-present, missing
-  integration = warn; broken config/rules = error).
+  integration is the only loader and a `modified` one (differs from the
+  delivered version) never counts as loading the guard;
+  `watch.dog`/`watch.dog.integration` are the
+  doctor findings (stale/missing artifact, disabled-but-present, missing or
+  outdated integration = warn; broken config/rules = error).
 - ADRs live inside their recording and are derived from the raw events on every
   read (no new event writer): marker lines count only as full comment lines
   outside strings and here-documents; unreadable annotation input is a visible

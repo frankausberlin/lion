@@ -98,6 +98,33 @@ def test_guard_arms_confirms_edits_and_disarms(runner: Runner, env: dict[str, st
         assert "non-critical-ran" in output
         assert "LION dog:" not in output
 
+        # (e) Aborting the line (Ctrl-C) cancels an armed confirmation: retyping
+        #     the identical text must re-arm instead of running on the next Enter.
+        aborted = tmp_path / "aborted"
+        aborted.mkdir()
+        shell.type_text(f"rm -rf {aborted}")
+        shell.send("")
+        assert "LION dog: shell.rm.recursive" in shell.wait_for("LION dog: shell.rm.recursive", timeout=8.0)
+        shell.interrupt()  # Ctrl-C discards the pending line
+        shell.type_text(f"rm -rf {aborted}")
+        shell.send("")
+        assert "LION dog: shell.rm.recursive" in shell.wait_for("LION dog: shell.rm.recursive", timeout=8.0)
+        assert aborted.exists(), "a cleared line must re-arm instead of confirming"
+        shell.send("")
+        _ = shell.wait_prompt()
+        assert not aborted.exists(), "the regular second Enter still confirms"
+
+        # (f) A user's ksharrays stays out of the widget: the message names the rule.
+        _ = shell.run("setopt ksharrays")
+        ksh = tmp_path / "ksh"
+        ksh.mkdir()
+        shell.type_text(f"rm -rf {ksh}")
+        shell.send("")
+        assert "LION dog: shell.rm.recursive" in shell.wait_for("LION dog: shell.rm.recursive", timeout=8.0)
+        shell.send("")
+        _ = shell.wait_prompt()
+        assert not ksh.exists()
+
     # (d) After 'off' a new shell loses the guard completely.
     stopped = runner("lion", "watch", "dog", "off", env=env)
     assert "Guard disabled" in stopped
@@ -127,6 +154,7 @@ def test_guard_status_doctor_staleness_and_read_only(runner: Runner, env: dict[s
         "artifact_stale",
         "integration_mode",
         "integration_inserted",
+        "integration_modified",
         "warnings",
     }
     assert status["enabled"] is True
@@ -135,6 +163,7 @@ def test_guard_status_doctor_staleness_and_read_only(runner: Runner, env: dict[s
     assert status["artifact_hash"] == status["rules_hash"]
     assert status["artifact_stale"] is False
     assert status["integration_inserted"] is True
+    assert status["integration_modified"] is False
     assert status["warnings"] == []
 
     findings = _doctor(runner, env)

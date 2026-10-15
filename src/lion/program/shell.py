@@ -221,6 +221,7 @@ if [[ -o interactive && -r "$LION_DOG_FILE" ]]; then
   if (( ${#LION_DOG_PATTERNS} )); then
     typeset -g LION_DOG_ARMED=''
     _lion_dog_accept() {
+      setopt local_options no_ksharrays
       local buf=$BUFFER
       if [[ -n $buf ]]; then
         local pat idx=0
@@ -239,8 +240,16 @@ if [[ -o interactive && -r "$LION_DOG_FILE" ]]; then
       fi
       LION_DOG_ARMED=''; zle .accept-line
     }
+    # Any buffer change invalidates an armed confirmation: clearing the line
+    # (Ctrl-U, Ctrl-C) or editing it must re-arm instead of re-confirming.
+    _lion_dog_clear_armed() {
+      [[ -n $LION_DOG_ARMED && $BUFFER != "$LION_DOG_ARMED" ]] && LION_DOG_ARMED=''
+      return 0
+    }
     zle -N accept-line _lion_dog_accept
     zle -A accept-line lion-dog-accept
+    autoload -Uz add-zle-hook-widget
+    add-zle-hook-widget line-pre-redraw _lion_dog_clear_armed
   fi
 fi
 
