@@ -22,4 +22,4 @@ base_url = "https://openrouter.ai/api/v1" # OpenRouter only
 
 [report]
 enabled = true
-language = "english"                      # "english" | "german"
+language = "german"                      # "english" | "german"
