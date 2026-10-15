@@ -186,8 +186,11 @@ removed by `just clean`):
 `finished_at`, `state`: `running`/`complete`/`interrupted`/`preflight_error`),
 `provider` (`openrouter`/`ollama`), `endpoint`, `model` (name, digest,
 capabilities; the OpenRouter digest is empty because the router may route each
-request to a different free model), `options` (the resolved sampling options
-as sent), `think`, `system_prompt` (source, path, text, SHA-256),
+request to a different free model), `options` (the resolved sampling options;
+the provider-specific wire mapping applies, so for example OpenRouter receives
+only `temperature`/`top_p`/`seed`/`max_tokens` while `top_k`, `repeat_penalty`,
+`num_ctx` and `keep_alive` go to Ollama only), `think`, `system_prompt`
+(source, path, text, SHA-256),
 `environment` (Lion version, best-effort git commit/dirty, and
 `ollama_version` for Ollama only), `suite` (scenario-and-seed identity hash
 plus the scenario names), `pending` (the in-flight attempt while a scenario

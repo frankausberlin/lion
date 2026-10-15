@@ -197,7 +197,11 @@ class Provider(StrEnum):
     OLLAMA = "ollama"
 
 
-REPORT_LANGUAGES: tuple[str, ...] = ("english", "german")
+LANGUAGE_INSTRUCTIONS: dict[str, str] = {
+    "english": "Write the report in English.",
+    "german": "Schreibe den Bericht auf Deutsch.",
+}
+REPORT_LANGUAGES: tuple[str, ...] = tuple(LANGUAGE_INSTRUCTIONS)
 
 
 @dataclass(frozen=True)
@@ -713,6 +717,8 @@ def _normalize_arguments(raw: object, *, string_is_native: bool = False) -> tupl
         except json.JSONDecodeError as exc:
             raise AgentError(f"model produced unparseable tool arguments: {raw[:200]!r}") from exc
         changed = not string_is_native
+    elif string_is_native:
+        changed = True
     if not isinstance(raw, dict):
         raise AgentError(f"model produced non-object tool arguments: {raw!r}")
     arguments: dict[str, object] = {}
@@ -1845,9 +1851,8 @@ def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
-    """Write JSON atomically: temp file in the target directory, fsync, ``os.replace``."""
-    text = json.dumps(payload, indent=2, ensure_ascii=False) + "\n"
+def _atomic_write(path: Path, text: str) -> None:
+    """Write text atomically: temp file in the target directory, fsync, ``os.replace``."""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
     tmp_path = Path(temporary)
@@ -1860,6 +1865,11 @@ def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
     except BaseException:
         tmp_path.unlink(missing_ok=True)
         raise
+
+
+def _write_json_atomic(path: Path, payload: Mapping[str, object]) -> None:
+    """Write JSON atomically via :func:`_atomic_write`."""
+    _atomic_write(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n")
 
 
 def _ratio(numerator: int, denominator: int) -> dict[str, object]:
@@ -2254,10 +2264,6 @@ EVALUATION_SYSTEM_PROMPT = (
     "the overall result, every failed or errored scenario with its probable cause, the metric "
     "trends, and actionable recommendations. Base every statement on the summary; never invent data."
 )
-LANGUAGE_INSTRUCTIONS: dict[str, str] = {
-    "english": "Write the report in English.",
-    "german": "Schreibe den Bericht auf Deutsch.",
-}
 
 
 def _clip(text: str, limit: int) -> str:
@@ -2327,22 +2333,6 @@ def _strip_code_fence(text: str) -> str:
     return "\n".join(lines[1:-1]).strip()
 
 
-def _write_text_atomic(path: Path, text: str) -> None:
-    """Write text atomically: temp file in the target directory, fsync, ``os.replace``."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
-    tmp_path = Path(temporary)
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as handle:
-            handle.write(text)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.replace(tmp_path, path)
-    except BaseException:
-        tmp_path.unlink(missing_ok=True)
-        raise
-
-
 async def _await_chat(
     chat_function: ChatFunction,
     settings: AgentSettings,
@@ -2403,7 +2393,9 @@ def evaluate_report(
         return _evaluation_result(report, settings, status="skipped", language=language)
     try:
         input_text = build_evaluation_input(report.payload())
-        instruction = LANGUAGE_INSTRUCTIONS.get(language, LANGUAGE_INSTRUCTIONS["english"])
+        instruction = LANGUAGE_INSTRUCTIONS.get(language)
+        if instruction is None:
+            raise AgentError(f"unknown report language: {language!r}")
         messages: list[dict[str, object]] = [
             {"role": "system", "content": f"{EVALUATION_SYSTEM_PROMPT} {instruction}"},
             {"role": "user", "content": input_text},
@@ -2424,7 +2416,7 @@ def evaluate_report(
         if not text:
             raise AgentError("the evaluation model returned an empty report")
         target = artifacts / f"agentic-report-{report.run_id}.md"
-        _write_text_atomic(target, text + "\n")
+        _atomic_write(target, text + "\n")
     except Exception as exc:
         message = f"{type(exc).__name__}: {exc}"
         print(f"warning: agentic evaluation failed: {message}", file=sys.stderr)

@@ -1059,14 +1059,15 @@ def test_openrouter_chat_wire_shape_and_parsing() -> None:
     [
         ('{"reference": "1", "note": null}', True, {"reference": "1"}),
         ('{"reference": "1"}', False, {"reference": "1"}),
+        ({"reference": "1"}, True, {"reference": "1"}),
         (None, True, {}),
     ],
-    ids=["string-with-null", "clean-string", "missing-arguments"],
+    ids=["string-with-null", "clean-string", "object-arguments", "missing-arguments"],
 )
 def test_openrouter_arguments_keep_the_native_string_shape(
     arguments: object, normalized: bool, expected: dict[str, object]
 ) -> None:
-    """A clean JSON string stays native; null cleanup and a missing field count as normalization."""
+    """A clean JSON string stays native; null cleanup, an object shape and a missing field do not."""
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
