@@ -29,17 +29,8 @@ displaying file contents or secret values.
 
 ## Install
 
-```bash
-uv run lion shlib install
-```
+> * Follow these [instructions](docs/how-to/organize-shlib.md) to organize the Shell Library.
 
-Installation backs up the existing `.zshrc` to `.zshrc.before-shlib` (numbered
-if already present), preserves its permissions, and moves its configuration into
-`~/.shlib/shlibs/00-original-zshrc.sh`. It then writes the new `.zshrc`, which
-loads exports first and then the scripts whose names start with two digits in
-lexical order.
-
-Installing an already installed library is a no-op.
 
 ## Add an environment variable
 
@@ -65,9 +56,8 @@ ln -s ~/dotfiles/aliases.zsh ~/.shlib/shlibs/20-aliases.sh
 ```
 
 No extra Powerlevel10k or direnv hooks are inserted; existing setup stays in the
-original script. When splitting that script, keep instant-prompt
-initialization early and move the direnv hook to the end of your shell
-initialization.
+original script. [Organize the shell library](organize-shlib.md) splits that
+original into the individual files.
 
 ## Review changes against the reference
 

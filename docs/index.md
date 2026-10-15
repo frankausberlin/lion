@@ -18,6 +18,8 @@ reference reproduces it, and the other pages explain, guide and link.
 
 - [Manage the shell configuration](how-to/manage-shell-config.md) — install,
   use and remove the Zsh shell library.
+- [Organize the shell library](how-to/organize-shlib.md) — split the preserved
+  `~/.zshrc` into exports and numbered scripts.
 - [Record a shell session](how-to/record-shell.md) — insert the watch
   integration, record, stop, read the events and classify the blocks.
 - [Guard critical input](how-to/guard-critical-input.md) — arm the watch dog,

@@ -164,16 +164,34 @@ sudo apt install some-complex-stuff
 
 ## Quickstart
 
-```bash
-git clone https://github.com/frankausberlin/lion.git
-cd lion
-uv sync
-uv run lion scan     # capture the first state
-uv run lion status   # compare the current state with the latest stored one
+
+1. Installation of the required tools
+```shell
+sudo apt install -y nala
+sudo nala install -y git zsh curl openssh-server
+curl -LsSf https://astral.sh/uv/install.sh | sh
+git clone https://github.com/frankausberlin/lion ~/gits/lion
+chsh -s $(which zsh)
+# you have to re-login
 ```
 
+2. Log out and log in
+> * **Re-login required** to activate zsh.
+
+3. Install lion, scan and shlib
+```shell
+cd ~/gits/lion && uv sync && uv tool install .
+lion scan
+lion shlib install
+```
+
+4. Organize Shell Library
+
+> * Follow these [instructions](docs/how-to/organize-shlib.md) to organize the Shell Library.
+
+
 See the [getting-started tutorial](docs/tutorials/getting-started.md) for the
-guided walkthrough.
+guided walkthrough or read [this guide](docs/how-to/manage-shell-config.md) to learn more about shell library management
 
 ## Documentation
 
