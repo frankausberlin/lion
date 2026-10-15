@@ -79,6 +79,13 @@ setup error with an action hint — never a skip, because the suite is
 explicitly opt-in. The failure still writes `report.json` with
 `state = "preflight_error"`, so the artifact always exists.
 
+The shared free pool behind `openrouter/free` rate-limits upstream models
+(HTTP 429 with `limit_source: upstream_provider_shared_pool`): a transient
+429 lands as a recorded `transport_error` and fails its hard scenario, so a
+run whose routed model is rate-limited needs a re-run, a specific `:free`
+model via `LION_AGENT_MODEL`, or a key with its own limits. The evaluation
+report attributes such errors to the upstream provider.
+
 ## How it works
 
 Every scenario starts a real `lion serve` subprocess (the installed console

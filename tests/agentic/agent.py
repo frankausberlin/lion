@@ -897,7 +897,7 @@ async def _chat_openrouter(
         raise ChatTransportError(str(exc)) from exc
     choices = _sequence(reply.get("choices", []))
     if not choices:
-        raise AgentError("model produced a reply without choices")
+        raise AgentError(f"model produced a reply without choices: {response.text[:400]}")
     first = _mapping(choices[0])
     message = _mapping(first.get("message", {}))
     calls: list[ToolCall] = []
