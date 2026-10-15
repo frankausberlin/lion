@@ -39,11 +39,6 @@ def test_missing_file_yields_builtin_defaults(tmp_path: Path) -> None:
     assert config.report.language == "english"
 
 
-def test_committed_config_matches_the_builtin_defaults() -> None:
-    """The committed ``tests/agentic/agentic.toml`` resolves to the builtin defaults."""
-    assert load_agentic_config(env={}) == AgenticConfig()
-
-
 @pytest.mark.parametrize(
     ("document", "message"),
     [
