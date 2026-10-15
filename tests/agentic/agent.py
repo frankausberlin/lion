@@ -99,7 +99,7 @@ SCENARIO_TIMEOUT_SECONDS = 300.0
 CLEANUP_ALLOWANCE_SECONDS = 15.0
 CLI_TIMEOUT_SECONDS = 60.0
 EVALUATION_TIMEOUT_SECONDS = 240.0
-EVALUATION_MAX_TOKENS = 2048
+EVALUATION_MAX_TOKENS = 8192
 EVALUATION_FINAL_TEXT_LIMIT = 800
 TRANSCRIPTS_DIR = "transcripts"
 REPORT_SCHEMA_VERSION = 2
@@ -2418,7 +2418,15 @@ def evaluate_report(
         )
         text = _strip_code_fence(reply.content)
         if not text:
-            raise AgentError("the evaluation model returned an empty report")
+            raise AgentError(
+                f"the evaluation model returned an empty report (finish_reason={reply.done_reason or 'unknown'})"
+            )
+        if reply.done_reason == "length":
+            print(
+                "warning: agentic evaluation report may be truncated "
+                f"(finish_reason=length, max_tokens={EVALUATION_MAX_TOKENS})",
+                file=sys.stderr,
+            )
         target = artifacts / f"agentic-report-{report.run_id}.md"
         _atomic_write(target, text + "\n")
     except Exception as exc:

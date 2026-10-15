@@ -1334,9 +1334,10 @@ def test_check_provider_ollama_verifies_model_and_tools() -> None:
 class EvalChat:
     """A chat fake for the evaluation call: one scripted answer, every request recorded."""
 
-    def __init__(self, answer: str | Exception) -> None:
-        """Bind the scripted answer (a string or an exception to raise)."""
+    def __init__(self, answer: str | Exception, done_reason: str = "stop") -> None:
+        """Bind the scripted answer (a string or an exception to raise) and finish reason."""
         self.answer = answer
+        self.done_reason = done_reason
         self.requests: list[dict[str, object]] = []
 
     async def __call__(
@@ -1363,7 +1364,7 @@ class EvalChat:
             tool_calls=(),
             prompt_eval_count=1,
             eval_count=1,
-            done_reason="stop",
+            done_reason=self.done_reason,
         )
 
 
@@ -1461,6 +1462,38 @@ def test_evaluation_failure_is_advisory(
     assert "warning" in capsys.readouterr().err
     extras = _section(_load(report.path), "extras")
     assert _section(extras, "evaluation")["status"] == "error"
+
+
+def test_evaluation_names_the_finish_reason_on_empty_report(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """An empty answer names the finish_reason so a token cap is visible."""
+    report = _completed_report(tmp_path)
+    result = agent_module.evaluate_report(
+        report,
+        AgentSettings(),
+        AgenticConfig(),
+        tmp_path / "artifacts",
+        chat_function=EvalChat("", done_reason="length"),
+    )
+
+    assert result["status"] == "error"
+    assert "finish_reason=length" in str(result["error"])
+
+
+def test_evaluation_warns_when_the_report_is_truncated(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """A ``length`` finish reason still writes the report but warns about truncation."""
+    report = _completed_report(tmp_path)
+    artifacts = tmp_path / "artifacts"
+    result = agent_module.evaluate_report(
+        report,
+        AgentSettings(),
+        AgenticConfig(),
+        artifacts,
+        chat_function=EvalChat("# Partial report", done_reason="length"),
+    )
+
+    assert result["status"] == "ok"
+    assert (artifacts / f"agentic-report-{report.run_id}.md").is_file()
+    assert "truncated" in capsys.readouterr().err
 
 
 def test_evaluation_disabled_makes_no_chat_call(tmp_path: Path) -> None:

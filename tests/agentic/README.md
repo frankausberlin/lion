@@ -239,7 +239,7 @@ recording's segment header, which the liveness checks need.
 
 After the run is finalized, `extras.evaluation` and one
 `agentic-report-<run-id>.md` next to `report.json` summarize what happened:
-one bounded, tool-less chat call (240 s, `max_tokens` 2048, temperature 0,
+one bounded, tool-less chat call (240 s, `max_tokens` 8192, temperature 0,
 same provider) over a condensed summary of the report — run metadata,
 provider, model and options, suite hash, aggregate metrics, and per attempt
 the outcome, failure, tools, steps, durations, tokens, metrics and the final
@@ -255,10 +255,12 @@ instruction (`english`/`german`, default English).
 | `ok` | The report was written; `report_path` points at it. |
 | `disabled` | `report.enabled = false`; no chat call happened. |
 | `skipped` | The run state is not `complete` (preflight error, interrupted); no chat call happened. |
-| `error` | The call failed or the answer was empty; `error` carries the message, warned on stderr, never raised. |
+| `error` | The call failed or the answer was empty; `error` carries the message (including the `finish_reason`), warned on stderr, never raised. |
 
-`just test-agent` runs pytest with `-s`, so the path of a written report is
-printed at the end of the run.
+A non-empty answer with `finish_reason = "length"` is still written, but a
+stderr warning flags that it may be truncated: the budget must cover both the
+model's reasoning tokens and the report. `just test-agent` runs pytest with
+`-s`, so the path of a written report is printed at the end of the run.
 
 ## Determinism limits
 
