@@ -22,11 +22,13 @@ A block is a non-empty `cmd` event of a recording, in chronological order:
 
 - `comment`, `result`, `exit` and `segment` events are never blocks.
 - `cmd` events with empty text are skipped.
-- The silent in-session reads are skipped: a first segment that is exactly
-  `lion watch R`, `lion watch R-`, `uv run lion watch R` or
-  `uv run lion watch R-` (after stripping `sudo` and `NAME=value` prefixes) does
-  not appear in its own numbering. The detection is best-effort and cosmetic;
-  aliases and other wrappers are not recognized.
+- A block made up entirely of silent in-session reads is skipped: every segment
+  must be exactly `lion watch R`, `lion watch R-`, `uv run lion watch R` or
+  `uv run lion watch R-` (after stripping `sudo` and `NAME=value` prefixes).
+  Such a read-only block does not appear in its own numbering, while a mixed
+  block (`lion watch R; sudo apt install foo`) stays classified with its
+  matches, commands and policy results. The detection is best-effort and
+  cosmetic; aliases and other wrappers are not recognized.
 - `index` numbers the remaining blocks from 1 in event order.
 
 The recorded text is stored best-effort masked by the shell integration; the

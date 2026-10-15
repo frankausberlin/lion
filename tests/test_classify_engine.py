@@ -238,6 +238,8 @@ def test_block_without_matches_keeps_its_number(ruleset: rules.RuleSet) -> None:
         pytest.param("uv run lion watch R", id="uv"),
         pytest.param("sudo lion watch R", id="sudo"),
         pytest.param("FOO=1 lion watch R-", id="assignment"),
+        pytest.param("lion watch R; lion watch R-", id="chain_semicolon"),
+        pytest.param("lion watch R && lion watch R-", id="chain_and"),
     ],
 )
 def test_silent_reads_are_recognized(text: str) -> None:
@@ -254,11 +256,28 @@ def test_silent_reads_are_recognized(text: str) -> None:
         pytest.param("lion classify", id="classify"),
         pytest.param("lion watch R --json", id="extra_flag"),
         pytest.param("echo 'lion watch R'", id="printed"),
+        pytest.param("lion watch R; sudo apt install foo", id="mixed_semicolon"),
+        pytest.param("lion watch R && echo hi", id="mixed_and"),
+        pytest.param("lion watch R\napt install x", id="mixed_newline"),
+        pytest.param("apt install x; lion watch R", id="mixed_trailing"),
     ],
 )
 def test_other_commands_are_not_silent(text: str) -> None:
     """Everything else keeps its place in the numbering."""
     assert engine.is_silent_command(text) is False
+
+
+def test_mixed_block_keeps_index_and_matches_while_pure_chain_stays_silent(ruleset: rules.RuleSet) -> None:
+    """Only an all-silent block is skipped; a mixed one keeps index and matches."""
+    events = [
+        _event("cmd", "lion watch R; sudo apt install foo", time=1.0, line=2),
+        _event("cmd", "lion watch R; lion watch R-", time=2.0, line=3),
+    ]
+    blocks = engine.classify_events(events, ruleset)
+
+    assert [block.index for block in blocks] == [1]
+    assert blocks[0].text == "lion watch R; sudo apt install foo"
+    assert [match.rule_id for match in blocks[0].matches] == ["packages.apt"]
 
 
 def test_classify_recording_wraps_blocks_with_provenance(

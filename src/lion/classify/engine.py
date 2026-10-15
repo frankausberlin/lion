@@ -1,9 +1,11 @@
 """Rule matching over recorded shell input, derived at read time.
 
 Blocks are the non-empty ``cmd`` events that are not the silent in-session
-reads (``lion watch R``/``R-``); comments, results, exits and segment headers
-are never classified. The block text is parsed once with the bounded parser;
-when it leaves the supported syntax subset, the block yields no matches.
+reads (``lion watch R``/``R-``). Silent means every segment is such a read, so
+a mixed block (``lion watch R; sudo apt install foo``) stays classified.
+Comments, results, exits and segment headers are never classified. The block
+text is parsed once with the bounded parser; when it leaves the supported
+syntax subset, the block yields no matches.
 Segment-scope rules match anchored after stripping ``sudo``/``NAME=value``
 prefixes.
 
@@ -66,20 +68,27 @@ class _MaskState:
     mode: str = _MODE_NORMAL
 
 
-def _is_silent(parsed: ParsedCommand) -> bool:
-    if not parsed.supported or not parsed.segments:
-        return False
-    tokens = strip_prefixes(parsed.segments[0]).split()
+def _segment_is_silent(segment: str) -> bool:
+    tokens = strip_prefixes(segment).split()
     if len(tokens) < 3 or tuple(tokens[-2:]) not in _SILENT_TAILS:
         return False
     return tuple(tokens[:-2]) in _SILENT_HEADS
 
 
-def is_silent_command(text: str) -> bool:
-    """Return whether the first segment is a silent ``lion watch R``/``R-`` read.
+def _is_silent(parsed: ParsedCommand) -> bool:
+    if not parsed.supported or not parsed.segments:
+        return False
+    return all(_segment_is_silent(segment) for segment in parsed.segments)
 
-    The terse in-session reads should not appear in their own numbering. The
-    best-effort detection looks at the first segment after stripping ``sudo``
+
+def is_silent_command(text: str) -> bool:
+    """Return whether every segment is a silent ``lion watch R``/``R-`` read.
+
+    The terse in-session reads should not appear in their own numbering. A block
+    is silent only when *all* of its segments are such reads, so a chain such as
+    ``lion watch R; lion watch R-`` stays silent while a mixed block (for
+    example ``lion watch R; sudo apt install foo``) is classified. The
+    best-effort detection looks at each segment after stripping ``sudo``
     prefixes and ``NAME=value`` assignments and accepts ``lion watch R``,
     ``lion watch R-``, ``uv run lion watch R`` and ``uv run lion watch R-``;
     aliases and other wrappers are not recognized (a cosmetic limit).

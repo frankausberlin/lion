@@ -312,6 +312,20 @@ def test_classify_text_and_json_with_policies() -> None:
     assert [match["fields"]["manager"] for match in block["matches"]] == ["apt", "nala"]
 
 
+def test_classify_mixed_silent_block_keeps_policy_results() -> None:
+    """A silent read followed by a real command stays classified with policies."""
+    ref = _record(["lion watch R; sudo apt install foo"])
+    _ = _write_policies(POLICIES_TOML)
+
+    payload = json.loads(_invoke("classify", ref, "--json").stdout)
+
+    (block,) = payload["blocks"]
+    assert block["index"] == 1
+    assert block["commands"][1]["policy_results"] == [
+        {"policy_id": "P01", "status": "fail", "evidence": [{"criterion": "fail", "match_index": 1}]}
+    ]
+
+
 def test_classify_policy_scope_is_limited_to_install_and_remove() -> None:
     """An update matches the rule but not the install/remove policy."""
     ref = _record(["apt update"])
