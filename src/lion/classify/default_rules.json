@@ -128,7 +128,7 @@
       "scope": "segment",
       "match": "^(docker|podman)[[:space:]]+volume[[:space:]]+rm([[:space:]]+-[^[:space:]]+)?[[:space:]]+([^[:space:]]+)",
       "emit": {"engine": "$1", "action": "remove", "target": "$3"},
-      "guard": "none"
+      "guard": "confirm"
     },
     {
       "id": "containers.volume.prune",
@@ -136,7 +136,7 @@
       "scope": "segment",
       "match": "^(docker|podman)[[:space:]]+volume[[:space:]]+prune([[:space:]]|$)",
       "emit": {"engine": "$1", "action": "prune", "target": "volumes"},
-      "guard": "none"
+      "guard": "confirm"
     },
     {
       "id": "shell.source",
@@ -179,6 +179,14 @@
       "guard": "none"
     },
     {
+      "id": "shell.rm.recursive",
+      "group": "shell",
+      "scope": "segment",
+      "match": "(^|[;&|[:space:]])(sudo[[:space:]]+)?rm[[:space:]]+(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)([[:space:]]|$)",
+      "emit": {"action": "rm"},
+      "guard": "confirm"
+    },
+    {
       "id": "downloads.curl",
       "group": "downloads",
       "scope": "segment",
@@ -208,7 +216,7 @@
       "scope": "block",
       "match": "(^|[|;&])[[:space:]]*(sudo[[:space:]]+)?curl[^|]*[|][[:space:]]*(sudo[[:space:]]+)?(sh|bash|zsh)([[:space:]]|$)",
       "emit": {"source": "curl", "action": "pipe-to-shell"},
-      "guard": "none"
+      "guard": "confirm"
     },
     {
       "id": "downloads.wget.pipe",
@@ -216,7 +224,7 @@
       "scope": "block",
       "match": "(^|[|;&])[[:space:]]*(sudo[[:space:]]+)?wget[^|]*[|][[:space:]]*(sudo[[:space:]]+)?(sh|bash|zsh)([[:space:]]|$)",
       "emit": {"source": "wget", "action": "pipe-to-shell"},
-      "guard": "none"
+      "guard": "confirm"
     },
     {
       "id": "interruptions.reboot",
@@ -224,7 +232,7 @@
       "scope": "segment",
       "match": "^(reboot|systemctl[[:space:]]+reboot)([[:space:]]|$)",
       "emit": {"action": "reboot"},
-      "guard": "none"
+      "guard": "confirm"
     },
     {
       "id": "interruptions.shutdown",
@@ -232,7 +240,7 @@
       "scope": "segment",
       "match": "^(shutdown|poweroff|halt)([[:space:]]|$)",
       "emit": {"action": "shutdown"},
-      "guard": "none"
+      "guard": "confirm"
     },
     {
       "id": "interruptions.suspend",

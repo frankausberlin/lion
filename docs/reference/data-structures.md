@@ -237,7 +237,8 @@ format is documented in [Recordings](recordings.md). Without a reference, `show`
 prefers the active recording and otherwise the latest; an empty space is
 `{"recording": null, "events": []}`.
 
-## Config (planned)
+## Configuration
 
-A configuration file (`$XDG_CONFIG_HOME/lion/config.toml`) is planned but not
-implemented yet.
+`$XDG_CONFIG_HOME/lion/config.toml` is optional; a missing file means built-in
+defaults. Its schema, the guard artifact paths and the
+`lion watch dog status --json` shape live in [Configuration](config.md).

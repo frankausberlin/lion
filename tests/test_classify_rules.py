@@ -217,7 +217,13 @@ def test_default_rules_cover_every_group(tmp_path: Path) -> None:
 
 
 def test_default_segment_rules_are_anchored(tmp_path: Path) -> None:
-    """Segment-scope defaults anchor at the start after the prefix strip."""
+    """Segment-scope defaults anchor at the start after the prefix strip.
+
+    ``shell.rm.recursive`` carries the shared raw-buffer prefix class
+    ``(^|[;&|[:space:]])`` instead of a bare ``^``, so the same string also
+    matches ``; rm -rf …`` and ``sudo rm -rf …`` when the watch dog searches
+    the raw ZLE buffer (ADR 0020).
+    """
     for rule in rules.load_ruleset(tmp_path / "missing.json").rules:
         if rule.scope == rules.SCOPE_SEGMENT:
-            assert rule.match.startswith("^")
+            assert rule.match.startswith("^") or rule.match.startswith("(^|[;&|[:space:]])")

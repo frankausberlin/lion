@@ -460,6 +460,7 @@ read the captured events:
   show     print the events of one recording (read-only)
   R        the active recording&#x27;s ADR fields and classified blocks (read-only)
   R-       the previous block&#x27;s one-line classification (read-only)
+  dog      confirm critical input before it runs (guard: on/off/status)
 
 Events are captured in zsh; Python never runs in the input path.
 
@@ -486,6 +487,7 @@ Examples:
   lion watch show latest       print the recorded events
   lion watch R                 ADR fields and blocks of the active recording
   lion watch R-                the previous block in one line
+  lion watch dog on            arm the guard against critical input
   lion watch stop --note "done"
 
 Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
@@ -500,6 +502,7 @@ Secret masking is best-effort; set LION_WATCH_MASK=0 to opt out.
 * `show`: Print the events of one recording...
 * `R`: Show the active recording&#x27;s ADR fields and...
 * `R-`: Show the classified previous block of the...
+* `dog`: Confirm critical input before it runs (guard).
 
 ### `lion watch status`
 
@@ -606,6 +609,101 @@ $ lion watch R- [OPTIONS]
 
 **Options**:
 
+* `--help`: Show this message and exit.
+
+### `lion watch dog`
+
+Confirm critical input before it runs: the watch dog is a guard in your Zsh
+(a ZLE accept-line widget) that asks for a second Enter before a critical
+command executes. Independent of a running recording.
+
+  on       enable the guard: write the config, then compile the rule artifact
+  off      disable it: remove the artifact, then flip the config
+  status   show config intent, rule freshness and integration (read-only)
+
+The rules are the classifier&#x27;s guard: &quot;confirm&quot; rules; the built-in set
+covers recursive rm, reboot/shutdown, volume rm/prune and downloads piped
+into a shell. It is an honest guardrail, not a sandbox: best-effort matching
+on the raw input, and a confirmed command runs.
+
+**Usage**:
+
+```console
+$ lion watch dog [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+Running 'lion watch dog' without an operation shows the status.
+
+The state is intent: watch.dog in ~/.config/lion/config.toml. The artifact
+$XDG_DATA_HOME/lion/dog/rules.zsh is derived from the merged classifier rule
+set; its presence is the effective switch for Zsh, and Python never runs in
+the key path. The first Enter arms the guard and shows the matching rule id,
+editing the buffer cancels, the second Enter executes.
+
+Examples:
+
+  lion watch dog               show the current status
+  lion watch dog on            arm the guard and compile the rules
+  lion watch dog status --json
+  lion watch dog off           disarm in new shells
+
+Changes apply to new shells: run 'exec zsh' or open a new shell. The guard
+loads through the watch integration ('lion shell insert') and needs it to be
+inserted. After a rule change, 'lion watch dog on' recompiles the artifact;
+'lion doctor' reports a stale one.
+
+
+**Commands**:
+
+* `on`: Enable the guard: write the config, then...
+* `off`: Disable the guard: remove the artifact,...
+* `status`: Show the guard state, rule freshness and...
+
+#### `lion watch dog on`
+
+Enable the guard: write the config, then compile the rule artifact.
+
+**Usage**:
+
+```console
+$ lion watch dog on [OPTIONS]
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+#### `lion watch dog off`
+
+Disable the guard: remove the artifact, then flip the config.
+
+**Usage**:
+
+```console
+$ lion watch dog off [OPTIONS]
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+#### `lion watch dog status`
+
+Show the guard state, rule freshness and integration (read-only).
+
+**Usage**:
+
+```console
+$ lion watch dog status [OPTIONS]
+```
+
+**Options**:
+
+* `--json`: Output status as JSON.
 * `--help`: Show this message and exit.
 
 ## `lion records`

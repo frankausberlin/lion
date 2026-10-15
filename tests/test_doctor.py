@@ -10,6 +10,7 @@ import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 from typer.testing import CliRunner
@@ -17,8 +18,9 @@ from typer.testing import CliRunner
 from lion.classify.checks import classifier_checks
 from lion.cli import app
 from lion.command import doctor as command_doctor
-from lion.program import adrs, annotations, doctor, prompts, recording, serve, storage, wiki
+from lion.program import adrs, annotations, doctor, dog, prompts, recording, serve, shell, shlib, storage, wiki
 from lion.program.checks import CheckStatus, DoctorContext, Finding
+from lion.program.config import Config, config_path, write_config
 from lion.program.shlib import BLOCK
 from lion.program.storage import get_data_dir, get_history_dir, get_recos_dir
 from lion.state import diagnosis
@@ -130,7 +132,7 @@ def test_all_ok_writes_nothing(monkeypatch: pytest.MonkeyPatch, doctor_env: Simp
 
     assert result.exit_code == 0
     assert result.stderr == ""
-    assert "Result: 17 ok, 0 warn, 0 error, 10 skip" in result.stdout
+    assert "Result: 17 ok, 0 warn, 0 error, 11 skip" in result.stdout
     assert "Reco script" not in result.stdout
     assert not get_data_dir().exists()
     assert _reco_files() == []
@@ -620,6 +622,101 @@ def test_shell_and_watch_topics_checked(monkeypatch: pytest.MonkeyPatch) -> None
     assert findings["shell.inserted"]["status"] == "skip"
     assert findings["watch.records"]["status"] == "skip"
     assert payload["status"] == "ok"
+
+
+@pytest.fixture
+def dog_validators(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Never run a real Zsh validation from the doctor tests."""
+    monkeypatch.setattr(dog, "validate_zsh", Mock())
+    monkeypatch.setattr(dog, "_zsh_compile_check", Mock())
+
+
+def _insert_integration(home: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Insert a real ~/.zshrc block with the Zsh validators mocked."""
+    (home / ".zshrc").write_text("alias hello='echo hello'\n", encoding="utf-8")
+    monkeypatch.setattr(shell, "validate_zsh", Mock())
+    monkeypatch.setattr(shlib, "_validate", Mock())
+    shell.insert(home)
+
+
+def test_guard_off_is_a_skip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without config and artifact the guard topic is a neutral skip."""
+    _use_state(monkeypatch, _state())
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
+    assert findings["watch.dog"]["status"] == "skip"
+    assert findings["watch.dog"]["message"] == "Guard is off."
+
+
+def test_guard_enabled_without_integration_warns(
+    monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace, dog_validators: None
+) -> None:
+    """Enabled and fresh without the integration: ok state plus one warn."""
+    _use_state(monkeypatch, _state())
+    dog.enable(doctor_env.home)
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
+    assert findings["watch.dog"]["status"] == "ok"
+    assert findings["watch.dog"]["message"] == "Guard armed (7 confirm rules)."
+    assert findings["watch.dog.integration"]["status"] == "warn"
+    assert findings["watch.dog.integration"]["hint"] == "Run 'lion shell insert', then open a new shell."
+    assert len(_reco_files()) == 1
+
+
+def test_guard_armed_and_inserted_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace, dog_validators: None
+) -> None:
+    """A fully installed guard keeps the run all-ok and writes no reco."""
+    _use_state(monkeypatch, _state())
+    _insert_integration(doctor_env.home, monkeypatch)
+    dog.enable(doctor_env.home)
+
+    result = _invoke()
+
+    assert result.exit_code == 0
+    assert "watch.dog: Guard armed (7 confirm rules)." in result.stdout
+    assert "0 warn, 0 error" in result.stdout
+    assert _reco_files() == []
+
+
+def test_guard_stale_artifact_warns(
+    monkeypatch: pytest.MonkeyPatch, doctor_env: SimpleNamespace, dog_validators: None
+) -> None:
+    """A hash mismatch between artifact and rule set warns for a recompile."""
+    _use_state(monkeypatch, _state())
+    write_config(Config(watch_dog=True))
+    target = dog.rules_path()
+    target.parent.mkdir(parents=True)
+    target.write_text(f"{dog.HASH_PREFIX}{'0' * 64}\n", encoding="utf-8")
+
+    result = _invoke("--json")
+
+    assert result.exit_code == 0
+    findings = {item["name"]: item for item in json.loads(result.stdout)["findings"]}
+    assert findings["watch.dog"]["status"] == "warn"
+    assert "stale" in findings["watch.dog"]["message"]
+    assert "lion watch dog on" in findings["watch.dog"]["hint"]
+
+
+def test_guard_broken_config_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An invalid config file is an error naming its path."""
+    _use_state(monkeypatch, _state())
+    path = config_path()
+    path.parent.mkdir(parents=True)
+    path.write_text("schema_version = 2\n", encoding="utf-8")
+
+    result = _invoke()
+
+    assert result.exit_code == 1
+    assert "watch.dog" in result.stdout
+    assert str(path) in result.stdout
+    assert len(_reco_files()) == 1
 
 
 def test_damaged_recording_is_error(monkeypatch: pytest.MonkeyPatch) -> None:

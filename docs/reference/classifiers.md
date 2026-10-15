@@ -44,9 +44,12 @@ output does not repeat the reason, the engine reports no matches instead.
 
 Rules have a `scope`:
 
-- `segment` (default): the pattern is anchored at the segment start
+- `segment` (default): the pattern is matched from the segment start
   (`re.match` semantics after the prefix strip), so printed text such as
-  `echo "sudo nala install"` never matches.
+  `echo "sudo nala install"` never matches. `shell.rm.recursive` carries the
+  raw-buffer prefix class `(^|[;&|[:space:]])` instead of a bare `^`; it is
+  matched from the start as well, and the same string is what the watch dog
+  searches over the raw ZLE buffer.
 - `block` (opt-in): the pattern is searched (`re.search`) in every **masked
   line** of the block — quoted spans and comments are replaced by a separator
   that can neither join two words nor fake a segment start — which allows
@@ -98,7 +101,7 @@ Rule object:
 |`scope`|no|`segment` (default) or `block`|
 |`match`|yes|pattern in the ERE subset (see below)|
 |`emit`|yes|non-empty object; keys are fields of the group, values are literals or `$n` capture references|
-|`guard`|no|`none` (default) or `confirm`; only `none` is evaluated in this version, `confirm` is reserved for the watch dog|
+|`guard`|no|`none` (default) or `confirm`; `confirm` is read by the watch dog (`lion watch dog on`), never by `classify` itself|
 
 `$n` references (`$1` … `$9`, exactly one digit) count **all** parentheses of
 the pattern, including unreferenced groups, as in POSIX ERE. A capture that
@@ -127,6 +130,18 @@ Example user file:
   ]
 }
 ```
+
+## Guards
+
+`guard: "confirm"` marks a rule the **watch dog** compiles into its ZLE
+artifact; `lion classify` and the terse `watch R`/`R-` reads ignore the field.
+`lion watch dog on` renders every confirm rule once (leading `^` widened to
+`(^|[;&|[:space:]])(sudo[[:space:]]+)?` for the raw-buffer search) and writes
+`$XDG_DATA_HOME/lion/dog/rules.zsh`; after a rule change the artifact is stale
+until the next `on` (doctor `watch.dog`). The built-in confirm set and the
+guard's limits are documented in
+[Configuration](config.md#watch-dog) and
+[Guard critical input](../how-to/guard-critical-input.md).
 
 ## The ERE subset
 

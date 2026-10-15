@@ -104,6 +104,8 @@ POSITIVES = [
     ),
     pytest.param("reboot", "interruptions.reboot", {"action": "reboot"}, id="reboot"),
     pytest.param("sudo shutdown -h now", "interruptions.shutdown", {"action": "shutdown"}, id="shutdown"),
+    pytest.param("rm -rf /var/cache", "shell.rm.recursive", {"action": "rm"}, id="rm_recursive"),
+    pytest.param("sudo rm --recursive dir", "shell.rm.recursive", {"action": "rm"}, id="rm_recursive_sudo"),
     pytest.param("logout", "interruptions.logout", {"action": "logout"}, id="logout"),
     pytest.param("apt --version", "checks.version", {"subject": "apt", "intent": "version"}, id="version"),
     pytest.param(
@@ -126,7 +128,25 @@ NEGATIVES = [
     pytest.param("cat <<EOF\nsudo apt install x\nEOF", id="here_document"),
     pytest.param('echo "a\nb" curl | sh', id="quote_continuation_boundary"),
     pytest.param('"a"curl x | sh', id="quote_word_join"),
+    pytest.param("rm -v -rf dir", id="rm_recursive_second_flag"),
+    pytest.param("rm -f dir", id="rm_without_recursive"),
+    pytest.param("firm -rf dir", id="rm_inside_a_word"),
+    pytest.param("echo rm -rf /", id="printed_rm"),
 ]
+
+#: The conservative default confirm set (maintainer decision, E5); every other
+#: default rule stays ``guard: none``.
+CONFIRM_RULE_IDS = frozenset(
+    {
+        "containers.volume.prune",
+        "containers.volume.rm",
+        "downloads.curl.pipe",
+        "downloads.wget.pipe",
+        "interruptions.reboot",
+        "interruptions.shutdown",
+        "shell.rm.recursive",
+    }
+)
 
 
 @pytest.mark.parametrize(("text", "rule_id", "fields"), POSITIVES)
@@ -136,9 +156,14 @@ def test_default_rules_positive_cases(ruleset: rules.RuleSet, text: str, rule_id
     found = [match for match in matches if match.rule_id == rule_id]
     assert len(found) == 1
     assert dict(found[0].fields) == fields
-    assert found[0].guard == "none"
+    assert found[0].guard == ("confirm" if rule_id in CONFIRM_RULE_IDS else "none")
     assert found[0].source == "default"
     assert found[0].group == rule_id.split(".")[0]
+
+
+def test_default_confirm_guard_set(ruleset: rules.RuleSet) -> None:
+    """Exactly the conservative default set carries ``guard: confirm``."""
+    assert {rule.id for rule in ruleset.rules if rule.guard == "confirm"} == CONFIRM_RULE_IDS
 
 
 @pytest.mark.parametrize("text", NEGATIVES)

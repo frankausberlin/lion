@@ -1,6 +1,7 @@
 # 0014 — Watch dog: an `accept-line` guard widget
 
-- **Status:** proposed (E1 draft; to be finalized with the E5 implementation)
+- **Status:** accepted (E1 prototype, implemented in E5; see ADR 0020 for the
+  shipped defaults and data flow)
 - **Date:** 2026-10-12
 
 ## Context

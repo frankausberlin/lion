@@ -1,7 +1,8 @@
 """Insert, remove and inspect the LION watch integration in the user's shell.
 
 The integration is a zsh script that appends shell events to the active
-recording. It lives either as ``~/.shlib/shlibs/90-lion-watch.sh`` (when shlib
+recording and loads the compiled watch-dog guard artifact (ADR 0014) when it is
+present. It lives either as ``~/.shlib/shlibs/90-lion-watch.sh`` (when shlib
 is installed) or as a marked block in ``~/.zshrc``. Exactly one artifact may
 exist; inserting never overwrites, and removing requires a recognized marker.
 
@@ -206,6 +207,41 @@ if (( ${+EPOCHREALTIME} )); then
   add-zsh-hook zshexit _lion_watch_zshexit
   _lion_watch_register_p10k && LION_WATCH_P10K=1
 
+fi
+
+# Watch dog: confirm critical input before it runs (ADR 0014). The guard is
+# active only while the compiled artifact exists ('lion watch dog on' writes
+# it, 'off' removes it); data (patterns, rule ids) comes exclusively from that
+# file. Loading stays silent, uses no process in the key path and only touches
+# interactive shells. The second Enter runs; editing the buffer re-arms.
+
+typeset -g LION_DOG_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/lion/dog/rules.zsh"
+if [[ -o interactive && -r "$LION_DOG_FILE" ]]; then
+  source "$LION_DOG_FILE" 2>/dev/null
+  if (( ${#LION_DOG_PATTERNS} )); then
+    typeset -g LION_DOG_ARMED=''
+    _lion_dog_accept() {
+      local buf=$BUFFER
+      if [[ -n $buf ]]; then
+        local pat idx=0
+        for pat in "${LION_DOG_PATTERNS[@]}"; do
+          idx=$((idx + 1))
+          if [[ $buf =~ $pat ]]; then
+            if [[ $buf == "$LION_DOG_ARMED" ]]; then
+              LION_DOG_ARMED=''; zle .accept-line
+            else
+              LION_DOG_ARMED=$buf
+              zle -M "LION dog: ${LION_DOG_IDS[idx]} — Enter again to run, edit to cancel"
+            fi
+            return
+          fi
+        done
+      fi
+      LION_DOG_ARMED=''; zle .accept-line
+    }
+    zle -N accept-line _lion_dog_accept
+    zle -A accept-line lion-dog-accept
+  fi
 fi
 
 true

@@ -20,6 +20,8 @@ reference reproduces it, and the other pages explain, guide and link.
   use and remove the Zsh shell library.
 - [Record a shell session](how-to/record-shell.md) — insert the watch
   integration, record, stop, read the events and classify the blocks.
+- [Guard critical input](how-to/guard-critical-input.md) — arm the watch dog,
+  confirm or edit before a critical command runs, and disarm it.
 - [Document a decision without a recording](how-to/document-a-decision.md) —
   create, edit and read a standalone ADR with `lion adr`.
 - [Use LION from an MCP client](how-to/use-lion-from-an-mcp-client.md) — run `lion serve`
@@ -36,6 +38,8 @@ reference reproduces it, and the other pages explain, guide and link.
 - [Data structures](reference/data-structures.md) — the stored snapshot, the
   shlib status and the JSON output shapes.
 - [Storage](reference/storage.md) — paths, files, locks and compatibility.
+- [Configuration](reference/config.md) — `config.toml`, the guard artifact and
+  the `watch dog status` shape.
 - [Wiki (OKF v0.2)](reference/wiki.md) — the derived wiki `scan` regenerates:
   files, frontmatter grammar, palette and determinism.
 - [Recordings](reference/recordings.md) — the watch data space, event grammar,
@@ -86,3 +90,4 @@ reference reproduces it, and the other pages explain, guide and link.
 - [0017 — Standalone ADRs live beside the recordings](decisions/0017-standalone-adrs.md)
 - [0018 — The MCP server is a read-only mirror plus ADR writing](decisions/0018-mcp-serve-read-mirror.md)
 - [0019 — Command policies: TOML patterns evaluated per command](decisions/0019-command-policies.md)
+- [0020 — Watch dog E5: config intent, a compiled artifact, config-driven rules](decisions/0020-watch-dog-e5-config-artifact-rules.md)

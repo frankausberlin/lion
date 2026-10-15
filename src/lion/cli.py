@@ -20,6 +20,7 @@ from lion.command.adr import run as run_adr
 from lion.command.classify import run as run_classify
 from lion.command.diff import run as run_diff
 from lion.command.doctor import run as run_doctor
+from lion.command.dog import run as run_dog
 from lion.command.history import run as run_history
 from lion.command.records import run as run_records
 from lion.command.scan import run as run_scan
@@ -36,6 +37,8 @@ from lion.main import (
     CLASSIFY_HELP,
     DIFF_EPILOG,
     DOCTOR_EPILOG,
+    DOG_EPILOG,
+    DOG_HELP,
     HISTORY_EPILOG,
     RECORDS_EPILOG,
     RECORDS_HELP,
@@ -290,6 +293,43 @@ def watch_previous() -> None:
     """Show the classified previous block of the active recording."""
     run_watch("R-", None, False)
 
+
+dog_app = typer.Typer(
+    name="dog",
+    help=DOG_HELP,
+    short_help="Confirm critical input before it runs (guard).",
+    epilog=DOG_EPILOG,
+    invoke_without_command=True,
+    no_args_is_help=False,
+)
+
+
+@dog_app.callback()
+def dog_root(ctx: typer.Context) -> None:
+    """Run ``lion watch dog status`` when no operation is given."""
+    if ctx.invoked_subcommand is None:
+        run_dog("status", False)
+
+
+@dog_app.command("on")
+def dog_on() -> None:
+    """Enable the guard: write the config, then compile the rule artifact."""
+    run_dog("on", False)
+
+
+@dog_app.command("off")
+def dog_off() -> None:
+    """Disable the guard: remove the artifact, then flip the config."""
+    run_dog("off", False)
+
+
+@dog_app.command("status")
+def dog_status(json_output: Annotated[bool, typer.Option("--json", help="Output status as JSON.")] = False) -> None:
+    """Show the guard state, rule freshness and integration (read-only)."""
+    run_dog("status", json_output)
+
+
+watch_app.add_typer(dog_app)
 
 app.add_typer(shell_app)
 app.add_typer(watch_app)

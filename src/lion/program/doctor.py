@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lion.classify.checks import classifier_checks
-from lion.program import adrs, annotations, recording, serve, shell, shlib, storage, wiki
+from lion.program import adrs, annotations, dog, recording, serve, shell, shlib, storage, wiki
 from lion.program.checks import Check, CheckStatus, DoctorContext, Finding
 from lion.state import diagnosis
 
@@ -55,7 +55,7 @@ TOPIC_ORDER: tuple[str, ...] = (
 )
 
 #: The ordered checks ``doctor`` runs as ``(topic, check)`` pairs; the ``watch``
-#: topic carries two checks (recordings and ADR overlays).
+#: topic carries three checks (recordings, ADR overlays and the guard).
 CHECKS: tuple[tuple[str, Check], ...] = (
     ("collectors", diagnosis.collector_checks),
     ("tools", diagnosis.tool_checks),
@@ -66,6 +66,7 @@ CHECKS: tuple[tuple[str, Check], ...] = (
     ("shell", shell.shell_checks),
     ("watch", recording.watch_checks),
     ("watch", annotations.annotations_checks),
+    ("watch", dog.dog_checks),
     ("adr", adrs.adr_checks),
     ("classify", classifier_checks),
     ("serve", serve.serve_checks),

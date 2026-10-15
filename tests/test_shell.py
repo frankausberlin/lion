@@ -320,6 +320,28 @@ def test_artifact_contains_hooks_and_segment() -> None:
     assert "/proc/" not in segment_body
 
 
+def test_artifact_contains_the_dog_guard() -> None:
+    """The delivered artifact carries the interactive-only dog loader and widget."""
+    text = shell.INTEGRATION
+    for needle in (
+        'LION_DOG_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/lion/dog/rules.zsh"',
+        'if [[ -o interactive && -r "$LION_DOG_FILE" ]]; then',
+        'source "$LION_DOG_FILE" 2>/dev/null',
+        "(( ${#LION_DOG_PATTERNS} ))",
+        "_lion_dog_accept() {",
+        "[[ $buf =~ $pat ]]",
+        '[[ $buf == "$LION_DOG_ARMED" ]]',
+        "zle .accept-line",
+        "zle -N accept-line _lion_dog_accept",
+        "zle -A accept-line lion-dog-accept",
+        'zle -M "LION dog: ${LION_DOG_IDS[idx]}',
+    ):
+        assert needle in text
+    dog_block = text[text.index("typeset -g LION_DOG_FILE=") :]
+    assert "python" not in dog_block.lower()
+    assert dog_block.rstrip().endswith("true")
+
+
 def test_block_contains_integration() -> None:
     """The inlined block wraps the artifact in markers on their own lines."""
     block = shell.block_text()

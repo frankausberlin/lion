@@ -393,6 +393,20 @@ class Zsh:
         self._log_step("interrupt")
         self._tmux("send-keys", "-t", self._session, "C-c")
 
+    def type_text(self, text: str) -> None:
+        """Type literal text into the ZLE input buffer without pressing Enter.
+
+        Used by the guard scenarios to build and edit a buffer across several
+        Enter presses (``send("")`` presses Enter alone): the text goes through
+        tmux ``send-keys -l``, so zsh receives exactly these characters.
+        """
+        self._send_literal(text)
+
+    def clear_line(self) -> None:
+        """Clear the ZLE input buffer (Ctrl-U), discarding the current line."""
+        self._log_step("clear-line")
+        self._tmux("send-keys", "-t", self._session, "C-u")
+
     def _fresh_output(self, previous: int, fallback: str) -> str:
         """Return the pane text after the prompt with sequence ``previous``.
 

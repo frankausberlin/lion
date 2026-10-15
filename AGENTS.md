@@ -146,10 +146,18 @@ just audit       # dependency vulnerability scan
   otherwise a marked `# >>>>>> LION watch` block in `~/.zshrc` — never
   overwrites (timestamped backup, `zsh -n` check, marker line required by
   `remove`), and `status` is read-only (mode, path, `inserted`, `modified`,
-  warnings). `command/shell.py` and `command/watch.py` follow the command
+  warnings). The delivered script also loads the guard artifact
+  (`$XDG_DATA_HOME/lion/dog/rules.zsh`) when it is readable: interactive shells
+  only, silent, no process; the `_lion_dog_accept` widget confirms on the
+  second Enter via buffer equality and publishes the `lion-dog-accept` handle.
+  `command/shell.py` and `command/watch.py` follow the command
   pattern; `shell` and `watch` are Typer sub-apps whose bare invocation runs
   their `status`. `command/watch.py` collects at most once per operation
   (`status`, `start`, `stop`); `list`/`show` never collect.
+  `command/dog.py` implements `lion watch dog` (`status`/`on`/`off`; a nested
+  Typer sub-app whose bare invocation runs `status`; `--json` only for
+  `status`); status/on/off never collect, and on/off write only the config and
+  the derived artifact through `program/dog.py`.
 - `program/recording.py` owns the watch recordings under
   `$XDG_DATA_HOME/lion/recordings`: `start_recording`/`stop_recording` are the
   only writers (clock guard, never overwriting, `active` pointer via `os.link`),
@@ -173,7 +181,22 @@ just audit       # dependency vulnerability scan
   bare invocation runs `status`); the read commands never collect and never
   write, and the `scan`/`status`/`watch` JSON contracts stay unchanged.
   `watch list`/`watch show` remain untouched.
-- `program/adrs.py` owns the standalone ADRs (decisions without a recording)
+-   `program/config.py` owns the optional config file
+  (`$XDG_CONFIG_HOME/lion/config.toml`, ADR 0009; the first real consumer):
+  the frozen `Config`, `config_path()`/`load_config()` (missing file =
+  defaults; anything else strict and loud with the path) and the atomic
+  `write_config()` (mode `600`); only the guard toggles write it.
+  `program/dog.py` owns the watch guard (ADR 0014/0020): `get_dog_dir()`/
+  `rules_path()` under `$XDG_DATA_HOME/lion/dog`, the pure
+  `render_rules(ruleset)` (confirm rules only, header hash, deterministic), the
+  compile gate (`zsh -n` plus one Zsh `=~` run over all patterns; control
+  characters refused), `write_rules()` (`os.replace`, `600`),
+  `read_rules_hash()`, the read-only `dog_status()`/`DogStatus` and
+  `enable()`/`disable()` (`enable`: config first, artifact second — fail-safe;
+  idempotent refresh; `disable`: artifact first) plus `dog_checks`.
+  Layout: `typeset -ga LION_DOG_PATTERNS/LION_DOG_IDS`, leading `^` widened to
+  `(^|[;&|[:space:]])(sudo[[:space:]]+)?` for the raw-buffer search.
+  `program/adrs.py` owns the standalone ADRs (decisions without a recording)
   under `$XDG_DATA_HOME/lion/adrs`: the schema-1 document model
   (`AdrDocument`), the parser/validator, `list_adrs`/`load_adr`/`resolve_adr`,
   `create_adr` (published with `os.link`, `~NNNN` collision suffix, mode
@@ -204,7 +227,9 @@ just audit       # dependency vulnerability scan
   deterministically and attaches per-command matches plus policy results when
   policies are loaded; `text.py` (`sanitize_controls`) strips C0/C1
   control characters from every terminal-facing classifier text; `checks.py`
-  owns the doctor check `classify.ruleset`. `command/classify.py` implements
+  owns the doctor check `classify.ruleset`. `guard: "confirm"` marks rules
+  the watch dog compiles into its artifact (ADR 0020); `classify` and the
+  terse reads ignore the field. `command/classify.py` implements
   `lion classify` (policies change only its output, never its exit code) and
   shares `preview`/`matches_text` with the terse `watch R`/`R-` reads in
   `command/watch.py` (both text-only, read-only, never collect, and
@@ -234,12 +259,14 @@ just audit       # dependency vulnerability scan
   `program/wiki.py` (`wiki_checks`),
   `program/shlib.py` (`shlib_checks`), `program/shell.py` (`shell_checks`),
   `program/recording.py` (`watch_checks`), `program/annotations.py`
-  (`annotations_checks`), `program/adrs.py` (`adr_checks`),
+  (`annotations_checks`), `program/dog.py` (`dog_checks`: `watch.dog`,
+  `watch.dog.integration`), `program/adrs.py` (`adr_checks`),
   `classify/checks.py` (`classifier_checks`) and `program/serve.py`
   (`serve_checks`);
   `program/doctor.py` only runs, orders and renders them (`TOPIC_ORDER`
   includes `wiki`, `shell`, `watch`, `adr`, `classify` and `serve`; `CHECKS` is
-  an ordered tuple of `(topic, check)` pairs, so the `watch` topic carries two);
+  an ordered tuple of `(topic, check)` pairs, so the `watch` topic carries
+  three);
   `command/doctor.py` resolves the home, collects once and publishes at most one
   `reco.sh` under `$XDG_DATA_HOME/lion/recos` when any finding is
   `warn`/`error`. `doctor` writes nothing when everything is `ok`/`skip`, and
@@ -290,8 +317,24 @@ just audit       # dependency vulnerability scan
   (timestamped backup + `zsh -n` before writing `~/.zshrc`), `remove` requires
   the marker line, `status` is read-only, and the zsh side loads silently
   (instant-prompt safe) with no process and no scan in the input path. Masking
-  is best-effort (`LION_WATCH_MASK=0` opts out) and documented as such; the
-  dog guard is not part of E2.
+  is best-effort (`LION_WATCH_MASK=0` opts out) and documented as such.
+- The watch dog (guard, ADR 0014/0020): the config key `[watch] dog` is the
+  intent, the artifact `$XDG_DATA_HOME/lion/dog/rules.zsh` (mode `600`) the
+  switch; the artifact is derived from the merged rule set's `guard: "confirm"`
+  rules, never a second rule source, and its header hash makes staleness
+  detectable. `watch dog status` is read-only and validates loudly (broken
+  config or `classifier.json` = error with path); `on`/`off` never collect and
+  write in the fail-safe order (config→artifact on `on`, artifact→config on
+  `off`); `on` is an idempotent refresh; compile gates (`zsh -n` + one Zsh
+  `=~` run over all patterns, control characters refused) fail before any
+  write, so a previous artifact survives. Matching is best-effort on the raw
+  ZLE buffer (leading `^` widened to `(^|[;&|[:space:]])(sudo[[:space:]]+)?`;
+  block patterns unchanged; only the first `rm` flag token recognized; second
+  Enter = buffer equality; edits re-arm); changes apply to new shells only,
+  and shells that already loaded the guard keep it until restart. The
+  integration is the only loader; `watch.dog`/`watch.dog.integration` are the
+  doctor findings (stale/missing artifact, disabled-but-present, missing
+  integration = warn; broken config/rules = error).
 - ADRs live inside their recording and are derived from the raw events on every
   read (no new event writer): marker lines count only as full comment lines
   outside strings and here-documents; unreadable annotation input is a visible
@@ -419,13 +462,16 @@ just audit       # dependency vulnerability scan
   coverage does not replace assertions about behavior.
 - Ordinary pytest runs and `just check` exclude the `e2e` marker. When changing
   package detection, the collector set, persisted CLI lifecycles, shlib, the
-  watch capture/recordings/shell integration, the wiki renderer or the
+  watch capture/recordings/shell integration, the watch dog (guard artifact,
+  config intent, guard rules), the wiki renderer or the
   `scan`/`status` text index, the `doctor` checks or the reco
   paths, the MCP server (`serve`, including its prompts and redaction), or the
   E2E runner, also run `just test-e2e`. The watch E2E scenarios
   drive a real interactive zsh inside tmux in the disposable container
-  (`tests/e2e/watchutil.py`) and read results only from spool/record files,
-  never from the terminal text. Never run the real package lifecycle on a
+  (`tests/e2e/watchutil.py`) and read results only from spool/record files and
+  filesystem side effects, never from the terminal text (the guard scenario
+  reads the `zle -M` message only as a synchronization step, not as its
+  success criterion). Never run the real package lifecycle on a
   workstation.
 - Read [tests/e2e/README.md](tests/e2e/README.md) before running or extending
   the E2E suite. It owns setup, isolation, diagnostics, the alpha-testing
@@ -524,6 +570,9 @@ just audit       # dependency vulnerability scan
   frontmatter grammar, palette, determinism). Keep it in sync with
   `program/wiki.py`; the palette tokens and the frontmatter key order are
   public API.
+- `docs/reference/config.md` is the home of the config schema and the guard
+  shapes (`watch.dog`, the artifact path, the `watch dog status --json`
+  contract); keep it in sync with `program/config.py` and `program/dog.py`.
 - Every statement has exactly one home: move prose between README and `docs/`
   instead of copying it, and link rather than restate.
 

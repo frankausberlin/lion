@@ -177,7 +177,7 @@ def test_classify_blocks_from_a_real_recording(runner: Runner, env: dict[str, st
             "source": "default",
             "group": "downloads",
             "fields": {"source": "curl", "action": "pipe-to-shell"},
-            "guard": "none",
+            "guard": "confirm",
         },
     ]
 
