@@ -172,6 +172,7 @@ sudo nala install -y git zsh curl openssh-server
 curl -LsSf https://astral.sh/uv/install.sh | sh
 git clone https://github.com/frankausberlin/lion ~/gits/lion
 chsh -s $(which zsh)
+echo "setopt INTERACTIVE_COMMENTS" >> ~/.zshrc
 # you have to re-login
 ```
 
