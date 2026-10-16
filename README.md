@@ -185,7 +185,7 @@ lion scan
 lion shlib install
 ```
 
-4. Organize Shell Library
+## Organize Shell Library
 
 > * Follow these [instructions](docs/how-to/organize-shlib.md) to organize the Shell Library.
 
