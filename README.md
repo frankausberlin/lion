@@ -179,11 +179,10 @@ echo "setopt INTERACTIVE_COMMENTS" >> ~/.zshrc
 2. Log out and log in
 > * **Re-login required** to activate zsh.
 
-3. Install lion, scan and shlib
+3. Install lion, scan, shlib and shell integration
 ```shell
 cd ~/gits/lion && uv sync && uv tool install .
-lion scan
-lion shlib install
+lion scan && lion shlib install && lion shell insert
 ```
 
 ## Organize Shell Library
