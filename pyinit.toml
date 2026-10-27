@@ -1,0 +1,22 @@
+[pyinit]
+schema = 1
+version = "0.1.0"
+profile = "cli-mcp"
+mode = "app"
+artifacts = [
+    "agent-docs",
+    "adr",
+    "ap",
+    "cli",
+    "mcp-server",
+    "e2e",
+    "agent",
+    "refactor",
+]
+generated_at = "2026-10-27T21:13:10Z"
+
+[project]
+name = "lion"
+package = "lion"
+python = "3.12"
+contract_version = 4

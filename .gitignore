@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+.Python
+*.egg-info/
+build/
+dist/
+
+# Environments & secrets
+.venv/
+.env
+
+# Tool caches
+.direnv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Documentation build output (library projects)
+site/
+
+# Refactoring artifacts (generated)
+.refactor/
+
+# Agent artifacts
+.kilo/
+
+# Opt-in suite artifacts
+e2e-artifacts.*
+agent-artifacts.*
+
+# Freestyle scratch space
+ignore/
