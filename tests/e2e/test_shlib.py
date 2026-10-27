@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 from pathlib import Path
 
@@ -105,6 +106,50 @@ def test_drift_uninstall_and_reinstall(tmp_path: Path) -> None:
     sourced = _zsh(home, 'source "$HOME/.zshrc"; printf "%s|%s\\n" "$ORIGINAL" "$FROM_SHLIB"')
     assert sourced.returncode == 0, sourced.stderr
     assert sourced.stdout.strip() == "1|yes"
+    assert sourced.stderr == ""
+
+
+def test_uninstall_splits_owner_only_exports(tmp_path: Path) -> None:
+    """Owner-only exports are sourced from the backup and never inlined."""
+    home = _make_home(tmp_path)
+    assert _lion(home, "shlib", "install").returncode == 0
+    exports = home / ".shlib" / "exports"
+    (exports / "PUBLIC").write_text("public-value\n", encoding="utf-8")
+    (exports / "GROUP").write_text("group-value\n", encoding="utf-8")
+    (exports / "SECRET").write_text("s3cr3t-value\n", encoding="utf-8")
+    (exports / "PUBLIC").chmod(0o644)
+    (exports / "GROUP").chmod(0o640)
+    (exports / "SECRET").chmod(0o600)
+
+    dry = _lion(home, "shlib", "uninstall", "--dry-run")
+    assert dry.returncode == 0, dry.stderr
+    assert "1 owner-only export file(s) would not be flattened" in dry.stdout
+    assert "secrets.sh" in dry.stdout
+    assert "s3cr3t-value" not in dry.stdout
+    assert (home / ".shlib").is_dir()
+    assert not list(home.glob(".shlib.uninstalled-*"))
+
+    result = _lion(home, "shlib", "uninstall")
+    assert result.returncode == 0, result.stderr
+    assert "s3cr3t-value" not in result.stdout + result.stderr
+
+    zshrc = (home / ".zshrc").read_text(encoding="utf-8")
+    assert "# >>> shlib uninstall: secrets" in zshrc
+    assert 'source "$HOME/.shlib.uninstalled-' in zshrc
+    assert "s3cr3t-value" not in zshrc
+    assert "export PUBLIC=public-value" in zshrc
+    assert "export GROUP=group-value" in zshrc
+
+    backups = list(home.glob(".shlib.uninstalled-*"))
+    assert len(backups) == 1
+    secrets_file = backups[0] / "secrets.sh"
+    assert secrets_file.is_file()
+    assert stat.S_IMODE(secrets_file.stat().st_mode) == 0o600
+    assert "s3cr3t-value" in secrets_file.read_text(encoding="utf-8")
+
+    sourced = _zsh(home, 'source "$HOME/.zshrc"; printf "%s|%s|%s\\n" "$PUBLIC" "$GROUP" "$SECRET"')
+    assert sourced.returncode == 0, sourced.stderr
+    assert sourced.stdout.strip() == "public-value|group-value|s3cr3t-value"
     assert sourced.stderr == ""
 
 

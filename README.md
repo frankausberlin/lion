@@ -59,6 +59,10 @@ file and replaces `~/.zshrc` with a bootstrap block. Files in
 named `NN-*.sh` are sourced in sorted order. `uninstall` combines everything
 into a flat `~/.zshrc` and keeps the old tree as
 `~/.shlib.uninstalled-<timestamp>`; it does not restore the previous file.
+Owner-only exports (`chmod 600`, also `400`) are not inlined: `uninstall`
+writes them to `secrets.sh` inside the backup (mode `0600`) and sources that
+file from the flat `~/.zshrc`. The backup is then part of the shell
+configuration; deleting it makes zsh report the missing file.
 Use `--force` only when you deliberately accept a modified or unlocked
 `~/.zshrc`. See [docs/shlib.md](docs/shlib.md) for the layout, ordering rules
 and safety behavior.

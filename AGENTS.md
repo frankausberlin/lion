@@ -98,6 +98,20 @@ Nummer wird nicht neu vergeben.
 - **Kontext**: Das Backup heißt `~/.shlib.uninstalled-<UTC-Zeitstempel>` und
   bleibt unverändert liegen; `install` kann danach sofort erneut laufen.
 
+### AP-3: secrets.sh im Backup ist Teil der neuen .zshrc
+
+- **Situation**: `lion shlib uninstall` schreibt owner-only Exporte nicht
+  inline, sondern nach `~/.shlib.uninstalled-<Zeitstempel>/secrets.sh` und
+  sourced die Datei aus der neuen `~/.zshrc`.
+- **Handhabung**: Marker ist `mode & 0o077 == 0` (`chmod 600`, auch `400`);
+  `0644`/`0640` sind öffentlich. Keine Werte in Ausgabe oder Tests. Keinen
+  Guard, keinen stabilen Pfad und keine Migration ergänzen. Doku und Ausgabe
+  müssen das Backup als Teil der Shell-Konfiguration benennen; das Löschen ist
+  Sache des Nutzers.
+- **Involvierte ADRs**: ADR-0002
+- **Kontext**: Der Nutzer hat die Verantwortung für Secrets bewusst
+  übernommen; das Werkzeug liefert nur den Hinweis und die Einbindung.
+
 ## Herkunft
 
 - lupysta_version: `0.14.0`

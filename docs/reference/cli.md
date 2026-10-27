@@ -91,6 +91,9 @@ $ lion shlib install [OPTIONS]
 
 Flatten the shlib layout into ~/.zshrc and keep the old tree as a backup.
 
+Owner-only export files are written to ``secrets.sh`` inside the backup and
+sourced from the flattened ``.zshrc`` instead of being inlined.
+
 **Usage**:
 
 ```console

@@ -35,7 +35,9 @@ validiert sie und schreibt daraus eine flache `~/.zshrc`. Danach wird der alte
 Baum nach `~/.shlib.uninstalled-<UTC-Zeitstempel>` umbenannt. Der Rückbau
 flacht ab und sichert; er stellt die frühere Datei nicht wieder her. Ein
 vorhandener `shlibs/`-Ordner ist Pflicht. Weicht `~/.zshrc` von der Lock-Datei
-ab oder fehlt die Lock-Datei, ist `--force` nötig.
+ab oder fehlt die Lock-Datei, ist `--force` nötig. Owner-only Exporte werden
+dabei nicht inline geschrieben, sondern in `secrets.sh` im Backup abgespalten
+und aus der neuen `~/.zshrc` gesourced; Einzelheiten regelt ADR-0002.
 
 Beide Befehle haben `--home` für Wegwerf-Homes und `--dry-run` für eine
 vollständige, schreibfreie Preflight-Prüfung. Es gibt keine interaktiven

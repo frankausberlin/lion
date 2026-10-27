@@ -41,6 +41,10 @@ already contains the bootstrap marker. Directories are created with mode
 `0700` because exports can hold secrets. The copied original keeps its content
 and mode. The lock file is mode `0644`.
 
+After `uninstall`, `~/.shlib` is renamed to
+`~/.shlib.uninstalled-<timestamp>/`. When owner-only exports exist, that backup
+also contains `secrets.sh`; see [Owner-only exports](#owner-only-exports).
+
 ## Load order
 
 The bootstrap first checks the lock file, then loads exports, then sources
@@ -61,6 +65,29 @@ shlib files:
 
 A file without a final newline is padded before the next section marker when
 `uninstall` flattens it, so entries never merge.
+
+## Owner-only exports
+
+An export file whose permission bits grant no access to group or others
+(`mode & 0o077 == 0`, for example `0600` or `0400`) is treated as owner-only
+when `uninstall` flattens the tree. Such files are not written into
+`~/.zshrc`. Their values go into
+`~/.shlib.uninstalled-<timestamp>/secrets.sh` with mode `0600`, and the new
+`~/.zshrc` sources that file. The original export files also remain in
+`backup/exports/`.
+
+Use `chmod 600 FILE` for a file that should be treated as a secret; `0644` is
+the normal mode and stays inline. `0640` is also public because group
+permission bits are set. The marker applies only to `uninstall`; `install` and
+the bootstrap export every file regardless of mode. Detection is mode-based, so
+tools that normalize permissions to `0644` can turn a secret back into an
+inline export.
+
+The source line has no guard and no fallback. Once `secrets.sh` exists, the
+backup directory is part of your shell configuration: keep it, or move the
+file deliberately and update the `source` line in `~/.zshrc`. If the file is
+missing, zsh reports the failed `source` on every start. `uninstall` reports
+the count, path and marker rule, but never the names or values.
 
 ## Install behavior
 
@@ -85,11 +112,19 @@ written completely before anything is moved. Then `~/.shlib` is renamed to
 `~/.shlib.uninstalled-<YYYYMMDDTHHMMSSZ>`; a collision gets `-1`, `-2`, and so
 on.
 
+Owner-only exports are split off as described above. The flat file contains
+only public exports; `secrets.sh` is written first inside `~/.shlib` with mode
+`0600`, so it moves with the rename. The flat file contains a notice and an
+active `source "$HOME/.shlib.uninstalled-.../secrets.sh"` line, placed after
+the public exports and before the shlib files. Without owner-only exports, no
+`secrets.sh` is created and the flat file is byte-identical to the previous
+behavior.
+
 The previous `~/.zshrc` is **flattened, not restored**. The backup keeps the
-old tree and the flat file contains everything that was loaded, but no rollback
-command is provided. A missing `~/.zshrc` is created; a missing `shlibs/`
-directory always aborts because a damaged tree must not silently produce an
-empty configuration.
+old tree and the flat file contains everything that was loaded, directly or
+through the sourced secrets file, but no rollback command is provided. A
+missing `~/.zshrc` is created; a missing `shlibs/` directory always aborts
+because a damaged tree must not silently produce an empty configuration.
 
 The lock check protects manual edits. If `~/.zshrc` differs from the lock file,
 or the lock file is missing while `~/.zshrc` exists, `uninstall` requires
@@ -104,6 +139,12 @@ tree, invalid export names or NUL bytes in export values.
   symlinked tree is never moved.
 - Export values cannot contain NUL bytes. Files are handled as UTF-8 with
   `surrogateescape`, so non-UTF-8 shlib content survives the round trip.
+- Owner-only detection uses permission bits only: `0600` and `0400` are
+  secrets, `0640` and `0644` are public. Tools that normalize modes can change
+  the result of a later `uninstall`.
+- With owner-only exports the backup is part of the shell configuration.
+  Deleting or moving it makes zsh fail to source `secrets.sh` on every start.
+  There is no guard, no stable secret path and no migration.
 - There is no locking and no migration of an existing `~/.shlib` tree. The
   commands are designed for a single interactive user.
 - `--purge`, restore, interactive prompts and shells other than zsh are not

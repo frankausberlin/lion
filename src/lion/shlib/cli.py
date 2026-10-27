@@ -71,7 +71,11 @@ def uninstall_command(
     dry_run: DryRunOption = False,
     force: ForceOption = False,
 ) -> None:
-    """Flatten the shlib layout into ~/.zshrc and keep the old tree as a backup."""
+    """Flatten the shlib layout into ~/.zshrc and keep the old tree as a backup.
+
+    Owner-only export files are written to ``secrets.sh`` inside the backup and
+    sourced from the flattened ``.zshrc`` instead of being inlined.
+    """
     try:
         layout = ShlibLayout.from_option(home)
     except ShlibError as exc:
@@ -83,6 +87,7 @@ def uninstall_command(
 
     for warning in plan.warnings:
         typer.echo(f"warning: {_display_text(warning, layout.home)}")
+    _print_secret_notice(plan, dry_run=dry_run)
 
     if dry_run:
         _print_uninstall_plan(plan)
@@ -145,13 +150,46 @@ def _print_install_report(report: InstallReport, layout: ShlibLayout) -> None:
     typer.echo(f"Wrote shlib bootstrap to {_display(report.zshrc, home)}")
 
 
+def _export_summary(plan: UninstallPlan | UninstallReport) -> str:
+    """Return the export count wording for a plan or report."""
+    exports = len(plan.export_names)
+    if plan.secret_names:
+        return f"{exports} public export(s), {len(plan.secret_names)} owner-only export(s)"
+    return f"{exports} export(s)"
+
+
+def _print_secret_notice(plan: UninstallPlan, *, dry_run: bool) -> None:
+    """Print the owner-only export notice without revealing names or values."""
+    if not plan.secret_names:
+        return
+    home = plan.layout.home
+    zshrc = _display(plan.zshrc, home)
+    secrets_path = _display(plan.secrets_path, home)
+    count = len(plan.secret_names)
+    if dry_run:
+        flattened = f"{count} owner-only export file(s) would not be flattened into {zshrc}."
+        stored = f"They would be stored in {secrets_path} (mode 0600)"
+        sourced = f"and would be sourced by {zshrc}."
+        backup = "The backup directory would become part of your shell configuration; keep it or"
+    else:
+        flattened = f"{count} owner-only export file(s) were not flattened into {zshrc}."
+        stored = f"They are stored in {secrets_path} (mode 0600)"
+        sourced = f"and are sourced by {zshrc}."
+        backup = "The backup directory is now part of your shell configuration; keep it or"
+    typer.echo(f"warning: {flattened}")
+    typer.echo(f"         {stored}")
+    typer.echo(f"         {sourced}")
+    typer.echo("         Only exports without group/other permission bits (chmod 600) are treated as secrets.")
+    typer.echo(f"         {backup}")
+    typer.echo(f"         move the file and update {zshrc}.")
+
+
 def _print_uninstall_plan(plan: UninstallPlan) -> None:
     """Print what an uninstallation would do."""
     home = plan.layout.home
-    exports = len(plan.export_names)
     shlibs = len(plan.shlib_files)
     typer.echo(
-        f"Would write flattened {_display(plan.zshrc, home)} with {exports} export(s) and {shlibs} shlib file(s)."
+        f"Would write flattened {_display(plan.zshrc, home)} with {_export_summary(plan)} and {shlibs} shlib file(s)."
     )
     typer.echo(f"Would move {_display(plan.layout.root, home)} to {_display(plan.backup, home)}")
 
@@ -159,8 +197,9 @@ def _print_uninstall_plan(plan: UninstallPlan) -> None:
 def _print_uninstall_report(report: UninstallReport, layout: ShlibLayout) -> None:
     """Print the result of an uninstallation."""
     home = layout.home
-    exports = len(report.export_names)
     shlibs = len(report.shlib_files)
-    typer.echo(f"Wrote flattened {_display(report.zshrc, home)} with {exports} export(s) and {shlibs} shlib file(s).")
+    typer.echo(
+        f"Wrote flattened {_display(report.zshrc, home)} with {_export_summary(report)} and {shlibs} shlib file(s)."
+    )
     typer.echo(f"Moved {_display(layout.root, home)} to {_display(report.backup, home)}")
     typer.echo(f"Backup: {_display(report.backup, home)}")
