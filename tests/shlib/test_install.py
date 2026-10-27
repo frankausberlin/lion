@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import shutil
 import stat
 from pathlib import Path
@@ -16,6 +17,13 @@ from lion.shlib.install import apply_install, plan_install
 from lion.shlib.layout import ShlibLayout
 
 runner = CliRunner()
+
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    """Return text without the ANSI styling Rich adds on terminals."""
+    return _ANSI_ESCAPE.sub("", text)
 
 
 def _mode(path: Path) -> int:
@@ -183,5 +191,6 @@ def test_install_cli_help_lists_options() -> None:
     result = runner.invoke(app, ["shlib", "install", "--help"])
 
     assert result.exit_code == 0
-    assert "--home" in result.output
-    assert "--dry-run" in result.output
+    help_text = strip_ansi(result.output)
+    assert "--home" in help_text
+    assert "--dry-run" in help_text

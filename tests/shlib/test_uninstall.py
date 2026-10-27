@@ -18,6 +18,13 @@ from lion.shlib.uninstall import apply_uninstall, flatten, plan_uninstall
 
 runner = CliRunner()
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def strip_ansi(text: str) -> str:
+    """Return text without the ANSI styling Rich adds on terminals."""
+    return _ANSI_ESCAPE.sub("", text)
+
 
 def _install(layout: ShlibLayout) -> None:
     """Install a fresh shlib tree."""
@@ -302,8 +309,9 @@ def test_uninstall_cli_help_lists_force() -> None:
     result = runner.invoke(app, ["shlib", "uninstall", "--help"])
 
     assert result.exit_code == 0
-    assert "--force" in result.output
-    assert "--dry-run" in result.output
+    help_text = strip_ansi(result.output)
+    assert "--force" in help_text
+    assert "--dry-run" in help_text
 
 
 def test_uninstall_rejects_missing_root(home: Path, layout: ShlibLayout) -> None:
