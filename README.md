@@ -42,6 +42,27 @@ stdout before startup. The smoke tests call the server through the in-memory
 `Client` from the SDK.
 
 
+## shlib
+
+`lion shlib` installs and removes a zsh configuration layout below `~/.shlib`.
+
+```bash
+lion shlib install --dry-run   # validate and show the plan
+lion shlib install             # write ~/.shlib and replace ~/.zshrc
+lion shlib uninstall           # flatten back into ~/.zshrc, keep a backup
+```
+
+Prerequisites are zsh and GNU `diffutils` (`diff`, `cmp`). `install` copies the
+original `~/.zshrc` to `~/.shlib/shlibs/00-original-zshrc.sh`, writes a lock
+file and replaces `~/.zshrc` with a bootstrap block. Files in
+`~/.shlib/exports/` become environment variables; files in `~/.shlib/shlibs/`
+named `NN-*.sh` are sourced in sorted order. `uninstall` combines everything
+into a flat `~/.zshrc` and keeps the old tree as
+`~/.shlib.uninstalled-<timestamp>`; it does not restore the previous file.
+Use `--force` only when you deliberately accept a modified or unlocked
+`~/.zshrc`. See [docs/shlib.md](docs/shlib.md) for the layout, ordering rules
+and safety behavior.
+
 ## Documentation
 
 ```bash

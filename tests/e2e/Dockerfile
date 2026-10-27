@@ -16,6 +16,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY tests/ tests/
 ENV PATH="/app/.venv/bin:$PATH"
 
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends zsh diffutils \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN useradd --uid 10001 --no-create-home --shell /bin/sh e2e \
     && mkdir /artifacts \
     && chown e2e:e2e /artifacts

@@ -1,5 +1,5 @@
 <!-- Generated file. Do not edit by hand. -->
-<!-- Source: src/lion/cli.py. Regenerate with: just docs -->
+<!-- Source: the lion Typer app (src/lion/cli.py and sub-apps). Regenerate with: just docs -->
 
 # CLI reference
 
@@ -21,6 +21,7 @@ $ lion [OPTIONS] COMMAND [ARGS]...
 
 * `hello`: Print a greeting.
 * `mcp`: Run the MCP server over stdio.
+* `shlib`: Install or remove the zsh shlib layout.
 
 ## `lion hello`
 
@@ -49,4 +50,56 @@ $ lion mcp [OPTIONS]
 
 **Options**:
 
+* `--help`: Show this message and exit.
+
+## `lion shlib`
+
+Install or remove the zsh shlib layout.
+
+**Usage**:
+
+```console
+$ lion shlib [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+**Commands**:
+
+* `install`: Install the shlib layout and replace...
+* `uninstall`: Flatten the shlib layout into ~/.zshrc and...
+
+### `lion shlib install`
+
+Install the shlib layout and replace ~/.zshrc with the bootstrap block.
+
+**Usage**:
+
+```console
+$ lion shlib install [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--dry-run`: Run all checks and show the plan without changing anything.
+* `--help`: Show this message and exit.
+
+### `lion shlib uninstall`
+
+Flatten the shlib layout into ~/.zshrc and keep the old tree as a backup.
+
+**Usage**:
+
+```console
+$ lion shlib uninstall [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--dry-run`: Run all checks and show the plan without changing anything.
+* `--force`: Overwrite a .zshrc that differs from the lock file or has no lock file.
 * `--help`: Show this message and exit.

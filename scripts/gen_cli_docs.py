@@ -1,9 +1,9 @@
 """Regenerate or verify ``docs/reference/cli.md`` from the Typer application.
 
 The CLI reference is a generated artifact: the source of truth is the Typer app
-in ``src/lion/cli.py`` and its help texts. This script runs
-Typer's own documentation generator, prepends the "do not edit" header and
-writes ``docs/reference/cli.md`` in place.
+in ``src/lion/cli.py``, including its sub-apps such as ``lion shlib``. This
+script runs Typer's own documentation generator, prepends the "do not edit"
+header and writes ``docs/reference/cli.md`` in place.
 
 Run it through ``just docs`` (write) or ``just docs-check`` (verify only). Never
 edit the output by hand.
@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 OUTPUT = REPO_ROOT / "docs" / "reference" / "cli.md"
 
 HEADER = """<!-- Generated file. Do not edit by hand. -->
-<!-- Source: src/lion/cli.py. Regenerate with: just docs -->
+<!-- Source: the lion Typer app (src/lion/cli.py and sub-apps). Regenerate with: just docs -->
 
 """
 
