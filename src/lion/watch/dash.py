@@ -18,6 +18,7 @@ def collect_dash_findings(
     layout: ShlibLayout,
     *,
     render_diffs: bool = True,
+    max_bytes: int | None = None,
 ) -> tuple[WatchFinding, ...]:
     """Compare locked dash entries against their lock copies.
 
@@ -29,6 +30,8 @@ def collect_dash_findings(
         layout: Paths below the selected home directory.
         render_diffs: Whether changed entries include the unified diff body.
             With ``False`` only the summary line is emitted.
+        max_bytes: Optional size limit for lock and target content. Larger
+            entries are reported without being read.
 
     Returns:
         Findings sorted by dash entry name.
@@ -55,7 +58,7 @@ def collect_dash_findings(
         lock = layout.lock_for(child.name)
         if not _exists(lock):
             continue
-        finding = _check_entry(layout, child.name, child, lock, render_diffs=render_diffs)
+        finding = _check_entry(layout, child.name, child, lock, render_diffs=render_diffs, max_bytes=max_bytes)
         if finding is not None:
             findings.append(finding)
     return tuple(findings)
@@ -79,6 +82,7 @@ def _check_entry(
     lock: Path,
     *,
     render_diffs: bool,
+    max_bytes: int | None = None,
 ) -> WatchFinding | None:
     """Return the finding for one locked dash entry, if any."""
     home = layout.home
@@ -115,6 +119,18 @@ def _check_entry(
             name=name,
             kind="not_regular",
             lines=(f"dash: {name}: target is not a regular file: {_show(target, home)}",),
+        )
+
+    try:
+        lock_size = lock.stat().st_size
+    except OSError as exc:
+        return _read_error(name, f"cannot inspect lock {_show(lock, home)}: {exc}")
+    if max_bytes is not None and (status.st_size > max_bytes or lock_size > max_bytes):
+        return WatchFinding(
+            source=SOURCE,
+            name=name,
+            kind="too_large",
+            lines=(f"dash: {name}: content exceeds {max_bytes} bytes",),
         )
 
     try:

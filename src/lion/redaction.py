@@ -81,6 +81,9 @@ _PLACEHOLDER_PATTERNS = (
     re.compile(r"^<.*>$"),
 )
 
+_PEM_BEGIN = re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")
+_PEM_END = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")
+
 
 @dataclass(frozen=True, slots=True)
 class _ProviderRule:
@@ -94,16 +97,6 @@ class _ProviderRule:
 
 
 _PROVIDER_RULES = (
-    _ProviderRule(
-        kind="private-key",
-        rule="provider.private_key",
-        pattern=re.compile(
-            r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----.*?-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----",
-            re.DOTALL,
-        ),
-        confidence=99,
-        multiline=True,
-    ),
     _ProviderRule(
         kind="aws-access-key",
         rule="provider.aws_access_key",
@@ -261,6 +254,7 @@ def find_secrets(text: str, *, key_name: str | None = None) -> tuple[SecretFindi
         wins an overlap; provider rules win ties against generic rules.
     """
     candidates: list[SecretFinding] = []
+    candidates.extend(_pem_findings(text))
     candidates.extend(_provider_findings(text))
     candidates.extend(_url_findings(text))
     candidates.extend(_assignment_findings(text))
@@ -290,17 +284,26 @@ def scan_file(path: Path, *, key_name: str | None = None) -> ScanResult:
         oversized files are skipped and never produce content findings.
     """
     try:
-        info = path.stat()
-    except OSError:
-        return ScanResult(findings=(), skipped="unreadable")
-    if not stat.S_ISREG(info.st_mode):
+        handle = path.open("rb")
+    except IsADirectoryError:
         return ScanResult(findings=(), skipped="not a regular file")
-    if info.st_size > MAX_SCAN_BYTES:
-        return ScanResult(findings=(), skipped="larger than 1 MiB")
-    try:
-        data = path.read_bytes()
     except OSError:
         return ScanResult(findings=(), skipped="unreadable")
+    with handle:
+        try:
+            info = os.fstat(handle.fileno())
+        except OSError:
+            return ScanResult(findings=(), skipped="unreadable")
+        if not stat.S_ISREG(info.st_mode):
+            return ScanResult(findings=(), skipped="not a regular file")
+        if info.st_size > MAX_SCAN_BYTES:
+            return ScanResult(findings=(), skipped="larger than 1 MiB")
+        try:
+            data = handle.read(MAX_SCAN_BYTES + 1)
+        except OSError:
+            return ScanResult(findings=(), skipped="unreadable")
+    if len(data) > MAX_SCAN_BYTES:
+        return ScanResult(findings=(), skipped="larger than 1 MiB")
     if b"\x00" in data:
         return ScanResult(findings=(), skipped="binary content")
     try:
@@ -374,6 +377,12 @@ def read_key(path: Path) -> bytes | None:
     if not path.is_file():
         raise RedactionKeyError(f"{path} is not a regular file")
     try:
+        size = path.stat().st_size
+    except OSError as exc:
+        raise RedactionKeyError(f"cannot inspect {path}: {exc}") from exc
+    if size != KEY_SIZE:
+        raise RedactionKeyError(f"{path} must contain exactly {KEY_SIZE} bytes")
+    try:
         data = path.read_bytes()
     except OSError as exc:
         raise RedactionKeyError(f"cannot read {path}: {exc}") from exc
@@ -420,6 +429,31 @@ def fingerprint(value: str, key: bytes) -> str:
         The first 12 hexadecimal characters of the HMAC-SHA256 digest.
     """
     return hmac.new(key, value.encode("utf-8", "surrogateescape"), hashlib.sha256).hexdigest()[:12]
+
+
+def _pem_findings(text: str) -> list[SecretFinding]:
+    """Return private-key blocks using a linear scan instead of a lazy regex."""
+    findings: list[SecretFinding] = []
+    position = 0
+    while True:
+        begin = _PEM_BEGIN.search(text, position)
+        if begin is None:
+            break
+        end = _PEM_END.search(text, begin.end())
+        if end is None:
+            break
+        findings.append(
+            SecretFinding(
+                kind="private-key",
+                rule="provider.private_key",
+                start=begin.start(),
+                end=end.end(),
+                confidence=99,
+                multiline=True,
+            )
+        )
+        position = end.end()
+    return findings
 
 
 def _provider_findings(text: str) -> list[SecretFinding]:
@@ -548,12 +582,59 @@ def _value_span(content: str, value_start: int) -> tuple[int, int]:
     stripped = value.lstrip()
     offset = value_start + (len(value) - len(stripped))
     if stripped[:1] in {"'", '"'}:
-        quote = stripped[0]
-        closing = stripped.find(quote, 1)
-        if closing != -1:
-            return offset + 1, offset + closing
-        return offset, len(content)
+        start, end = _quoted_span(stripped)
+        return offset + start, offset + end
     return offset, len(content)
+
+
+def _quoted_span(value: str) -> tuple[int, int]:
+    """Return the inner span of contiguous shell-quoted value segments.
+
+    Adjacent quoted segments such as ``"a""b"`` are treated as one value; the
+    first and last quote are kept and everything between them is masked. A
+    value that continues unquoted after the quoted part is masked to the end of
+    the line, so no fragment stays visible.
+
+    Args:
+        value: Assignment value starting with a quote.
+
+    Returns:
+        Local start and end offsets for the span to mask.
+    """
+    segment_start = 0
+    last_close = -1
+    while segment_start < len(value) and value[segment_start] in {"'", '"'}:
+        close = _closing_quote(value, segment_start)
+        if close == -1:
+            return 1, len(value)
+        last_close = close
+        next_index = close + 1
+        if next_index < len(value) and value[next_index] in {"'", '"'}:
+            segment_start = next_index
+            continue
+        remainder = value[next_index:].strip()
+        if remainder and not remainder.startswith("#"):
+            return 1, len(value)
+        return 1, last_close
+    return 0, len(value)
+
+
+def _closing_quote(value: str, start: int) -> int:
+    """Return the index of the closing quote, or ``-1`` when it is missing.
+
+    Double-quoted shell strings treat a backslash as escaping the next
+    character; single-quoted strings have no escapes.
+    """
+    quote = value[start]
+    index = start + 1
+    while index < len(value):
+        if quote == '"' and value[index] == "\\":
+            index += 2
+            continue
+        if value[index] == quote:
+            return index
+        index += 1
+    return -1
 
 
 def _entropy_confidence(value: str) -> int:

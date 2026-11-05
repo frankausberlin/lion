@@ -188,6 +188,7 @@ def test_install_dry_run_changes_nothing(home: Path) -> None:
 
     assert result.exit_code == 0
     assert "Would copy" in result.output
+    assert "Would create redaction key" in result.output
     assert "Dry run: no changes made." in result.output
     assert not (home / ".shlib").exists()
     assert (home / ".zshrc").read_bytes() == zshrc_bytes
@@ -200,6 +201,7 @@ def test_install_cli_success(home: Path) -> None:
     assert result.exit_code == 0
     assert "Created:" in result.output
     assert "Wrote lock file" in result.output
+    assert "Wrote redaction key" in result.output
     assert "source ~/.zshrc" in result.output
     assert (home / ".shlib" / "locks" / "shlib-version-of.zshrc").read_bytes() == BOOTSTRAP.encode()
 

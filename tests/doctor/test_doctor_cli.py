@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from pathlib import Path
 
 import pytest
@@ -159,3 +160,14 @@ def test_doctor_fix_reports_action_errors(installed: ShlibLayout, home: Path, mo
     assert result.exit_code == 2
     assert "error: write failed" in result.stderr
     assert "doctor:" in result.output
+
+
+def test_doctor_fix_warns_that_missing_shlibs_content_is_lost(installed: ShlibLayout, home: Path) -> None:
+    """Creating an empty shlibs directory names the content loss."""
+    shutil.rmtree(installed.shlibs)
+
+    result = runner.invoke(app, ["doctor", "--home", str(home), "--fix"])
+
+    assert result.exit_code == 0
+    assert "restores no content" in result.output
+    assert installed.shlibs.is_dir()

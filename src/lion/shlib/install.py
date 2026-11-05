@@ -24,6 +24,7 @@ class InstallPlan:
         directories: Directories to create with mode ``0700``.
         original: Destination of the copied original ``.zshrc``.
         lock_file: Lock file that mirrors the new ``.zshrc``.
+        redaction_key: New per-installation secret redaction key.
         zshrc: Configuration file to replace.
         original_mode: Permission bits of the original ``.zshrc``.
         bootstrap: Exact bootstrap bytes for the new ``.zshrc`` and lock.
@@ -33,6 +34,7 @@ class InstallPlan:
     directories: tuple[Path, ...]
     original: Path
     lock_file: Path
+    redaction_key: Path
     zshrc: Path
     original_mode: int
     bootstrap: bytes
@@ -46,12 +48,14 @@ class InstallReport:
         directories: Directories created by the installation.
         original: Created copy of the original ``.zshrc``.
         lock_file: Written lock file.
+        redaction_key: Created secret redaction key.
         zshrc: Replaced configuration file.
     """
 
     directories: tuple[Path, ...]
     original: Path
     lock_file: Path
+    redaction_key: Path
     zshrc: Path
 
 
@@ -98,6 +102,7 @@ def plan_install(layout: ShlibLayout) -> InstallPlan:
         directories=(root, layout.locks, layout.shlibs, layout.exports, layout.dash),
         original=layout.original,
         lock_file=layout.lock_file,
+        redaction_key=layout.redaction_key,
         zshrc=zshrc,
         original_mode=original_mode,
         bootstrap=BOOTSTRAP.encode(),
@@ -142,5 +147,6 @@ def apply_install(plan: InstallPlan) -> InstallReport:
         directories=plan.directories,
         original=plan.original,
         lock_file=plan.lock_file,
+        redaction_key=plan.redaction_key,
         zshrc=plan.zshrc,
     )

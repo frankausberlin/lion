@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import os
 import stat
 from pathlib import Path
 
 import pytest
 
+import lion.redaction as redaction_module
 from lion.redaction import (
     KEY_MODE,
     KEY_SIZE,
@@ -188,13 +190,38 @@ def test_scan_file_reports_read_errors(tmp_path: Path, monkeypatch: pytest.Monke
     """A read error skips the file instead of raising."""
     path = tmp_path / "value"
     path.write_text("x\n", encoding="utf-8")
-    original = Path.read_bytes
 
-    def fail_read(self: Path) -> bytes:
-        if self == path:
-            raise OSError("denied")
-        return original(self)
+    def fail_fstat(descriptor: int) -> os.stat_result:
+        raise OSError("denied")
 
-    monkeypatch.setattr(Path, "read_bytes", fail_read)
+    monkeypatch.setattr(redaction_module.os, "fstat", fail_fstat)
 
     assert scan_file(path).skipped == "unreadable"
+
+
+def test_scan_file_rejects_a_file_that_grows_past_the_cap(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file larger than the cap is rejected after a bounded read."""
+    path = tmp_path / "value"
+    path.write_bytes(b"a" * (MAX_SCAN_BYTES + 1))
+    original = redaction_module.os.fstat
+
+    def grow_fstat(descriptor: int) -> os.stat_result:
+        result = original(descriptor)
+        return os.stat_result(
+            (
+                result.st_mode,
+                result.st_ino,
+                result.st_dev,
+                result.st_nlink,
+                result.st_uid,
+                result.st_gid,
+                16,
+                result.st_atime,
+                result.st_mtime,
+                result.st_ctime,
+            )
+        )
+
+    monkeypatch.setattr(redaction_module.os, "fstat", grow_fstat)
+
+    assert scan_file(path).skipped == "larger than 1 MiB"

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import re
+import shlex
 import stat
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from lion.dash.registry import (
     unlock_entry,
 )
 from lion.output import display_path, display_text
-from lion.redaction import RedactionKeyError, create_key, read_key, scan_file
+from lion.redaction import MAX_SCAN_BYTES, RedactionKeyError, create_key, read_key, scan_file
 from lion.shlib.bootstrap import ORIGINAL_NAME
 from lion.shlib.it import UNSORTED_NAME
 from lion.shlib.layout import ShlibLayout
@@ -161,6 +162,9 @@ def plan_fixes(layout: ShlibLayout) -> FixPlan:
                 )
 
     notes: list[str] = []
+    shlibs_created = any(action.kind == "create_dir" and action.path == layout.shlibs for action in actions)
+    if shlibs_created:
+        notes.append(f"creating {display_path(layout.shlibs, home)} restores no content; original shlib files are gone")
     dash_created = any(action.kind == "create_dir" and action.path == layout.dash for action in actions)
     if dash_created and _is_real_directory(layout.locks) and _lock_files(layout.locks):
         notes.append("pre-existing locks will be classified as orphaned only on a later explicit `lion doctor --fix`")
@@ -205,6 +209,8 @@ def _apply_action(layout: ShlibLayout, action: FixAction) -> None:
     if action.kind == "remove_lock":
         if action.name is None:
             raise OSError("missing lock name")
+        if action.path.is_symlink() or not action.path.is_file():
+            raise OSError("lock is no longer a regular file; refusing to remove it")
         unlock_entry(layout, action.name)
         return
     raise OSError(f"unknown fix action: {action.kind}")
@@ -414,7 +420,6 @@ def _dash_findings(layout: ShlibLayout) -> list[Finding]:
         )
         entries = ()
     for entry in entries:
-        display = display_path(entry.path, home)
         if entry.kind == KIND_BROKEN:
             findings.append(
                 Finding(
@@ -422,7 +427,7 @@ def _dash_findings(layout: ShlibLayout) -> list[Finding]:
                     severity=WARNING,
                     summary=f"dash entry {entry.name!r} is a broken link",
                     path=entry.path,
-                    hint=f"rm {display}",
+                    hint=f"rm -- {_shell_ref(entry.path, home)}",
                 )
             )
         elif entry.kind == KIND_NOT_A_LINK:
@@ -469,7 +474,7 @@ def _dash_findings(layout: ShlibLayout) -> list[Finding]:
         )
 
     try:
-        watch_findings = collect_findings(layout, render_diffs=False)
+        watch_findings = collect_findings(layout, render_diffs=False, max_bytes=MAX_SCAN_BYTES)
     except WatchError as exc:
         findings.append(
             Finding(
@@ -495,14 +500,21 @@ def _watch_finding(finding: WatchFinding) -> Finding | None:
             code="dash.locked_changed",
             severity=WARNING,
             summary=f"dash entry {finding.name!r} {what}",
-            hint=f"restore the target or run `lion dash lock {finding.name}`",
+            hint=f"restore the target or run `lion dash lock -- {shlex.quote(finding.name)}`",
         )
     if finding.kind == "missing":
         return Finding(
             code="dash.missing_target",
             severity=WARNING,
             summary=f"dash entry {finding.name!r} has a missing target",
-            hint=f"restore the target or run `lion dash lock {finding.name}`",
+            hint=f"restore the target or run `lion dash lock -- {shlex.quote(finding.name)}`",
+        )
+    if finding.kind == "too_large":
+        return Finding(
+            code="dash.too_large",
+            severity=WARNING,
+            summary=f"dash entry {finding.name!r} cannot be compared: content exceeds the scan limit",
+            hint="inspect the target manually; doctor does not read large dash files",
         )
     if finding.kind == "read_error":
         return Finding(
@@ -641,7 +653,9 @@ def _scan_export_findings(layout: ShlibLayout) -> list[Finding]:
             key_name = secret.key_name or entry.name
             hint = None
             if public:
-                hint = f"review the value and run `chmod 600 {display}`; doctor never changes secrets"
+                hint = (
+                    f"review the value and run `chmod 600 -- {_shell_ref(entry, home)}`; doctor never changes secrets"
+                )
             findings.append(
                 Finding(
                     code="exports.possible_secret",
@@ -724,9 +738,20 @@ def _is_real_directory(path: Path) -> bool:
     return not path.is_symlink() and path.is_dir()
 
 
+def _shell_ref(path: Path, home: Path) -> str:
+    """Return a shell-safe path reference that keeps ``~`` for the home."""
+    if path == home:
+        return "~"
+    try:
+        relative = path.relative_to(home)
+    except ValueError:
+        return shlex.quote(str(path))
+    return "~/" + "/".join(shlex.quote(part) for part in relative.parts)
+
+
 def _is_sourced(name: str) -> bool:
     """Return whether the bootstrap sources a shlib file name."""
-    return len(name) >= 2 and name[:2].isdigit()
+    return len(name) >= 2 and name[:2].isascii() and name[:2].isdigit()
 
 
 def _file_entries(directory: Path) -> tuple[Path, ...]:

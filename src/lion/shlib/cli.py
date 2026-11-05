@@ -303,6 +303,7 @@ def _print_install_plan(plan: InstallPlan) -> None:
         typer.echo(f"  {_display(directory, home)}")
     typer.echo(f"Would copy {_display(plan.zshrc, home)} to {_display(plan.original, home)}")
     typer.echo(f"Would write lock file: {_display(plan.lock_file, home)}")
+    typer.echo(f"Would create redaction key: {_display(plan.redaction_key, home)} (mode 0600)")
     typer.echo(f"Would replace {_display(plan.zshrc, home)} with the shlib bootstrap")
 
 
@@ -314,6 +315,7 @@ def _print_install_report(report: InstallReport, layout: ShlibLayout) -> None:
         typer.echo(f"  {_display(directory, home)}")
     typer.echo(f"Copied {_display(layout.zshrc, home)} to {_display(report.original, home)}")
     typer.echo(f"Wrote lock file: {_display(report.lock_file, home)}")
+    typer.echo(f"Wrote redaction key: {_display(report.redaction_key, home)} (mode 0600)")
     typer.echo(f"Wrote shlib bootstrap to {_display(report.zshrc, home)}")
 
 

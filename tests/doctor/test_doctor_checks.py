@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import os
+import shlex
 import shutil
 from pathlib import Path
 
 from lion.doctor import collect_diagnosis
+from lion.redaction import MAX_SCAN_BYTES
 from lion.shlib.layout import ShlibLayout
 
 
@@ -202,7 +204,7 @@ def test_changed_locked_entry_has_no_diff_body(installed: ShlibLayout, home: Pat
     assert "new value" not in finding.summary
     assert "old value" not in finding.summary
     assert "--- lock" not in finding.summary
-    assert finding.hint is not None and "lion dash lock conf" in finding.hint
+    assert finding.hint is not None and "lion dash lock -- conf" in finding.hint
 
 
 def test_orphan_lock_is_fixable_but_not_removed(installed: ShlibLayout) -> None:
@@ -354,3 +356,81 @@ def test_manual_count_excludes_fixable_and_info(installed: ShlibLayout, home: Pa
     assert len(report.fixable) == 1
     assert all(not finding.fixable for finding in report.manual)
     assert all(finding.severity in {"warning", "error"} for finding in report.manual)
+
+
+def test_unreadable_shlibs_is_reported_instead_of_raising(installed: ShlibLayout) -> None:
+    """A permission error while inspecting shlibs becomes a finding."""
+    installed.shlibs.chmod(0)
+    try:
+        report = collect_diagnosis(installed)
+    finally:
+        installed.shlibs.chmod(0o700)
+
+    assert report.exit_code == 2
+    assert any(finding.code == "shlib.inconsistent" for finding in report.findings)
+
+
+def test_non_ascii_digits_are_not_sourced(installed: ShlibLayout) -> None:
+    """Non-ASCII digits do not count as a sourced shlib name."""
+    (installed.shlibs / "\u0661\u0662foo.sh").write_text("x\n", encoding="utf-8")
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "shlib.invalid_name")
+
+    assert finding.severity == "warning"
+    assert report.exit_code == 1
+
+
+def test_large_dash_content_is_reported_without_reading(installed: ShlibLayout, home: Path) -> None:
+    """Doctor caps dash comparison input and reports oversized entries."""
+    target = home / "target"
+    target.write_bytes(b"a" * (MAX_SCAN_BYTES + 1))
+    (installed.dash / "conf").symlink_to(target)
+    installed.lock_for("conf").write_bytes(b"old\n")
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "dash.too_large")
+
+    assert finding.severity == "warning"
+    assert report.exit_code == 1
+
+
+def test_broken_link_hint_quotes_the_entry_name(installed: ShlibLayout, home: Path) -> None:
+    """Shell hints quote metacharacters in dash entry names."""
+    name = "x; touch pwned"
+    (installed.dash / name).symlink_to(home / "missing")
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "dash.broken_link")
+
+    assert finding.hint is not None
+    assert shlex.quote(name) in finding.hint
+
+
+def test_changed_entry_hint_quotes_the_entry_name(installed: ShlibLayout, home: Path) -> None:
+    """The dash lock hint quotes metacharacters in entry names."""
+    name = "x; touch pwned"
+    target = home / "target"
+    target.write_text("new\n", encoding="utf-8")
+    (installed.dash / name).symlink_to(target)
+    installed.lock_for(name).write_bytes(b"old\n")
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "dash.locked_changed")
+
+    assert finding.hint is not None
+    assert shlex.quote(name) in finding.hint
+
+
+def test_export_secret_hint_quotes_the_file_name(installed: ShlibLayout) -> None:
+    """The chmod hint quotes export names with shell metacharacters."""
+    name = "DB_PASSWORD; touch pwned"
+    path = installed.exports / name
+    path.write_text("hunter2\n", encoding="utf-8")
+    path.chmod(0o644)
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "exports.possible_secret")
+
+    assert finding.hint is not None
+    assert shlex.quote(name) in finding.hint

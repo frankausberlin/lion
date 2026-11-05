@@ -43,6 +43,64 @@ def test_pem_block_is_detected_as_multiline() -> None:
     assert findings[0].multiline
 
 
+def test_multiple_pem_blocks_are_separate_findings() -> None:
+    """Two complete PEM blocks do not merge into one span."""
+    block = "-----BEGIN PRIVATE KEY-----\nAAAA\n-----END PRIVATE KEY-----\n"
+
+    findings = find_secrets(block + block)
+
+    assert len(findings) == 2
+    assert all(finding.kind == "private-key" for finding in findings)
+
+
+def test_unmatched_pem_markers_are_linear() -> None:
+    """A large input without END markers does not trigger a retry per BEGIN."""
+    text = "-----BEGIN PRIVATE KEY-----" * 40_000
+
+    findings = find_secrets(text)
+
+    assert findings == ()
+
+
+def test_escaped_quote_is_fully_masked() -> None:
+    """An escaped quote does not end the masked span early."""
+    text = 'PASSWORD="pa\\"ss"\n'
+
+    masked, _ = mask_text(text, find_secrets(text), None)
+
+    assert masked == 'PASSWORD="[REDACTED:password]"\n'
+    assert 'pa\\"ss' not in masked
+
+
+def test_adjacent_quoted_segments_are_fully_masked() -> None:
+    """Adjacent quoted segments are masked as one value."""
+    text = 'PASSWORD="abc""def"\n'
+
+    masked, _ = mask_text(text, find_secrets(text), None)
+
+    assert masked == 'PASSWORD="[REDACTED:password]"\n'
+    assert "def" not in masked
+
+
+def test_unquoted_continuation_is_masked_to_end_of_line() -> None:
+    """A value that continues after a quoted part never exposes the rest."""
+    text = 'PASSWORD="abc"def\n'
+
+    masked, _ = mask_text(text, find_secrets(text), None)
+
+    assert "def" not in masked
+    assert masked.startswith('PASSWORD="[REDACTED:password]')
+
+
+def test_trailing_comment_stays_visible() -> None:
+    """A comment after a quoted value is not part of the masked span."""
+    text = 'PASSWORD="abc" # note\n'
+
+    masked, _ = mask_text(text, find_secrets(text), None)
+
+    assert masked == 'PASSWORD="[REDACTED:password]" # note\n'
+
+
 def test_url_password_is_masked_alone() -> None:
     """A URL userinfo password is masked without hiding user or host."""
     text = "url = https://user:s3cr3t@example.test/path"

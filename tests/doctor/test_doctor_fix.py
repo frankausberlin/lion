@@ -186,3 +186,21 @@ def test_missing_name_for_lock_removal_is_an_error(installed: ShlibLayout) -> No
     outcome = execute_fixes(installed, plan)
 
     assert any("missing lock name" in error for error in outcome.errors)
+
+
+def test_fix_refuses_lock_replaced_by_symlink(installed: ShlibLayout, home: Path) -> None:
+    """A lock swapped to a symlink after planning is not deleted."""
+    lock = installed.locks / "ghost.lock"
+    lock.write_bytes(b"x")
+    plan = plan_fixes(installed)
+    target = home / "target"
+    target.write_bytes(b"keep")
+    lock.unlink()
+    lock.symlink_to(target)
+
+    outcome = execute_fixes(installed, plan)
+
+    assert outcome.errors
+    assert "regular file" in outcome.errors[0]
+    assert lock.is_symlink()
+    assert target.read_bytes() == b"keep"

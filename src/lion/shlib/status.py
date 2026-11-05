@@ -254,15 +254,22 @@ def _count_shlibs(layout: ShlibLayout, issues: list[str]) -> int:
 
 def _cleanup_file_state(path: Path, issues: list[str]) -> tuple[str, bool]:
     """Return whether a cleanup-only shlib file exists and its human-readable size."""
-    if not path.exists() and not path.is_symlink():
+    try:
+        is_symlink = path.is_symlink()
+        exists = path.exists()
+    except OSError as exc:
+        issues.append(f"cannot inspect {path}: {exc}")
+        return "yes", True
+
+    if not exists and not is_symlink:
         return "no", False
-    if path.is_symlink():
+    if is_symlink:
         issues.append(f"{path} is a symlink; shlib sources only regular files")
         return "yes", True
-    if path.is_dir():
-        issues.append(f"{path} is a directory")
-        return "yes", True
     try:
+        if path.is_dir():
+            issues.append(f"{path} is a directory")
+            return "yes", True
         size = path.stat().st_size
     except OSError as exc:
         issues.append(f"cannot stat {path}: {exc}")

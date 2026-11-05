@@ -27,7 +27,7 @@ shlib:
     hint: run `lion shlib it`
 dash:
   warning dash.broken_link: dash entry 'conf' is a broken link [manual]
-    hint: rm ~/.shlib/dash/conf
+    hint: rm -- ~/.shlib/dash/conf
 security:
   ok
 doctor: 0 fixable, 1 manual
@@ -72,13 +72,14 @@ remaining state; a failed action forces exit `2`.
 
 ### dash and locks
 
-- `dash.missing`: warning, fixable; creates `dash/` with mode `0700`.
-- `dash.broken_link`: warning with a manual `rm ~/.shlib/dash/<name>` hint.
+- `dash.broken_link`: warning with a manual `rm -- ~/.shlib/dash/<name>` hint.
 - `dash.not_a_link`, `dash.directory`, `dash.other`: warning; `lock` and
   `watch` cannot use these entries.
 - `dash.unlocked`: info with a count, never a warning.
 - `dash.locked_changed`: warning for a locked entry that changed. The report
   never includes the watch diff.
+- `dash.too_large`: warning for a locked entry whose content exceeds the scan
+  limit; doctor does not read it.
 - `dash.lock_not_regular`: error for a lock that is a symlink or not a regular
   file.
 - `locks.orphan`: warning, fixable; a regular `*.lock` without a matching dash
@@ -117,6 +118,9 @@ It never creates `~/.shlib` itself, never deletes or retargets a dash link,
 never touches a changed locked target, never repairs a non-regular lock and
 never edits a suspected secret. All fixes are refused when `~/.shlib` is
 missing, symlinked or not a directory.
+
+When the plan creates a missing `shlibs/`, it prints that the original shlib
+content is not restored. The created directory is empty by design.
 
 When `dash/` was missing, the first `--fix` creates it and deliberately does
 not delete any locks in the same run. Pre-existing locks are classified as
