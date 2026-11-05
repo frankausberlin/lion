@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import stat
 from dataclasses import dataclass
+from pathlib import Path
 
-from lion.shlib.bootstrap import BOOTSTRAP_BEGIN
+from lion.shlib.bootstrap import BOOTSTRAP_BEGIN, ORIGINAL_NAME
 from lion.shlib.errors import ShlibError
 from lion.shlib.it import UNSORTED_NAME
 from lion.shlib.layout import ShlibLayout
@@ -28,6 +29,8 @@ class StatusReport:
         exports: Number of regular, non-hidden export files.
         owner_only_exports: Number of those files with ``mode & 0o077 == 0``.
         shlibs: Number of files the bootstrap sources.
+        original: Human-readable state of ``00-original-zshrc.sh``.
+        original_exists: Whether ``00-original-zshrc.sh`` exists as an entry.
         unsorted: Human-readable state of ``99-unsorted.sh``.
         unsorted_exists: Whether ``99-unsorted.sh`` exists as an entry.
         backups: Number of ``~/.shlib.uninstalled-*`` directories.
@@ -42,6 +45,8 @@ class StatusReport:
     exports: int
     owner_only_exports: int
     shlibs: int
+    original: str
+    original_exists: bool
     unsorted: str
     unsorted_exists: bool
     backups: int
@@ -66,11 +71,12 @@ def collect_status(layout: ShlibLayout) -> StatusReport:
     zshrc, zshrc_detail = _zshrc_state(layout, installation, issues)
     exports, owner_only = _count_exports(layout, issues)
     shlibs = _count_shlibs(layout, issues)
-    unsorted, unsorted_exists = _unsorted_state(layout, issues)
+    original, original_exists = _cleanup_file_state(layout.shlibs / ORIGINAL_NAME, issues)
+    unsorted, unsorted_exists = _cleanup_file_state(layout.shlibs / UNSORTED_NAME, issues)
     backups = _count_backups(layout, issues)
 
     inconsistent = issues or installation == INCONSISTENT
-    warning = installation != INSTALLED or zshrc == "drift" or unsorted_exists
+    warning = installation != INSTALLED or zshrc == "drift" or original_exists or unsorted_exists
     if inconsistent:
         exit_code = 2
     elif warning:
@@ -86,6 +92,8 @@ def collect_status(layout: ShlibLayout) -> StatusReport:
         exports=exports,
         owner_only_exports=owner_only,
         shlibs=shlibs,
+        original=original,
+        original_exists=original_exists,
         unsorted=unsorted,
         unsorted_exists=unsorted_exists,
         backups=backups,
@@ -244,21 +252,20 @@ def _count_shlibs(layout: ShlibLayout, issues: list[str]) -> int:
     return count
 
 
-def _unsorted_state(layout: ShlibLayout, issues: list[str]) -> tuple[str, bool]:
-    """Return whether ``99-unsorted.sh`` exists and its human-readable size."""
-    target = layout.shlibs / UNSORTED_NAME
-    if not target.exists() and not target.is_symlink():
+def _cleanup_file_state(path: Path, issues: list[str]) -> tuple[str, bool]:
+    """Return whether a cleanup-only shlib file exists and its human-readable size."""
+    if not path.exists() and not path.is_symlink():
         return "no", False
-    if target.is_symlink():
-        issues.append(f"{target} is a symlink; shlib sources only regular files")
+    if path.is_symlink():
+        issues.append(f"{path} is a symlink; shlib sources only regular files")
         return "yes", True
-    if target.is_dir():
-        issues.append(f"{target} is a directory")
+    if path.is_dir():
+        issues.append(f"{path} is a directory")
         return "yes", True
     try:
-        size = target.stat().st_size
+        size = path.stat().st_size
     except OSError as exc:
-        issues.append(f"cannot stat {target}: {exc}")
+        issues.append(f"cannot stat {path}: {exc}")
         return "yes", True
     if size == 0:
         return "yes (empty)", True

@@ -15,7 +15,7 @@ from typer.testing import CliRunner
 
 import lion.shlib.cli as shlib_cli
 from lion.cli import app
-from lion.shlib.bootstrap import BOOTSTRAP
+from lion.shlib.bootstrap import BOOTSTRAP, ORIGINAL_NAME
 from lion.shlib.install import apply_install, plan_install
 from lion.shlib.it import UNSORTED_NAME
 from lion.shlib.layout import ShlibLayout
@@ -48,6 +48,11 @@ def _target(layout: ShlibLayout) -> Path:
     return layout.shlibs / UNSORTED_NAME
 
 
+def _original(layout: ShlibLayout) -> Path:
+    """Return the copied original configuration."""
+    return layout.shlibs / ORIGINAL_NAME
+
+
 def _write_export(layout: ShlibLayout, name: str, data: str, *, mode: int = 0o644) -> Path:
     """Write an export file with an explicit mode independent of the umask."""
     path = layout.exports / name
@@ -69,6 +74,8 @@ def test_status_not_installed(home: Path, layout: ShlibLayout) -> None:
 
     assert report.installation == NOT_INSTALLED
     assert report.zshrc == "ok"
+    assert report.original == "no"
+    assert not report.original_exists
     assert report.unsorted == "no"
     assert not report.unsorted_exists
     assert report.exports == 0
@@ -78,8 +85,8 @@ def test_status_not_installed(home: Path, layout: ShlibLayout) -> None:
     assert report.exit_code == 1
 
 
-def test_status_installed_without_warnings(home: Path, layout: ShlibLayout) -> None:
-    """A clean installation is green and exits 0."""
+def test_status_original_is_yellow(home: Path, layout: ShlibLayout) -> None:
+    """A fresh installation keeps the original cleanup file and is yellow."""
     _install(layout)
 
     report = collect_status(layout)
@@ -90,6 +97,25 @@ def test_status_installed_without_warnings(home: Path, layout: ShlibLayout) -> N
     assert report.exports == 0
     assert report.owner_only_exports == 0
     assert report.shlibs == 1
+    assert report.original.startswith("yes (")
+    assert report.original_exists
+    assert report.unsorted == "no"
+    assert report.backups == 0
+    assert report.issues == ()
+    assert report.exit_code == 1
+
+
+def test_status_clean_after_cleanup_files_removed(home: Path, layout: ShlibLayout) -> None:
+    """Without the original and unsorted files the installation is green."""
+    _install(layout)
+    _original(layout).unlink()
+
+    report = collect_status(layout)
+
+    assert report.installation == INSTALLED
+    assert report.zshrc == "ok"
+    assert report.original == "no"
+    assert not report.original_exists
     assert report.unsorted == "no"
     assert report.backups == 0
     assert report.issues == ()
@@ -145,8 +171,9 @@ def test_status_whitespace_drift(home: Path, layout: ShlibLayout) -> None:
 
 
 def test_status_unsorted_missing(home: Path, layout: ShlibLayout) -> None:
-    """Without the fallback file, unsorted is no and the status stays green."""
+    """Without the fallback file, unsorted is no and the remaining state is clean."""
     _install(layout)
+    _original(layout).unlink()
 
     report = collect_status(layout)
 
@@ -179,6 +206,19 @@ def test_status_unsorted_with_content(home: Path, layout: ShlibLayout) -> None:
     assert report.exit_code == 1
 
 
+def test_status_cli_hints_cleanup_files(home: Path, layout: ShlibLayout) -> None:
+    """The CLI names both cleanup files and tells the user to resolve them."""
+    _install(layout)
+    _target(layout).write_bytes(b"x")
+
+    result = runner.invoke(app, ["shlib", "status", "--home", str(home)])
+
+    assert result.exit_code == 1
+    assert "original: yes" in result.output
+    assert "unsorted: yes" in result.output
+    assert "hint: resolve 00-original-zshrc.sh, 99-unsorted.sh, then delete" in result.output
+
+
 def test_status_counts_exports_shlibs_and_backups(home: Path, layout: ShlibLayout) -> None:
     """Counters include only entries the bootstrap actually loads."""
     _install(layout)
@@ -198,7 +238,7 @@ def test_status_counts_exports_shlibs_and_backups(home: Path, layout: ShlibLayou
     assert report.owner_only_exports == 1
     assert report.shlibs == 3
     assert report.backups == 1
-    assert report.exit_code == 0
+    assert report.exit_code == 1
 
 
 def test_status_does_not_read_export_contents(home: Path, layout: ShlibLayout, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -501,6 +541,7 @@ def test_status_unsorted_directory_is_an_issue(home: Path, layout: ShlibLayout) 
 def test_status_exports_subdirectory_is_ignored(home: Path, layout: ShlibLayout) -> None:
     """Only regular export files are counted."""
     _install(layout)
+    _original(layout).unlink()
     (layout.exports / "nested").mkdir()
 
     report = collect_status(layout)
@@ -566,7 +607,7 @@ def test_status_does_not_print_export_names_or_values(home: Path, layout: ShlibL
 
     result = runner.invoke(app, ["shlib", "status", "--home", str(home)])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "TOPSECRET" not in result.output
     assert "hunter2-value" not in result.output
     assert "exports: 1 (owner-only: 1)" in result.output
@@ -575,6 +616,7 @@ def test_status_does_not_print_export_names_or_values(home: Path, layout: ShlibL
 def test_status_cli_clean_has_no_ansi(home: Path, layout: ShlibLayout) -> None:
     """A non-interactive CLI run contains no ANSI codes."""
     _install(layout)
+    _original(layout).unlink()
 
     result = runner.invoke(app, ["shlib", "status", "--home", str(home)])
 
@@ -582,7 +624,9 @@ def test_status_cli_clean_has_no_ansi(home: Path, layout: ShlibLayout) -> None:
     assert "\x1b[" not in result.output
     assert "installation: installed" in result.output
     assert "zshrc: ok" in result.output
+    assert "original: no" in result.output
     assert "unsorted: no" in result.output
+    assert "hint:" not in result.output
 
 
 def test_status_cli_drift_is_plain_without_tty(home: Path, layout: ShlibLayout) -> None:
@@ -603,7 +647,7 @@ def test_status_no_color_option(home: Path, layout: ShlibLayout) -> None:
 
     result = runner.invoke(app, ["shlib", "status", "--home", str(home), "--no-color"])
 
-    assert result.exit_code == 0
+    assert result.exit_code == 1
     assert "\x1b[" not in result.output
 
 

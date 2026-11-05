@@ -36,7 +36,8 @@ complete preflight and prints the plan without touching the filesystem.
     ├── locks/
     │   └── shlib-version-of.zshrc          # identical to ~/.zshrc
     └── shlibs/
-        └── 00-original-zshrc.sh            # the previous ~/.zshrc
+        ├── 00-original-zshrc.sh            # copied previous ~/.zshrc (cleanup)
+        └── 99-unsorted.sh                  # captured tail, created by it (cleanup)
 ```
 
 `install` refuses to run when `~/.shlib` already exists, including a dangling
@@ -44,6 +45,12 @@ symlink, or when `~/.zshrc` is missing, is not a regular file, is a symlink or
 already contains the bootstrap marker. Directories are created with mode
 `0700` because exports can hold secrets. The copied original keeps its content
 and mode. The lock file is mode `0644`.
+
+`00-original-zshrc.sh` and `99-unsorted.sh` are temporary cleanup files. Both
+are sourced by the bootstrap, but the target state is a tree without either
+file. You decide how to resolve their content into sorted `NN-*.sh` files and
+then delete them. `lion shlib` only reports and hints; it never deletes these
+files for you.
 
 After `uninstall`, `~/.shlib` is renamed to
 `~/.shlib.uninstalled-<timestamp>/`. When owner-only exports exist, that backup
@@ -81,19 +88,28 @@ installation: installed
 zshrc: drift (12 appended line(s))
 exports: 3 (owner-only: 1)
 shlibs: 5
+original: yes (1234 bytes)
 unsorted: yes (128 bytes)
 backups: 1
+hint: resolve 00-original-zshrc.sh, 99-unsorted.sh, then delete; the status stays yellow until then
 ```
 
 `installation` is `installed`, `not installed` or `inconsistent`. `zshrc` is
 `ok`, `drift` (with `appended line(s)`, `whitespace only`, `other changes` or
-`managed block missing`) or `missing`. The `unsorted` line is yellow as soon
-as `~/.shlib/shlibs/99-unsorted.sh` exists, even when it is empty; drift is
-yellow as well. `inconsistent` and `not installed` are red. The state words are
-always visible, independent of color.
+`managed block missing`) or `missing`. The `original` line is yellow as soon
+as `~/.shlib/shlibs/00-original-zshrc.sh` exists, and the `unsorted` line is
+yellow as soon as `~/.shlib/shlibs/99-unsorted.sh` exists, even when either is
+empty; drift is yellow as well. A hint names the cleanup files that are still
+present. `inconsistent` and `not installed` are red. The state words are always
+visible, independent of color.
 
-Exit codes: `0` everything is ok, `1` not installed or a warning (drift or
-`99-unsorted.sh`), `2` inconsistent or a read error.
+A fresh installation is yellow because `install` creates
+`00-original-zshrc.sh`. It stays yellow after `lion shlib it` because
+`99-unsorted.sh` was created. Both files must be resolved and deleted by you
+before the status is green.
+
+Exit codes: `0` everything is clean, `1` not installed or a warning (drift,
+`00-original-zshrc.sh` or `99-unsorted.sh`), `2` inconsistent or a read error.
 
 Colors are disabled with `--no-color`, by setting `NO_COLOR`, or automatically
 when stdout is not a terminal.
@@ -130,8 +146,12 @@ triggers a warning. Symlinks and directories at the target path abort.
 
 **The tail still runs from `~/.zshrc` until you remove it there.** During that
 time the same code runs twice: once from `99-unsorted.sh` and once from the
-`.zshrc` tail. The command prints the line range to remove. Removing
-`99-unsorted.sh` later makes the status report `unsorted: no` again.
+`.zshrc` tail. The command prints the line range to remove, but only as a hint;
+it never edits `~/.zshrc` and never deletes the cleanup file. After removing
+the tail, resolve the captured content into sorted `NN-*.sh` files and delete
+`99-unsorted.sh` yourself. Until then `lion shlib status` stays yellow with
+`unsorted: yes`. A clean shlib tree contains neither `00-original-zshrc.sh` nor
+`99-unsorted.sh`.
 
 `99-unsorted.sh` sorts before a later `99-LAST.sh`, because the uppercase `L`
 sorts before the lowercase `u`. If a later fallback is needed, choose another

@@ -414,6 +414,7 @@ def test_it_cli_success_does_not_reveal_content(home: Path, layout: ShlibLayout)
     assert f"{len(tail)} bytes" in result.output
     assert "sha256:" in result.output
     assert "warning: the tail is still in ~/.zshrc" in result.output
+    assert "hint: resolve ~/.shlib/shlibs/99-unsorted.sh" in result.output
     assert "s3cr3t-value" not in result.output
     assert b"export SECRET=s3cr3t-value\n" in _target(layout).read_bytes()
 

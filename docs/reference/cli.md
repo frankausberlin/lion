@@ -70,7 +70,7 @@ $ lion shlib [OPTIONS] COMMAND [ARGS]...
 
 * `install`: Install the shlib layout and replace...
 * `uninstall`: Flatten the shlib layout into ~/.zshrc and...
-* `status`: Show the state of the shlib installation...
+* `status`: Show installation, drift and cleanup state...
 * `it`: Copy content appended to ~/.zshrc into...
 
 ### `lion shlib install`
@@ -111,7 +111,7 @@ $ lion shlib uninstall [OPTIONS]
 
 ### `lion shlib status`
 
-Show the state of the shlib installation without changing anything.
+Show installation, drift and cleanup state without changing anything.
 
 **Usage**:
 
@@ -130,7 +130,8 @@ $ lion shlib status [OPTIONS]
 Copy content appended to ~/.zshrc into ~/.shlib/shlibs/99-unsorted.sh.
 
 The .zshrc is never changed. The copied tail keeps running from .zshrc
-until it is removed there manually.
+until it is removed there manually; the user must then resolve and delete
+99-unsorted.sh.
 
 **Usage**:
 

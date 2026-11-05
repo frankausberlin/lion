@@ -165,9 +165,14 @@ def test_help_is_available_in_installed_package(tmp_path: Path, arguments: tuple
 
 
 def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
-    """Capturing the tail copies it without changing .zshrc or its double run."""
+    """Capturing the tail leaves .zshrc alone; the user resolves both cleanup files."""
     home = _make_home(tmp_path)
     assert _lion(home, "shlib", "install").returncode == 0
+
+    installed_status = _lion(home, "shlib", "status")
+    assert installed_status.returncode == 1
+    assert "original: yes" in installed_status.stdout
+    assert "unsorted: no" in installed_status.stdout
 
     zshrc = home / ".zshrc"
     tail = b'printf "tail\\n" >> "$HOME/order.log"\n'
@@ -187,8 +192,10 @@ def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
 
     status = _lion(home, "shlib", "status")
     assert status.returncode == 1
+    assert "original: yes" in status.stdout
     assert "unsorted: yes" in status.stdout
     assert "zshrc: drift" in status.stdout
+    assert "hint: resolve 00-original-zshrc.sh, 99-unsorted.sh, then delete" in status.stdout
     assert "\x1b[" not in status.stdout
 
     (home / "order.log").unlink(missing_ok=True)
@@ -213,8 +220,10 @@ def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
     assert "unsorted: yes" in status_after.stdout
 
     unsorted.unlink()
+    (home / ".shlib" / "shlibs" / "00-original-zshrc.sh").unlink()
     status_clean = _lion(home, "shlib", "status")
     assert status_clean.returncode == 0
+    assert "original: no" in status_clean.stdout
     assert "unsorted: no" in status_clean.stdout
     assert "zshrc: ok" in status_clean.stdout
 

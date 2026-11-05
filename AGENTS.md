@@ -94,15 +94,18 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
   müssen das Backup als Teil der Shell-Konfiguration benennen; das Löschen ist
   Sache des Nutzers.
 
-### shlib it kopiert den .zshrc-Tail und ändert die .zshrc nicht
+### shlib-Cleanup-Dateien sind Nutzersache
 
-- **Situation**: `lion shlib it` kopiert angehängte `.zshrc`-Zeilen nach
-  `~/.shlib/shlibs/99-unsorted.sh`, und der Tail läuft bis zur manuellen
-  Entfernung aus der `.zshrc` doppelt.
-- **Handhabung**: Die `.zshrc` im Rahmen von `it` nie bearbeiten; eine neue
-  `99-unsorted.sh` bleibt `0600`, bei bestehenden Gruppe-/Fremdrechten nur
-  warnen. Die Ausgabe nennt den zu entfernenden Zeilenbereich, aber nie
-  Tail-Inhalte oder Exportwerte.
+- **Situation**: `install` legt `00-original-zshrc.sh` an, `it` legt bei Bedarf
+  `99-unsorted.sh` an; solange eine der beiden Dateien existiert, meldet
+  `status` gelb und `it` lässt den Tail zusätzlich in der `.zshrc` laufen.
+- **Handhabung**: Beide Dateien nie automatisch löschen und die `.zshrc` im
+  Rahmen von `it` nie bearbeiten; `status` und `it` nennen nur den
+  Handlungsbedarf. Ziel ist ein Tree ohne beide Dateien: Der Nutzer löst die
+  Inhalte in sortierte `NN-*.sh` auf und löscht die Cleanup-Datei dann selbst.
+  Eine neue `99-unsorted.sh` bleibt `0600`, bei bestehenden Gruppe-/Fremdrechten
+  nur warnen. Ausgaben nennen Zeilenbereiche, aber nie Tail-Inhalte oder
+  Exportwerte.
 
 ## Herkunft
 

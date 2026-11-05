@@ -49,7 +49,7 @@ stdout before startup. The smoke tests call the server through the in-memory
 ```bash
 lion shlib install --dry-run   # validate and show the plan
 lion shlib install             # write ~/.shlib and replace ~/.zshrc
-lion shlib status              # show installation, drift and unsorted state
+lion shlib status              # show installation, drift and cleanup state
 lion shlib it --dry-run        # show appended content that would be copied
 lion shlib it                  # copy appended .zshrc content into 99-unsorted.sh
 lion shlib uninstall           # flatten back into ~/.zshrc, keep a backup
@@ -65,6 +65,14 @@ into a flat `~/.zshrc` and keeps the old tree as
 `it` only copies content appended after the managed block into
 `~/.shlib/shlibs/99-unsorted.sh` and never edits `~/.zshrc`; the tail therefore
 runs twice until you remove it there.
+
+`00-original-zshrc.sh` and `99-unsorted.sh` are temporary cleanup files, not
+permanent parts of the tree. The target state is a shlib tree without either
+file. `lion shlib status` stays yellow and exits `1` while one of them exists;
+it only prints a hint. You decide how to resolve their content into sorted
+`NN-*.sh` files and then delete them. `lion shlib` never deletes these files for
+you.
+
 Owner-only exports (`chmod 600`, also `400`) are not inlined: `uninstall`
 writes them to `secrets.sh` inside the backup (mode `0600`) and sources that
 file from the flat `~/.zshrc`. The backup is then part of the shell

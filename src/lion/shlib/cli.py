@@ -9,9 +9,10 @@ from typing import Annotated, NoReturn
 
 import typer
 
+from lion.shlib.bootstrap import ORIGINAL_NAME
 from lion.shlib.errors import ShlibError
 from lion.shlib.install import InstallPlan, InstallReport, apply_install, plan_install
-from lion.shlib.it import ItPlan, ItReport, apply_it, plan_it
+from lion.shlib.it import UNSORTED_NAME, ItPlan, ItReport, apply_it, plan_it
 from lion.shlib.layout import ShlibLayout
 from lion.shlib.status import INSTALLED, StatusReport, collect_status
 from lion.shlib.uninstall import (
@@ -113,7 +114,7 @@ def uninstall_command(
 
 @shlib_app.command("status")
 def status_command(home: HomeOption = None, no_color: NoColorOption = False) -> None:
-    """Show the state of the shlib installation without changing anything."""
+    """Show installation, drift and cleanup state without changing anything."""
     try:
         layout = ShlibLayout.from_option(home)
     except ShlibError as exc:
@@ -130,7 +131,8 @@ def it_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
     """Copy content appended to ~/.zshrc into ~/.shlib/shlibs/99-unsorted.sh.
 
     The .zshrc is never changed. The copied tail keeps running from .zshrc
-    until it is removed there manually.
+    until it is removed there manually; the user must then resolve and delete
+    99-unsorted.sh.
     """
     try:
         layout = ShlibLayout.from_option(home)
@@ -188,6 +190,10 @@ def _print_twice_warning(capture: ItPlan | ItReport, layout: ShlibLayout) -> Non
         f"warning: the tail is still in {_display(layout.zshrc, layout.home)} and will run twice "
         f"until you remove lines {capture.line_start}-{capture.line_end}."
     )
+    typer.echo(
+        f"hint: resolve {_display(capture.target, layout.home)} into sorted shlib files, then delete it; "
+        "the status stays yellow until then."
+    )
 
 
 def _short_hash(digest: str) -> str:
@@ -211,6 +217,7 @@ def render_status(report: StatusReport, *, color: bool) -> list[str]:
     else:
         zshrc_color = typer.colors.RED
     unsorted_color = typer.colors.YELLOW if report.unsorted_exists else typer.colors.GREEN
+    original_color = typer.colors.YELLOW if report.original_exists else typer.colors.GREEN
 
     zshrc = report.zshrc
     if report.zshrc_detail is not None:
@@ -222,9 +229,23 @@ def render_status(report: StatusReport, *, color: bool) -> list[str]:
         f"zshrc: {_style(zshrc, zshrc_color, color)}",
         f"exports: {report.exports} (owner-only: {report.owner_only_exports})",
         f"shlibs: {report.shlibs}",
+        f"original: {_style(report.original, original_color, color)}",
         f"unsorted: {_style(report.unsorted, unsorted_color, color)}",
         f"backups: {report.backups}",
     ]
+    pending = [
+        name
+        for name, exists in ((ORIGINAL_NAME, report.original_exists), (UNSORTED_NAME, report.unsorted_exists))
+        if exists
+    ]
+    if pending:
+        lines.append(
+            _style(
+                f"hint: resolve {', '.join(pending)}, then delete; the status stays yellow until then",
+                typer.colors.YELLOW,
+                color,
+            )
+        )
     for issue in report.issues:
         lines.append(_style(f"issue: {_display_text(issue, home)}", typer.colors.RED, color))
     return lines
