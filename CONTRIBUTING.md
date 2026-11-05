@@ -26,8 +26,18 @@ uv sync           # install all dependencies
 ## Journal
 
 Session notes live under `journal/` (one file per session, committed with the
-change). They are a chronicle, not a normative source; durable decisions belong
-in `docs/adr/` and attention points in `AGENTS.md`.
+change). They are a chronicle, not a normative source: architecture decisions
+belong in `docs/adr/` and are maintained by the project owner; recurring
+operational notes belong in the Attention Points in `AGENTS.md`; the current
+state belongs in the project documentation. Refer to ADRs by number and
+Attention Points by title.
+
+## Decision records
+
+Architecture decisions live in `docs/adr/` and are maintained by the project
+owner. The agent only reads them; it does not create, change, or renumber ADRs.
+The conventions and procedures are described in `AGENTS.md` and the project
+documentation.
 
 ## Quality Gate
 

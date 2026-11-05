@@ -7,5 +7,8 @@ Dieses Verzeichnis enthält Architekturentscheidungen als Dateien.
 * Der Status steht im Dokument: `accepted`, `superseded by ADR-NNNN` oder
   `deprecated`.
 * Revidierte Entscheidungen tragen ein `_`-Präfix; ihre Nummer bleibt vergeben.
+* Akzeptierte ADRs sind inhaltlich unveränderlich. Änderungen entstehen als
+  neue ADR, die die alte ersetzt oder ergänzt.
 
-Die Konventionen stehen ausführlich in `AGENTS.md`.
+Der Projektnutzer legt ADRs an und pflegt sie; der Agent liest sie nur und
+ändert sie nicht. `pyinit` erzeugt keine ADR; die erste ADR legt der Nutzer an.

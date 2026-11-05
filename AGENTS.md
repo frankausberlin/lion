@@ -42,63 +42,48 @@ Verwende für die Entwicklung immer den lupysta-Skill.
 
 ## ADRs
 
-Architekturentscheidungen liegen als Dateien in `docs/adr/`. Verschaffe dir mit
-`ls -1 docs/adr` einen Überblick, falls das Verzeichnis existiert.
-
-* Dateiname: `NNNN-entscheidung.md`, zum Beispiel `0001-wir-verwenden-zsh.md`.
-  Der Name nennt die Entscheidung, nicht nur das Thema.
-* Ein `ADR`-Präfix im Dateinamen ist nicht nötig; das Verzeichnis benennt die
-  Dokumentart.
-* Der Name reicht für den Überblick; lies eine aktive ADR, wenn ihre
-  Entscheidung die Aufgabe berührt.
-* Revidierte Entscheidungen tragen ein `_`-Präfix, zum Beispiel
-  `_0001-wir-verwenden-zsh.md`. Ihre Nummer bleibt vergeben.
-* Der Status steht im Dokument: `accepted`, `superseded by ADR-NNNN` oder
-  `deprecated`.
+Architekturentscheidungen liegen in `docs/adr/`; die Konvention steht in
+`docs/adr/README.md`. Der Agent liest ADRs nur: Er legt keine an, ändert sie
+nicht und nummeriert sie nicht um.
 
 ## Attention Points
 
 <!--
 Format eines Eintrags:
 
-    ### AP-1: Kurztitel
+    ### Kurztitel
 
-    - **Situation**: ...
-    - **Handhabung**: ...
-    - **Involvierte ADRs**: ...
-    - **Kontext**: ...
+    - **Situation**: Genau ein Satz; wiederholt die Überschrift nicht.
+    - **Handhabung**: Kurzer Satz oder knappe Liste.
 
-Entfernte APs bleiben als `### AP-N: entfernt (YYYY-MM-DD)` stehen; ihre
-Nummer wird nicht neu vergeben.
+Attention Points sind gegenwartsbezogen: keine Nummern, keine Tombstones und
+keine Felder für beteiligte ADRs oder Kontext. Obsolete Einträge werden
+ersatzlos gelöscht; die Git-Historie ist das Archiv.
 -->
 
-### AP-1: lion shlib verändert das Home-Verzeichnis
+### lion shlib verändert das Home-Verzeichnis
 
-- **Situation**: `lion shlib install` und `uninstall` schreiben in
-  `~/.zshrc` und legen beziehungsweise verschieben `~/.shlib`. Ein falscher
-  Lauf kann die Shell-Konfiguration eines echten Nutzers treffen.
+- **Situation**: `lion shlib install` und `uninstall` schreiben in `~/.zshrc`
+  und legen beziehungsweise verschieben `~/.shlib`, sodass ein falscher Lauf
+  die Shell-Konfiguration eines echten Nutzers treffen kann.
 - **Handhabung**: Vor jeder Änderung läuft ein read-only-Preflight; Symlinks
   und beschädigte Bäume brechen ab. Tests und manuelle Läufe verwenden
-  `--home` mit einem Wegwerf-Home und nie das echte Home. `--force` nur
-  bewusst einsetzen, wenn ein abweichendes oder ungelocktes `~/.zshrc`
-  akzeptiert ist. `--dry-run` vor einem echten Lauf nutzen.
-- **Involvierte ADRs**: ADR-0001
-- **Kontext**: Die Befehle sind explizit, nicht interaktiv; ein Fehler vor dem
+  `--home` mit einem Wegwerf-Home und nie das echte Home. `--dry-run` vor
+  einem echten Lauf nutzen und `--force` nur bewusst einsetzen, wenn ein
+  abweichendes oder ungelocktes `~/.zshrc` akzeptiert ist. Ein Fehler vor dem
   finalen Ersetzen wird zurückgerollt.
 
-### AP-2: uninstall restauriert keine alte .zshrc
+### uninstall restauriert keine alte .zshrc
 
 - **Situation**: `lion shlib uninstall` erzeugt eine flache `.zshrc` aus
-  Exports und Shlib-Dateien und sichert den alten Baum nur als Backup. Ein
-  erwartetes „Restore“ gibt es nicht.
+  Exports und Shlib-Dateien und sichert den alten Baum nur als Backup, sodass
+  ein erwartetes „Restore“ nicht existiert.
 - **Handhabung**: Dokumentation und Erfolgsausgabe sprechen von „flatten“,
-  nennen den Backup-Pfad und versprechen kein Wiederherstellen. Wer die alte
-  Datei zurückwill, nutzt das Backup bewusst manuell.
-- **Involvierte ADRs**: ADR-0001
-- **Kontext**: Das Backup heißt `~/.shlib.uninstalled-<UTC-Zeitstempel>` und
-  bleibt unverändert liegen; `install` kann danach sofort erneut laufen.
+  nennen den Backup-Pfad `~/.shlib.uninstalled-<UTC-Zeitstempel>` und
+  versprechen kein Wiederherstellen. Wer die alte Datei zurückwill, nutzt das
+  Backup bewusst manuell.
 
-### AP-3: secrets.sh im Backup ist Teil der neuen .zshrc
+### secrets.sh im Backup ist Teil der neuen .zshrc
 
 - **Situation**: `lion shlib uninstall` schreibt owner-only Exporte nicht
   inline, sondern nach `~/.shlib.uninstalled-<Zeitstempel>/secrets.sh` und
@@ -108,11 +93,8 @@ Nummer wird nicht neu vergeben.
   Guard, keinen stabilen Pfad und keine Migration ergänzen. Doku und Ausgabe
   müssen das Backup als Teil der Shell-Konfiguration benennen; das Löschen ist
   Sache des Nutzers.
-- **Involvierte ADRs**: ADR-0002
-- **Kontext**: Der Nutzer hat die Verantwortung für Secrets bewusst
-  übernommen; das Werkzeug liefert nur den Hinweis und die Einbindung.
 
 ## Herkunft
 
-- lupysta_version: `0.14.0`
+- lupysta_version: `0.15.0`
 - contract_version: `4`
