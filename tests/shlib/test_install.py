@@ -54,7 +54,7 @@ def test_install_creates_private_directories(home: Path, layout: ShlibLayout) ->
     """The shlib root and its subdirectories are created with mode 0700."""
     report = apply_install(plan_install(layout))
 
-    assert report.directories == (layout.root, layout.locks, layout.shlibs, layout.exports)
+    assert report.directories == (layout.root, layout.locks, layout.shlibs, layout.exports, layout.dash)
     for directory in report.directories:
         assert directory.is_dir()
         assert _mode(directory) == 0o700

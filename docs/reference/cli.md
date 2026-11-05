@@ -19,9 +19,27 @@ $ lion [OPTIONS] COMMAND [ARGS]...
 
 **Commands**:
 
+* `watch`: Compare locked dash entries with their...
 * `hello`: Print a greeting.
 * `mcp`: Run the MCP server over stdio.
 * `shlib`: Install or remove the zsh shlib layout.
+* `dash`: List user-maintained dash links and manage...
+* `watch-dog`: Manage the shlib file that runs `lion...
+
+## `lion watch`
+
+Compare locked dash entries with their lock copies and print diffs.
+
+**Usage**:
+
+```console
+$ lion watch [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
 
 ## `lion hello`
 
@@ -143,4 +161,142 @@ $ lion shlib it [OPTIONS]
 
 * `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
 * `--dry-run`: Run all checks and show the plan without changing anything.
+* `--help`: Show this message and exit.
+
+## `lion dash`
+
+List user-maintained dash links and manage their lock copies.
+
+**Usage**:
+
+```console
+$ lion dash [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+**Commands**:
+
+* `list`: Show dash entries with lock state, type...
+* `lock`: Copy the current target content to...
+* `unlock`: Delete only locks/&lt;name&gt;.lock, never the...
+
+### `lion dash list`
+
+Show dash entries with lock state, type and target.
+
+**Usage**:
+
+```console
+$ lion dash list [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
+
+### `lion dash lock`
+
+Copy the current target content to locks/&lt;name&gt;.lock.
+
+**Usage**:
+
+```console
+$ lion dash lock [OPTIONS] {name}
+```
+
+**Arguments**:
+
+* `name`: Direct dash entry name to lock.  [required]
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
+
+### `lion dash unlock`
+
+Delete only locks/&lt;name&gt;.lock, never the dash link.
+
+**Usage**:
+
+```console
+$ lion dash unlock [OPTIONS] {name}
+```
+
+**Arguments**:
+
+* `name`: Direct dash entry name to unlock.  [required]
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
+
+## `lion watch-dog`
+
+Manage the shlib file that runs `lion watch` at shell start.
+
+**Usage**:
+
+```console
+$ lion watch-dog [OPTIONS] COMMAND [ARGS]...
+```
+
+**Options**:
+
+* `--help`: Show this message and exit.
+
+**Commands**:
+
+* `on`: Write the managed watchdog file.
+* `off`: Remove the complete managed watchdog file.
+* `status`: Report whether the managed watchdog file...
+
+### `lion watch-dog on`
+
+Write the managed watchdog file.
+
+**Usage**:
+
+```console
+$ lion watch-dog on [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
+
+### `lion watch-dog off`
+
+Remove the complete managed watchdog file.
+
+**Usage**:
+
+```console
+$ lion watch-dog off [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
+
+### `lion watch-dog status`
+
+Report whether the managed watchdog file exists.
+
+**Usage**:
+
+```console
+$ lion watch-dog status [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
 * `--help`: Show this message and exit.

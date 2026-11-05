@@ -94,7 +94,7 @@ def plan_install(layout: ShlibLayout) -> InstallPlan:
 
     return InstallPlan(
         layout=layout,
-        directories=(root, layout.locks, layout.shlibs, layout.exports),
+        directories=(root, layout.locks, layout.shlibs, layout.exports, layout.dash),
         original=layout.original,
         lock_file=layout.lock_file,
         zshrc=zshrc,

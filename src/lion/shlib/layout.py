@@ -45,6 +45,22 @@ class ShlibLayout:
         return self.root / "exports"
 
     @property
+    def dash(self) -> Path:
+        """Return the directory with user-maintained dash links."""
+        return self.root / "dash"
+
+    def lock_for(self, name: str) -> Path:
+        """Return the lock copy for a dash entry.
+
+        Args:
+            name: Direct, non-hidden dash entry name.
+
+        Returns:
+            The lock path below ``locks/``.
+        """
+        return self.locks / f"{name}.lock"
+
+    @property
     def lock_file(self) -> Path:
         """Return the lock file that mirrors the generated ``.zshrc``."""
         return self.locks / LOCK_NAME

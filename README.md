@@ -78,6 +78,28 @@ Owner-only exports (`chmod 600`, also `400`) are not inlined: `uninstall`
 writes them to `secrets.sh` inside the backup (mode `0600`) and sources that
 file from the flat `~/.zshrc`. The backup is then part of the shell
 configuration; deleting it makes zsh report the missing file.
+
+## dash and watch
+
+`~/.shlib/dash` is a register of user-maintained symlinks to configuration
+files that should be watched for drift. Lion never creates or deletes these
+links.
+
+```bash
+lion dash list                 # show entries, type, target and lock state
+lion dash lock gitconfig       # copy the current content to locks/gitconfig.lock
+lion dash unlock gitconfig     # delete only the lock copy
+lion watch                     # print unified diffs for locked entries that changed
+lion watch-dog on              # run `lion watch` at shell start via shlibs/
+lion watch-dog status          # on (exit 0) or off (exit 1)
+lion watch-dog off             # remove the managed watchdog file
+```
+
+Drift is a normal result: `lion watch` exits `0` and prints diffs; scan and
+read errors exit `2`. A clean state and a missing dash tree are silent, so a
+flattened `.zshrc` after `uninstall` does not complain on every shell start.
+Lock copies use mode `0600` and can contain secrets; `lion watch` prints their
+content locally. See [docs/dash.md](docs/dash.md) for details and limits.
 Use `--force` only when you deliberately accept a modified or unlocked
 `~/.zshrc`. See [docs/shlib.md](docs/shlib.md) for the layout, ordering rules
 and safety behavior.

@@ -108,6 +108,35 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
   bestehenden Gruppe-/Fremdrechten nur warnen. Ausgaben nennen Zeilenbereiche,
   aber nie Tail-Inhalte oder Exportwerte.
 
+### Dash-Links gehören dem Nutzer
+
+- **Situation**: `~/.shlib/dash` ist ein vom Nutzer gepflegtes Register aus
+  Symlinks; Lion liest nur Metadaten und schreibt ausschließlich Lock-Kopien
+  unter `locks/<name>.lock`.
+- **Handhabung**: Dash-Links nie anlegen, verschieben, retargeten oder löschen;
+  `unlock` entfernt nur die Lock-Kopie. `dash lock` überschreibt vorhandene
+  Locks ohne Rückfrage. Kaputte Links, Ordner und `not-a-link`-Einträge melden,
+  aber nicht reparieren.
+
+### 99-lion-watchdog.sh ist vollständig verwaltet
+
+- **Situation**: `lion watch-dog on` schreibt
+  `~/.shlib/shlibs/99-lion-watchdog.sh`, und dieses Skript läuft bei jedem
+  Shellstart.
+- **Handhabung**: `on` überschreibt die komplette Datei atomar, `off` löscht die
+  komplette Datei; es gibt keinen Schutz vor manuellen Änderungen und keine
+  Merge-Logik. `status` prüft nur die Existenz. Die Datei bleibt `0644`, und
+  Ausgaben bleiben bei sauberem Zustand still.
+
+### lion watch bleibt ohne Dash still
+
+- **Situation**: Nach `lion shlib uninstall` kann eine geflachte `.zshrc`
+  weiterhin `lion watch` enthalten, während `dash/` und `locks/` nur noch im
+  Backup liegen.
+- **Handhabung**: Fehlende `dash/`- oder `locks/`-Verzeichnisse sind still mit
+  Exit 0; nur Drift, Lese- und Scanfehler erzeugen Ausgabe. Diese Stille nicht
+  durch Warnungen oder Fehlermeldungen ersetzen.
+
 ## Herkunft
 
 - lupysta_version: `0.15.0`

@@ -32,19 +32,24 @@ complete preflight and prints the plan without touching the filesystem.
 ~/
 ├── .zshrc                                  # bootstrap block after install
 └── .shlib/
+    ├── dash/                               # user-maintained watch links (0700)
     ├── exports/                            # NAME -> file content as value
     ├── locks/
-    │   └── shlib-version-of.zshrc          # identical to ~/.zshrc
+    │   ├── shlib-version-of.zshrc          # identical to ~/.zshrc
+    │   └── <dash-name>.lock                # created by `lion dash lock`
     └── shlibs/
         ├── 00-original-zshrc.sh            # copied previous ~/.zshrc (cleanup)
+        ├── 99-lion-watchdog.sh             # managed by `lion watch-dog` (optional)
         └── 99-unsorted.sh                  # captured tail, created by it (cleanup)
 ```
 
 `install` refuses to run when `~/.shlib` already exists, including a dangling
 symlink, or when `~/.zshrc` is missing, is not a regular file, is a symlink or
 already contains the bootstrap marker. Directories are created with mode
-`0700` because exports can hold secrets. The copied original keeps its content
-and mode. The lock file is mode `0644`.
+`0700` because exports can hold secrets. This includes
+`~/.shlib/dash/`, which holds user-maintained symlinks for `lion dash` and
+`lion watch`. The copied original keeps its content and mode. The lock file is
+mode `0644`.
 
 `00-original-zshrc.sh` and `99-unsorted.sh` are temporary cleanup files. Both
 are sourced by the bootstrap, but the target state is a tree without either
@@ -54,7 +59,9 @@ files for you.
 
 After `uninstall`, `~/.shlib` is renamed to
 `~/.shlib.uninstalled-<timestamp>/`. When owner-only exports exist, that backup
-also contains `secrets.sh`; see [Owner-only exports](#owner-only-exports).
+also contains `secrets.sh`; see [Owner-only exports](#owner-only-exports). The
+backup also contains `dash/`, its lock copies and any
+`99-lion-watchdog.sh`; see [dash and watch](dash.md).
 
 ## Load order
 
