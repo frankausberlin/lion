@@ -34,6 +34,10 @@ Verwende für die Entwicklung immer den lupysta-Skill.
 - `tests/test_mcp.py` prüft Tool und Resource über den In-Memory-`Client` des
   SDK sowie die CLI-Weiterleitung an den Server. `tests/test_smoke.py` prüft die
   CLI und stellt sicher, dass `hello` den Server nicht startet.
+- `tests/redaction/` und `tests/doctor/` laufen in `just test` und verwenden nur
+  Wegwerf-Homes. Die Doctor-Tests prüfen, dass keine Dateiinhalte in Ausgabe
+  oder Findings landen und dass `--fix` ausschließlich lion-eigene Artefakte
+  anfasst.
 - `just run` führt den Befehl `hello` aus. `just mcp-dev` öffnet den gepinnten
   MCP Inspector auf Loopback über `npx` und startet dort `lion mcp`;
   dafür braucht es Node.js. Beides ist nicht Teil von `just check`. Der
@@ -136,6 +140,34 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
 - **Handhabung**: Fehlende `dash/`- oder `locks/`-Verzeichnisse sind still mit
   Exit 0; nur Drift, Lese- und Scanfehler erzeugen Ausgabe. Diese Stille nicht
   durch Warnungen oder Fehlermeldungen ersetzen.
+
+### doctor löscht keine Dash-Links
+
+- **Situation**: `lion doctor --fix` entfernt verwaiste Locks und legt fehlende
+  Unterverzeichnisse an, während `dash/` ausschließlich aus Nutzer-Symlinks
+  besteht.
+- **Handhabung**: Nur `unlock_entry` für verwaiste reguläre Locks verwenden;
+  Dash-Links nie anlegen, retargeten oder löschen. Nicht-reguläre Locks und
+  kaputte Links nur melden, für Links höchstens einen `rm`-Hinweis ausgeben.
+  Fixes verweigern, wenn `.shlib` fehlt, ein Symlink oder kein Verzeichnis ist.
+
+### doctor gibt keine Dateiinhalte aus
+
+- **Situation**: Doctor liest Exports, Shlib-Dateien und Lock-Metadaten, darf
+  aber weder Werte noch Watch-Diffs noch Exportinhalte preisgeben.
+- **Handhabung**: Findings und Ausgabe nennen nur Pfad, Zeile, Keyname, Art,
+  Confidence und Modus. `collect_dash_findings` mit `render_diffs=False` nutzen;
+  Tests sichern, dass kein Rohwert in Summary oder `repr` erscheint.
+
+### Redaction-Fingerprints sind HMAC- und Key-gebunden
+
+- **Situation**: Masken sollen dasselbe Geheimnis lokal wiedererkennen, ohne
+  einen Wert oder einen stabilen globalen Hash zu verraten.
+- **Handhabung**: HMAC-SHA256 mit dem 32-Byte-Key aus
+  `~/.shlib/.redaction-key` (Modus `0600`, exklusiv erzeugt); kein
+  SHA-256-Fallback. Fehlt der Key, nur `[REDACTED:<kind>]` ohne Fingerprint.
+  Symlink, Verzeichnis, falsche Größe oder Lesefehler sind Fehler und werden
+  nie automatisch ersetzt.
 
 ## Herkunft
 

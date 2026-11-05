@@ -14,7 +14,11 @@ from lion.watch.model import WatchFinding
 SOURCE = "dash"
 
 
-def collect_dash_findings(layout: ShlibLayout) -> tuple[WatchFinding, ...]:
+def collect_dash_findings(
+    layout: ShlibLayout,
+    *,
+    render_diffs: bool = True,
+) -> tuple[WatchFinding, ...]:
     """Compare locked dash entries against their lock copies.
 
     A missing dash or lock directory is silent. Symlinked or unreadable
@@ -23,6 +27,8 @@ def collect_dash_findings(layout: ShlibLayout) -> tuple[WatchFinding, ...]:
 
     Args:
         layout: Paths below the selected home directory.
+        render_diffs: Whether changed entries include the unified diff body.
+            With ``False`` only the summary line is emitted.
 
     Returns:
         Findings sorted by dash entry name.
@@ -49,7 +55,7 @@ def collect_dash_findings(layout: ShlibLayout) -> tuple[WatchFinding, ...]:
         lock = layout.lock_for(child.name)
         if not _exists(lock):
             continue
-        finding = _check_entry(layout, child.name, child, lock)
+        finding = _check_entry(layout, child.name, child, lock, render_diffs=render_diffs)
         if finding is not None:
             findings.append(finding)
     return tuple(findings)
@@ -66,19 +72,27 @@ def _ensure_directory(path: Path) -> bool:
     return True
 
 
-def _check_entry(layout: ShlibLayout, name: str, entry: Path, lock: Path) -> WatchFinding | None:
+def _check_entry(
+    layout: ShlibLayout,
+    name: str,
+    entry: Path,
+    lock: Path,
+    *,
+    render_diffs: bool,
+) -> WatchFinding | None:
     """Return the finding for one locked dash entry, if any."""
     home = layout.home
     if lock.is_symlink() or not lock.is_file():
         return WatchFinding(
             source=SOURCE,
             name=name,
+            kind="lock_error",
             lines=(f"dash: {name}: lock is not a regular file: {display_path(lock, home)}",),
             is_error=True,
         )
 
     if not entry.is_symlink():
-        return WatchFinding(source=SOURCE, name=name, lines=(f"dash: {name}: not a symlink",))
+        return WatchFinding(source=SOURCE, name=name, kind="not_symlink", lines=(f"dash: {name}: not a symlink",))
 
     target = _link_target(entry)
     if target is None:
@@ -86,7 +100,12 @@ def _check_entry(layout: ShlibLayout, name: str, entry: Path, lock: Path) -> Wat
     try:
         status = entry.stat()
     except FileNotFoundError:
-        return WatchFinding(source=SOURCE, name=name, lines=(f"dash: {name}: broken link: {_show(target, home)}",))
+        return WatchFinding(
+            source=SOURCE,
+            name=name,
+            kind="broken",
+            lines=(f"dash: {name}: broken link: {_show(target, home)}",),
+        )
     except OSError as exc:
         return _read_error(name, f"cannot inspect {_show(target, home)}: {exc}")
 
@@ -94,6 +113,7 @@ def _check_entry(layout: ShlibLayout, name: str, entry: Path, lock: Path) -> Wat
         return WatchFinding(
             source=SOURCE,
             name=name,
+            kind="not_regular",
             lines=(f"dash: {name}: target is not a regular file: {_show(target, home)}",),
         )
 
@@ -107,6 +127,7 @@ def _check_entry(layout: ShlibLayout, name: str, entry: Path, lock: Path) -> Wat
         return WatchFinding(
             source=SOURCE,
             name=name,
+            kind="missing",
             lines=(f"dash: {name}: target is missing: {_show(target, home)}",),
         )
     except OSError as exc:
@@ -122,11 +143,15 @@ def _check_entry(layout: ShlibLayout, name: str, entry: Path, lock: Path) -> Wat
         return WatchFinding(
             source=SOURCE,
             name=name,
+            kind="binary_changed",
             lines=(
                 f"dash: {name}: binary content differs "
                 f"(sha256 lock={short_hash(lock_data)} target={short_hash(target_data)})",
             ),
         )
+
+    if not render_diffs:
+        return WatchFinding(source=SOURCE, name=name, kind="changed", lines=(f"dash: {name}: changed",))
 
     diff = difflib.unified_diff(
         lock_text.splitlines(keepends=True),
@@ -136,7 +161,7 @@ def _check_entry(layout: ShlibLayout, name: str, entry: Path, lock: Path) -> Wat
     )
     lines = [f"dash: {name}: changed"]
     lines.extend(_without_newline(line) for line in diff)
-    return WatchFinding(source=SOURCE, name=name, lines=tuple(lines))
+    return WatchFinding(source=SOURCE, name=name, kind="changed", lines=tuple(lines))
 
 
 def _read_error(name: str, reason: str) -> WatchFinding:
@@ -144,6 +169,7 @@ def _read_error(name: str, reason: str) -> WatchFinding:
     return WatchFinding(
         source=SOURCE,
         name=name,
+        kind="read_error",
         lines=(f"dash: {name}: cannot read lock/target: {reason}",),
         is_error=True,
     )

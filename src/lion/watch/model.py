@@ -12,11 +12,13 @@ class WatchFinding:
     Attributes:
         source: Source name, currently ``dash``.
         name: Entry name inside the source.
+        kind: Stable finding kind such as ``changed`` or ``broken``.
         lines: Complete output lines for the finding.
         is_error: Whether the finding is a read or scan error.
     """
 
     source: str
     name: str
+    kind: str
     lines: tuple[str, ...]
     is_error: bool = False

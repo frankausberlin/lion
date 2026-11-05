@@ -20,8 +20,9 @@ these links. It only reads them, stores lock copies and reports drift.
 
 Dash entries are direct, non-hidden children of `dash/`. There are no
 categories and no recursion. `install` creates `dash/` with mode `0700`; an
-existing tree without it is not migrated automatically. Create it manually
-until `lion doctor` diagnoses the gap.
+existing tree without it is not migrated automatically. `lion doctor --fix`
+creates a missing `dash/` and reports pre-existing locks as orphaned on a later
+explicit run.
 
 ## `lion dash list`
 

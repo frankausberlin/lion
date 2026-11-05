@@ -3,6 +3,7 @@
 import typer
 
 from lion.dash.cli import dash_app
+from lion.doctor.cli import doctor_command
 from lion.shlib.cli import shlib_app
 from lion.watch.cli import watch_command, watch_dog_app
 
@@ -15,6 +16,7 @@ app.add_typer(shlib_app, name="shlib")
 app.add_typer(dash_app, name="dash")
 app.add_typer(watch_dog_app, name="watch-dog")
 app.command("watch")(watch_command)
+app.command("doctor")(doctor_command)
 
 
 @app.command()

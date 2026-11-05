@@ -60,6 +60,33 @@ def test_install_creates_private_directories(home: Path, layout: ShlibLayout) ->
         assert _mode(directory) == 0o700
 
 
+def test_install_creates_redaction_key(home: Path, layout: ShlibLayout) -> None:
+    """The installation creates a private 32-byte redaction key."""
+    apply_install(plan_install(layout))
+
+    assert len(layout.redaction_key.read_bytes()) == 32
+    assert _mode(layout.redaction_key) == 0o600
+
+
+def test_install_rolls_back_when_key_creation_fails(
+    home: Path, layout: ShlibLayout, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed key write removes the new tree and leaves .zshrc unchanged."""
+    import lion.shlib.install as install_module
+
+    def fail_key(path: Path) -> bytes:
+        raise OSError("key failed")
+
+    zshrc_bytes = (home / ".zshrc").read_bytes()
+    monkeypatch.setattr(install_module, "create_key", fail_key)
+
+    with pytest.raises(ShlibError, match="install failed"):
+        apply_install(plan_install(layout))
+
+    assert not layout.root.exists()
+    assert (home / ".zshrc").read_bytes() == zshrc_bytes
+
+
 def test_install_rejects_existing_root(home: Path, layout: ShlibLayout) -> None:
     """An existing shlib root aborts the installation."""
     layout.root.mkdir()

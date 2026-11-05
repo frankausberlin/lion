@@ -49,6 +49,11 @@ class ShlibLayout:
         """Return the directory with user-maintained dash links."""
         return self.root / "dash"
 
+    @property
+    def redaction_key(self) -> Path:
+        """Return the per-installation secret redaction key."""
+        return self.root / ".redaction-key"
+
     def lock_for(self, name: str) -> Path:
         """Return the lock copy for a dash entry.
 

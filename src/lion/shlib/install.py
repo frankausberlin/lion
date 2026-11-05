@@ -8,6 +8,7 @@ import stat
 from dataclasses import dataclass
 from pathlib import Path
 
+from lion.redaction import create_key
 from lion.shlib.bootstrap import BOOTSTRAP, BOOTSTRAP_BEGIN
 from lion.shlib.errors import ShlibError
 from lion.shlib.files import atomic_write
@@ -125,6 +126,7 @@ def apply_install(plan: InstallPlan) -> InstallReport:
             os.chmod(directory, 0o700)
         shutil.copy2(plan.zshrc, plan.original)
         atomic_write(plan.lock_file, plan.bootstrap, 0o644)
+        create_key(plan.layout.redaction_key)
     except OSError as exc:
         shutil.rmtree(plan.layout.root, ignore_errors=True)
         raise ShlibError(f"install failed: {exc}; {plan.zshrc} was left unchanged") from exc

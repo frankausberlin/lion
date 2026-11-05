@@ -32,6 +32,7 @@ complete preflight and prints the plan without touching the filesystem.
 ~/
 ├── .zshrc                                  # bootstrap block after install
 └── .shlib/
+    ├── .redaction-key                      # HMAC key for secret masks (0600)
     ├── dash/                               # user-maintained watch links (0700)
     ├── exports/                            # NAME -> file content as value
     ├── locks/
@@ -49,7 +50,9 @@ already contains the bootstrap marker. Directories are created with mode
 `0700` because exports can hold secrets. This includes
 `~/.shlib/dash/`, which holds user-maintained symlinks for `lion dash` and
 `lion watch`. The copied original keeps its content and mode. The lock file is
-mode `0644`.
+mode `0644`. A private redaction key with 32 random bytes and mode `0600` is
+created as `~/.shlib/.redaction-key`; `lion doctor --fix` recreates it when it
+is missing.
 
 `00-original-zshrc.sh` and `99-unsorted.sh` are temporary cleanup files. Both
 are sourced by the bootstrap, but the target state is a tree without either

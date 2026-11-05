@@ -45,6 +45,7 @@ def test_drift_renders_unified_diff(installed: ShlibLayout, home: Path) -> None:
     finding = findings[0]
     assert finding.source == "dash"
     assert finding.name == "conf"
+    assert finding.kind == "changed"
     assert not finding.is_error
     assert finding.lines == (
         "dash: conf: changed",
@@ -145,6 +146,7 @@ def test_binary_content_uses_hashes(installed: ShlibLayout, home: Path) -> None:
     findings = collect_dash_findings(installed)
 
     assert len(findings) == 1
+    assert findings[0].kind == "binary_changed"
     assert findings[0].lines[0].startswith("dash: conf: binary content differs (sha256 lock=")
     assert " target=" in findings[0].lines[0]
 
@@ -169,6 +171,7 @@ def test_directory_target_is_reported(installed: ShlibLayout, home: Path) -> Non
     findings = collect_dash_findings(installed)
 
     assert findings[0].lines == ("dash: conf: target is not a regular file: ~/folder",)
+    assert findings[0].kind == "not_regular"
     assert not findings[0].is_error
 
 
@@ -180,6 +183,7 @@ def test_broken_link_is_reported(installed: ShlibLayout, home: Path) -> None:
     findings = collect_dash_findings(installed)
 
     assert findings[0].lines == ("dash: conf: broken link: ~/missing",)
+    assert findings[0].kind == "broken"
     assert not findings[0].is_error
 
 
@@ -191,6 +195,7 @@ def test_not_a_symlink_is_reported(installed: ShlibLayout) -> None:
     findings = collect_dash_findings(installed)
 
     assert findings[0].lines == ("dash: conf: not a symlink",)
+    assert findings[0].kind == "not_symlink"
     assert not findings[0].is_error
 
 
@@ -212,6 +217,7 @@ def test_missing_target_during_read_is_reported(
     findings = collect_dash_findings(installed)
 
     assert findings[0].lines == ("dash: conf: target is missing: ~/target",)
+    assert findings[0].kind == "missing"
 
 
 def test_symlinked_lock_is_an_error(installed: ShlibLayout, home: Path) -> None:
@@ -226,6 +232,7 @@ def test_symlinked_lock_is_an_error(installed: ShlibLayout, home: Path) -> None:
     findings = collect_dash_findings(installed)
 
     assert findings[0].is_error
+    assert findings[0].kind == "lock_error"
     assert "lock is not a regular file" in findings[0].lines[0]
 
 
@@ -239,6 +246,7 @@ def test_lock_directory_is_an_error(installed: ShlibLayout, home: Path) -> None:
     findings = collect_dash_findings(installed)
 
     assert findings[0].is_error
+    assert findings[0].kind == "lock_error"
     assert "lock is not a regular file" in findings[0].lines[0]
 
 
@@ -258,6 +266,7 @@ def test_unreadable_lock_is_an_error(installed: ShlibLayout, home: Path, monkeyp
     findings = collect_dash_findings(installed)
 
     assert findings[0].is_error
+    assert findings[0].kind == "read_error"
     assert findings[0].lines[0].startswith("dash: conf: cannot read lock/target:")
     assert target.exists()
 
@@ -278,6 +287,7 @@ def test_unreadable_target_is_an_error(installed: ShlibLayout, home: Path, monke
     findings = collect_dash_findings(installed)
 
     assert findings[0].is_error
+    assert findings[0].kind == "read_error"
     assert findings[0].lines[0].startswith("dash: conf: cannot read lock/target:")
 
 
@@ -302,5 +312,19 @@ def test_trailing_newline_difference_is_a_diff(installed: ShlibLayout, home: Pat
     findings = collect_dash_findings(installed)
 
     assert findings[0].lines[0] == "dash: conf: changed"
+    assert findings[0].kind == "changed"
     assert "-hello" in findings[0].lines
     assert "+hello" in findings[0].lines
+
+
+def test_render_diffs_false_emits_only_summary(installed: ShlibLayout, home: Path) -> None:
+    """Disabling diffs keeps the finding but drops the changed content."""
+    target = _locked(installed, home)
+    target.write_bytes(b"world\n")
+
+    findings = collect_dash_findings(installed, render_diffs=False)
+
+    assert len(findings) == 1
+    assert findings[0].kind == "changed"
+    assert findings[0].lines == ("dash: conf: changed",)
+    assert "world" not in "".join(findings[0].lines)

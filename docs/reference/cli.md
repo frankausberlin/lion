@@ -20,6 +20,7 @@ $ lion [OPTIONS] COMMAND [ARGS]...
 **Commands**:
 
 * `watch`: Compare locked dash entries with their...
+* `doctor`: Diagnose shlib, dash, lock and secret...
 * `hello`: Print a greeting.
 * `mcp`: Run the MCP server over stdio.
 * `shlib`: Install or remove the zsh shlib layout.
@@ -39,6 +40,28 @@ $ lion watch [OPTIONS]
 **Options**:
 
 * `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--help`: Show this message and exit.
+
+## `lion doctor`
+
+Diagnose shlib, dash, lock and secret state without printing file contents.
+
+The default run is read-only. ``--fix`` creates missing lion-owned
+directories and the redaction key, and removes orphaned dash locks; it
+never touches a dash link, a changed target or a suspected secret.
+
+**Usage**:
+
+```console
+$ lion doctor [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--fix`: Apply the scoped fixes to lion-owned artifacts.
+* `--dry-run`: Show the fix plan without changing anything.
+* `--no-color`: Disable ANSI colors in the report.
 * `--help`: Show this message and exit.
 
 ## `lion hello`

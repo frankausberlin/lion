@@ -104,6 +104,32 @@ Use `--force` only when you deliberately accept a modified or unlocked
 `~/.zshrc`. See [docs/shlib.md](docs/shlib.md) for the layout, ordering rules
 and safety behavior.
 
+## Diagnosis and redaction
+
+`lion doctor` checks the shlib tree, dash register, locks and suspected secrets
+without printing file contents, export values or diff bodies.
+
+```bash
+lion doctor             # read-only report
+lion doctor --dry-run   # show the scoped fix plan
+lion doctor --fix       # create missing dirs/key and remove orphaned locks
+```
+
+Exit codes are `0` (clean), `1` (warning) and `2` (error or inconsistent
+state). `--fix` never deletes or retargets a dash link, never repairs a
+non-regular lock and never edits a suspected secret. Secret detection is
+heuristic: confidence is a percentage for prioritization, not a calibrated
+probability, and a low value means "not detected", never "clean".
+
+Masks use `[REDACTED:<kind>:<fingerprint>]` with an HMAC-SHA256 fingerprint
+from the per-installation key `~/.shlib/.redaction-key` (mode `0600`). Without
+a key the token has no fingerprint. Fingerprints are not comparable after a
+reinstall, on another machine or after key rotation.
+
+See [docs/doctor.md](docs/doctor.md) for the checks and limits and
+[docs/roadmap.md](docs/roadmap.md) for the next steps (MCP `diagnose` and the
+masked dash content tool).
+
 ## Documentation
 
 ```bash
