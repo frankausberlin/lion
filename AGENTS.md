@@ -94,6 +94,16 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
   müssen das Backup als Teil der Shell-Konfiguration benennen; das Löschen ist
   Sache des Nutzers.
 
+### shlib it kopiert den .zshrc-Tail und ändert die .zshrc nicht
+
+- **Situation**: `lion shlib it` kopiert angehängte `.zshrc`-Zeilen nach
+  `~/.shlib/shlibs/99-unsorted.sh`, und der Tail läuft bis zur manuellen
+  Entfernung aus der `.zshrc` doppelt.
+- **Handhabung**: Die `.zshrc` im Rahmen von `it` nie bearbeiten; eine neue
+  `99-unsorted.sh` bleibt `0600`, bei bestehenden Gruppe-/Fremdrechten nur
+  warnen. Die Ausgabe nennt den zu entfernenden Zeilenbereich, aber nie
+  Tail-Inhalte oder Exportwerte.
+
 ## Herkunft
 
 - lupysta_version: `0.15.0`

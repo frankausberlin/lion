@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Annotated, NoReturn
 
@@ -9,7 +11,9 @@ import typer
 
 from lion.shlib.errors import ShlibError
 from lion.shlib.install import InstallPlan, InstallReport, apply_install, plan_install
+from lion.shlib.it import ItPlan, ItReport, apply_it, plan_it
 from lion.shlib.layout import ShlibLayout
+from lion.shlib.status import INSTALLED, StatusReport, collect_status
 from lion.shlib.uninstall import (
     UninstallPlan,
     UninstallReport,
@@ -37,6 +41,10 @@ ForceOption = Annotated[
         "--force",
         help="Overwrite a .zshrc that differs from the lock file or has no lock file.",
     ),
+]
+NoColorOption = Annotated[
+    bool,
+    typer.Option("--no-color", help="Disable ANSI colors in the status output."),
 ]
 
 
@@ -101,6 +109,129 @@ def uninstall_command(
     _print_uninstall_report(report, layout)
     typer.echo("The former configuration was flattened, not restored.")
     typer.echo("Start a new shell or run: source ~/.zshrc")
+
+
+@shlib_app.command("status")
+def status_command(home: HomeOption = None, no_color: NoColorOption = False) -> None:
+    """Show the state of the shlib installation without changing anything."""
+    try:
+        layout = ShlibLayout.from_option(home)
+    except ShlibError as exc:
+        _fail(exc)
+
+    report = collect_status(layout)
+    for line in render_status(report, color=status_color_enabled(no_color)):
+        typer.echo(line)
+    raise typer.Exit(report.exit_code)
+
+
+@shlib_app.command("it")
+def it_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
+    """Copy content appended to ~/.zshrc into ~/.shlib/shlibs/99-unsorted.sh.
+
+    The .zshrc is never changed. The copied tail keeps running from .zshrc
+    until it is removed there manually.
+    """
+    try:
+        layout = ShlibLayout.from_option(home)
+    except ShlibError as exc:
+        _fail(exc)
+    try:
+        plan = plan_it(layout)
+    except ShlibError as exc:
+        _fail(exc, layout.home)
+
+    for warning in plan.warnings:
+        typer.echo(f"warning: {_display_text(warning, layout.home)}")
+
+    if plan.empty:
+        typer.echo(f"No appended content after the managed block in {_display(layout.zshrc, layout.home)}.")
+        return
+
+    if plan.already_captured:
+        typer.echo(
+            f"Tail already captured in {_display(plan.target, layout.home)} (sha256:{_short_hash(plan.tail_sha256)})."
+        )
+        _print_twice_warning(plan, layout)
+        return
+
+    if dry_run:
+        _print_it_capture(plan, layout, prefix="Would capture")
+        _print_twice_warning(plan, layout)
+        typer.echo("Dry run: no changes made.")
+        return
+
+    try:
+        report = apply_it(plan)
+    except ShlibError as exc:
+        _fail(exc, layout.home)
+    _print_it_capture(report, layout, prefix="Captured")
+    _print_twice_warning(report, layout)
+
+
+def _print_it_capture(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix: str) -> None:
+    """Print the capture summary without revealing appended content."""
+    home = layout.home
+    typer.echo(
+        f"{prefix} {capture.line_end - capture.line_start + 1} line(s) from "
+        f"{_display(layout.zshrc, home)} into {_display(capture.target, home)}."
+    )
+    typer.echo(f"Tail: lines {capture.line_start}-{capture.line_end} (sha256:{_short_hash(capture.tail_sha256)})")
+
+
+def _print_twice_warning(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:
+    """Warn that the tail still runs from ``.zshrc`` until removed."""
+    typer.echo(
+        f"warning: the tail is still in {_display(layout.zshrc, layout.home)} and will run twice "
+        f"until you remove lines {capture.line_start}-{capture.line_end}."
+    )
+
+
+def _short_hash(digest: str) -> str:
+    """Return the short form used in user-facing hash output."""
+    return digest[:12] + "…"
+
+
+def status_color_enabled(no_color: bool) -> bool:
+    """Return whether ANSI colors should be used."""
+    return not no_color and "NO_COLOR" not in os.environ and sys.stdout.isatty()
+
+
+def render_status(report: StatusReport, *, color: bool) -> list[str]:
+    """Render the status report as plain lines with optional ANSI colors."""
+    home = report.layout.home
+    installation_color = typer.colors.GREEN if report.installation == INSTALLED else typer.colors.RED
+    if report.zshrc == "ok":
+        zshrc_color = typer.colors.GREEN
+    elif report.zshrc == "drift":
+        zshrc_color = typer.colors.YELLOW
+    else:
+        zshrc_color = typer.colors.RED
+    unsorted_color = typer.colors.YELLOW if report.unsorted_exists else typer.colors.GREEN
+
+    zshrc = report.zshrc
+    if report.zshrc_detail is not None:
+        zshrc = f"{zshrc} ({report.zshrc_detail})"
+
+    lines = [
+        f"shlib: {_display(report.layout.root, home)}",
+        f"installation: {_style(report.installation, installation_color, color)}",
+        f"zshrc: {_style(zshrc, zshrc_color, color)}",
+        f"exports: {report.exports} (owner-only: {report.owner_only_exports})",
+        f"shlibs: {report.shlibs}",
+        f"unsorted: {_style(report.unsorted, unsorted_color, color)}",
+        f"backups: {report.backups}",
+    ]
+    for issue in report.issues:
+        lines.append(_style(f"issue: {_display_text(issue, home)}", typer.colors.RED, color))
+    return lines
+
+
+def _style(text: str, color: str, enabled: bool) -> str:
+    """Return ``text`` with ``color`` when colors are enabled."""
+    if not enabled:
+        return text
+    return typer.style(text, fg=color)
 
 
 def _fail(error: ShlibError, home: Path | None = None) -> NoReturn:

@@ -70,6 +70,8 @@ $ lion shlib [OPTIONS] COMMAND [ARGS]...
 
 * `install`: Install the shlib layout and replace...
 * `uninstall`: Flatten the shlib layout into ~/.zshrc and...
+* `status`: Show the state of the shlib installation...
+* `it`: Copy content appended to ~/.zshrc into...
 
 ### `lion shlib install`
 
@@ -105,4 +107,39 @@ $ lion shlib uninstall [OPTIONS]
 * `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
 * `--dry-run`: Run all checks and show the plan without changing anything.
 * `--force`: Overwrite a .zshrc that differs from the lock file or has no lock file.
+* `--help`: Show this message and exit.
+
+### `lion shlib status`
+
+Show the state of the shlib installation without changing anything.
+
+**Usage**:
+
+```console
+$ lion shlib status [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--no-color`: Disable ANSI colors in the status output.
+* `--help`: Show this message and exit.
+
+### `lion shlib it`
+
+Copy content appended to ~/.zshrc into ~/.shlib/shlibs/99-unsorted.sh.
+
+The .zshrc is never changed. The copied tail keeps running from .zshrc
+until it is removed there manually.
+
+**Usage**:
+
+```console
+$ lion shlib it [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
+* `--dry-run`: Run all checks and show the plan without changing anything.
 * `--help`: Show this message and exit.

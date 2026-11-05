@@ -13,14 +13,18 @@ lion shlib install
 ```
 
 ```bash
+lion shlib status
+lion shlib it --dry-run
+lion shlib it
 lion shlib uninstall --dry-run
 lion shlib uninstall
 ```
 
-Both commands accept `--home PATH` to operate on a throwaway or test home
+All commands accept `--home PATH` to operate on a throwaway or test home
 instead of `Path.home()`. Relative paths are resolved and `~` is expanded.
-`--dry-run` performs the complete preflight and prints the plan without
-touching the filesystem. `--force` exists only for `uninstall`.
+`install`, `it` and `uninstall` also accept `--dry-run`, which performs the
+complete preflight and prints the plan without touching the filesystem.
+`--force` exists only for `uninstall`.
 
 ## Layout
 
@@ -65,6 +69,73 @@ shlib files:
 
 A file without a final newline is padded before the next section marker when
 `uninstall` flattens it, so entries never merge.
+
+## Status
+
+`lion shlib status` reports the state without reading export values or
+changing anything:
+
+```text
+shlib: ~/.shlib
+installation: installed
+zshrc: drift (12 appended line(s))
+exports: 3 (owner-only: 1)
+shlibs: 5
+unsorted: yes (128 bytes)
+backups: 1
+```
+
+`installation` is `installed`, `not installed` or `inconsistent`. `zshrc` is
+`ok`, `drift` (with `appended line(s)`, `whitespace only`, `other changes` or
+`managed block missing`) or `missing`. The `unsorted` line is yellow as soon
+as `~/.shlib/shlibs/99-unsorted.sh` exists, even when it is empty; drift is
+yellow as well. `inconsistent` and `not installed` are red. The state words are
+always visible, independent of color.
+
+Exit codes: `0` everything is ok, `1` not installed or a warning (drift or
+`99-unsorted.sh`), `2` inconsistent or a read error.
+
+Colors are disabled with `--no-color`, by setting `NO_COLOR`, or automatically
+when stdout is not a terminal.
+
+## Appended .zshrc content and `lion shlib it`
+
+Content added after the managed bootstrap block stays in `~/.zshrc` and keeps
+running. `lion shlib it` copies that tail into
+`~/.shlib/shlibs/99-unsorted.sh` so it survives an uninstall; it **never
+changes `~/.zshrc`**.
+
+```bash
+lion shlib it --dry-run
+lion shlib it
+```
+
+The command requires that `~/.zshrc` starts exactly with the lock file. If the
+lock is missing, the built-in bootstrap is used when `~/.zshrc` starts with it;
+otherwise the command aborts. Changes before or inside the managed block are
+not moved and also abort. Only regular files in a real shlib tree are accepted.
+
+Each capture is framed by markers:
+
+```zsh
+# >>> lion shlib it 2026-11-05T14:26:04Z sha256:<hex>
+<tail>
+# <<< lion shlib it sha256:<hex>
+```
+
+A second run with the identical tail is a no-op. An empty or whitespace-only
+tail is a no-op as well. New files are created with mode `0600`; an existing
+regular `99-unsorted.sh` keeps its mode, and a group- or world-readable file
+triggers a warning. Symlinks and directories at the target path abort.
+
+**The tail still runs from `~/.zshrc` until you remove it there.** During that
+time the same code runs twice: once from `99-unsorted.sh` and once from the
+`.zshrc` tail. The command prints the line range to remove. Removing
+`99-unsorted.sh` later makes the status report `unsorted: no` again.
+
+`99-unsorted.sh` sorts before a later `99-LAST.sh`, because the uppercase `L`
+sorts before the lowercase `u`. If a later fallback is needed, choose another
+name and update the order deliberately.
 
 ## Owner-only exports
 

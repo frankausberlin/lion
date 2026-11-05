@@ -162,3 +162,77 @@ def test_help_is_available_in_installed_package(tmp_path: Path, arguments: tuple
     assert result.returncode == 0
     assert "--home" in result.stdout
     assert "--dry-run" in result.stdout
+
+
+def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
+    """Capturing the tail copies it without changing .zshrc or its double run."""
+    home = _make_home(tmp_path)
+    assert _lion(home, "shlib", "install").returncode == 0
+
+    zshrc = home / ".zshrc"
+    tail = b'printf "tail\\n" >> "$HOME/order.log"\n'
+    zshrc.write_bytes(zshrc.read_bytes() + tail)
+    zshrc_before = zshrc.read_bytes()
+
+    captured = _lion(home, "shlib", "it")
+    assert captured.returncode == 0, captured.stderr
+    assert zshrc.read_bytes() == zshrc_before
+
+    unsorted = home / ".shlib" / "shlibs" / "99-unsorted.sh"
+    content = unsorted.read_bytes()
+    assert tail in content
+    assert b"# >>> lion shlib it " in content
+    assert b"# <<< lion shlib it sha256:" in content
+    assert stat.S_IMODE(unsorted.stat().st_mode) == 0o600
+
+    status = _lion(home, "shlib", "status")
+    assert status.returncode == 1
+    assert "unsorted: yes" in status.stdout
+    assert "zshrc: drift" in status.stdout
+    assert "\x1b[" not in status.stdout
+
+    (home / "order.log").unlink(missing_ok=True)
+    doubled = _zsh(home, 'source "$HOME/.zshrc"')
+    assert doubled.returncode == 0, doubled.stderr
+    order = (home / "order.log").read_text(encoding="utf-8").splitlines()
+    assert order == ["original", "tail", "tail"]
+
+    current = zshrc.read_bytes()
+    assert current.endswith(tail)
+    zshrc.write_bytes(current[: -len(tail)])
+
+    (home / "order.log").unlink()
+    single = _zsh(home, 'source "$HOME/.zshrc"')
+    assert single.returncode == 0, single.stderr
+    order = (home / "order.log").read_text(encoding="utf-8").splitlines()
+    assert order == ["original", "tail"]
+
+    status_after = _lion(home, "shlib", "status")
+    assert status_after.returncode == 1
+    assert "zshrc: ok" in status_after.stdout
+    assert "unsorted: yes" in status_after.stdout
+
+    unsorted.unlink()
+    status_clean = _lion(home, "shlib", "status")
+    assert status_clean.returncode == 0
+    assert "unsorted: no" in status_clean.stdout
+    assert "zshrc: ok" in status_clean.stdout
+
+
+@pytest.mark.parametrize(
+    ("arguments", "option"),
+    [
+        (("shlib", "it", "--help"), "--dry-run"),
+        (("shlib", "status", "--help"), "--no-color"),
+    ],
+)
+def test_new_shlib_help_is_available_in_installed_package(
+    tmp_path: Path, arguments: tuple[str, ...], option: str
+) -> None:
+    """The installed console script exposes the new options."""
+    home = _make_home(tmp_path)
+    result = _lion(home, *arguments)
+
+    assert result.returncode == 0
+    assert "--home" in result.stdout
+    assert option in result.stdout
