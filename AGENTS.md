@@ -97,15 +97,16 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
 ### shlib-Cleanup-Dateien sind Nutzersache
 
 - **Situation**: `install` legt `00-original-zshrc.sh` an, `it` legt bei Bedarf
-  `99-unsorted.sh` an; solange eine der beiden Dateien existiert, meldet
-  `status` gelb und `it` lässt den Tail zusätzlich in der `.zshrc` laufen.
-- **Handhabung**: Beide Dateien nie automatisch löschen und die `.zshrc` im
-  Rahmen von `it` nie bearbeiten; `status` und `it` nennen nur den
-  Handlungsbedarf. Ziel ist ein Tree ohne beide Dateien: Der Nutzer löst die
-  Inhalte in sortierte `NN-*.sh` auf und löscht die Cleanup-Datei dann selbst.
-  Eine neue `99-unsorted.sh` bleibt `0600`, bei bestehenden Gruppe-/Fremdrechten
-  nur warnen. Ausgaben nennen Zeilenbereiche, aber nie Tail-Inhalte oder
-  Exportwerte.
+  `99-unsorted.sh` an und entfernt den kopierten Tail aus der `.zshrc`; solange
+  eine der beiden Dateien existiert, meldet `status` gelb.
+- **Handhabung**: `it` entfernt ausschließlich den erfassten Tail und schreibt
+  die `.zshrc` atomar auf die Referenz zurück; jede weitere Bearbeitung ist
+  verboten. `00-original-zshrc.sh` und `99-unsorted.sh` nie automatisch löschen;
+  `status` und `it` nennen nur den Handlungsbedarf. Ziel ist ein Tree ohne beide
+  Dateien: Der Nutzer löst die Inhalte in sortierte `NN-*.sh` auf und löscht die
+  Cleanup-Datei dann selbst. Eine neue `99-unsorted.sh` bleibt `0600`, bei
+  bestehenden Gruppe-/Fremdrechten nur warnen. Ausgaben nennen Zeilenbereiche,
+  aber nie Tail-Inhalte oder Exportwerte.
 
 ## Herkunft
 

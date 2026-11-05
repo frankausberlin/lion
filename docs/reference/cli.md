@@ -129,9 +129,9 @@ $ lion shlib status [OPTIONS]
 
 Copy content appended to ~/.zshrc into ~/.shlib/shlibs/99-unsorted.sh.
 
-The .zshrc is never changed. The copied tail keeps running from .zshrc
-until it is removed there manually; the user must then resolve and delete
-99-unsorted.sh.
+The captured tail is removed from .zshrc, so it matches the lock file
+afterwards. 99-unsorted.sh remains a cleanup file that the user must
+resolve and delete.
 
 **Usage**:
 

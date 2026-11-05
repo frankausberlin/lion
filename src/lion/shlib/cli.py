@@ -130,9 +130,9 @@ def status_command(home: HomeOption = None, no_color: NoColorOption = False) -> 
 def it_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
     """Copy content appended to ~/.zshrc into ~/.shlib/shlibs/99-unsorted.sh.
 
-    The .zshrc is never changed. The copied tail keeps running from .zshrc
-    until it is removed there manually; the user must then resolve and delete
-    99-unsorted.sh.
+    The captured tail is removed from .zshrc, so it matches the lock file
+    afterwards. 99-unsorted.sh remains a cleanup file that the user must
+    resolve and delete.
     """
     try:
         layout = ShlibLayout.from_option(home)
@@ -150,25 +150,26 @@ def it_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
         typer.echo(f"No appended content after the managed block in {_display(layout.zshrc, layout.home)}.")
         return
 
-    if plan.already_captured:
-        typer.echo(
-            f"Tail already captured in {_display(plan.target, layout.home)} (sha256:{_short_hash(plan.tail_sha256)})."
-        )
-        _print_twice_warning(plan, layout)
-        return
-
     if dry_run:
-        _print_it_capture(plan, layout, prefix="Would capture")
-        _print_twice_warning(plan, layout)
+        if plan.already_captured:
+            _print_already_captured(plan, layout)
+        else:
+            _print_it_capture(plan, layout, prefix="Would capture")
+        _print_removal(plan, layout, prefix="Would remove", future=True)
         typer.echo("Dry run: no changes made.")
         return
+
+    if plan.already_captured:
+        _print_already_captured(plan, layout)
 
     try:
         report = apply_it(plan)
     except ShlibError as exc:
         _fail(exc, layout.home)
-    _print_it_capture(report, layout, prefix="Captured")
-    _print_twice_warning(report, layout)
+    if not report.already_captured:
+        _print_it_capture(report, layout, prefix="Captured")
+    _print_removal(report, layout, prefix="Removed")
+    _print_cleanup_hint(report, layout)
 
 
 def _print_it_capture(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix: str) -> None:
@@ -184,12 +185,23 @@ def _print_it_capture(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix
     )
 
 
-def _print_twice_warning(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:
-    """Warn that the tail still runs from ``.zshrc`` until removed."""
+def _print_already_captured(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:
+    """Print that the target already contains the tail."""
     typer.echo(
-        f"warning: the tail is still in {_display(layout.zshrc, layout.home)} and will run twice "
-        f"until you remove lines {capture.line_start}-{capture.line_end}."
+        f"Tail already captured in {_display(capture.target, layout.home)} (sha256:{_short_hash(capture.tail_sha256)})."
     )
+
+
+def _print_removal(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix: str, future: bool = False) -> None:
+    """Print that the tail is or would be removed from ``.zshrc``."""
+    state = "it would match the lock file" if future else "it now matches the lock file"
+    typer.echo(
+        f"{prefix} lines {capture.line_start}-{capture.line_end} from {_display(layout.zshrc, layout.home)}; {state}."
+    )
+
+
+def _print_cleanup_hint(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:
+    """Hint that the captured cleanup file still has to be resolved."""
     typer.echo(
         f"hint: resolve {_display(capture.target, layout.home)} into sorted shlib files, then delete it; "
         "the status stays yellow until then."

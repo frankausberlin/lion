@@ -28,6 +28,8 @@ class ItPlan:
         target: Fallback shlib file that receives the tail.
         content: Exact bytes for the target after the capture.
         mode: Permission bits for the target.
+        zshrc_content: Exact bytes for the ``.zshrc`` after removing the tail.
+        zshrc_mode: Permission bits for the ``.zshrc``.
         tail: Appended ``.zshrc`` bytes.
         tail_bytes: Size of ``tail`` in bytes.
         tail_sha256: Hex digest of ``tail``.
@@ -42,6 +44,8 @@ class ItPlan:
     target: Path
     content: bytes
     mode: int
+    zshrc_content: bytes
+    zshrc_mode: int
     tail: bytes
     tail_bytes: int
     tail_sha256: str
@@ -65,6 +69,7 @@ class ItReport:
         empty: Whether there was nothing to capture.
         already_captured: Whether the tail was already present.
         wrote: Whether the target was written.
+        wrote_zshrc: Whether the tail was removed from ``.zshrc``.
         warnings: Non-fatal notices produced during planning.
     """
 
@@ -76,6 +81,7 @@ class ItReport:
     empty: bool
     already_captured: bool
     wrote: bool
+    wrote_zshrc: bool
     warnings: tuple[str, ...]
 
     @property
@@ -89,9 +95,10 @@ class ItReport:
 def plan_it(layout: ShlibLayout) -> ItPlan:
     """Preflight a capture of content appended to ``.zshrc``.
 
-    Only the tail after the managed reference is read. The ``.zshrc`` is
-    never written. A missing or damaged shlib tree, a mismatched managed block
-    or an unusable target aborts before anything is changed.
+    Only the tail after the managed reference is read. Applying the plan
+    removes that tail, so the ``.zshrc`` matches the lock file afterwards. A
+    missing or damaged shlib tree, a mismatched managed block or an unusable
+    target aborts before anything is changed.
 
     Args:
         layout: Paths below the selected home directory.
@@ -122,6 +129,7 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
         raise ShlibError(f"{zshrc} is not a regular file")
     try:
         current = zshrc.read_bytes()
+        zshrc_mode = stat.S_IMODE(zshrc.stat().st_mode)
     except OSError as exc:
         raise ShlibError(f"cannot read {zshrc}: {exc}") from exc
 
@@ -131,12 +139,14 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
         raise ShlibError(f"the appended content in {zshrc} contains a NUL byte, which shlib cannot capture")
 
     warnings = list(reference.warnings)
-    if not tail or not tail.strip():
+    if not tail:
         return ItPlan(
             layout=layout,
             target=shlibs / UNSORTED_NAME,
             content=b"",
             mode=0o600,
+            zshrc_content=reference.data,
+            zshrc_mode=zshrc_mode,
             tail=tail,
             tail_bytes=len(tail),
             tail_sha256=hashlib.sha256(tail).hexdigest(),
@@ -177,6 +187,8 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
         target=target,
         content=_render(existing, tail, digest),
         mode=mode,
+        zshrc_content=reference.data,
+        zshrc_mode=zshrc_mode,
         tail=tail,
         tail_bytes=len(tail),
         tail_sha256=digest,
@@ -191,25 +203,37 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
 def apply_it(plan: ItPlan) -> ItReport:
     """Apply a validated capture plan.
 
-    The ``.zshrc`` is read-only for this command and is never changed. An
-    empty or already captured tail is a no-op.
+    The target is written first. Only then is the tail removed from the
+    ``.zshrc`` by atomically replacing it with the reference content. An empty
+    plan is a no-op.
 
     Args:
         plan: Plan returned by :func:`plan_it`.
 
     Returns:
-        A report describing the capture.
+        A report describing the capture and the ``.zshrc`` rewrite.
 
     Raises:
-        ShlibError: If the target cannot be written.
+        ShlibError: If the target or the ``.zshrc`` cannot be written.
     """
     wrote = False
-    if not plan.empty and not plan.already_captured:
+    wrote_zshrc = False
+    if not plan.empty:
+        if not plan.already_captured:
+            try:
+                atomic_write(plan.target, plan.content, plan.mode)
+            except OSError as exc:
+                raise ShlibError(f"cannot write {plan.target}: {exc}; {plan.layout.zshrc} was left unchanged") from exc
+            wrote = True
+
         try:
-            atomic_write(plan.target, plan.content, plan.mode)
+            atomic_write(plan.layout.zshrc, plan.zshrc_content, plan.zshrc_mode)
         except OSError as exc:
-            raise ShlibError(f"cannot write {plan.target}: {exc}; {plan.layout.zshrc} was left unchanged") from exc
-        wrote = True
+            raise ShlibError(
+                f"cannot remove the captured tail from {plan.layout.zshrc}: {exc}; "
+                f"the tail is still in {plan.layout.zshrc} and also runs from {plan.target}"
+            ) from exc
+        wrote_zshrc = True
 
     return ItReport(
         target=plan.target,
@@ -220,6 +244,7 @@ def apply_it(plan: ItPlan) -> ItReport:
         empty=plan.empty,
         already_captured=plan.already_captured,
         wrote=wrote,
+        wrote_zshrc=wrote_zshrc,
         warnings=plan.warnings,
     )
 

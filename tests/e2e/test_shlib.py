@@ -164,8 +164,8 @@ def test_help_is_available_in_installed_package(tmp_path: Path, arguments: tuple
     assert "--dry-run" in result.stdout
 
 
-def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
-    """Capturing the tail leaves .zshrc alone; the user resolves both cleanup files."""
+def test_it_moves_tail_and_restores_lock_state(tmp_path: Path) -> None:
+    """After it, .zshrc matches the lock and the tail runs only from 99-unsorted.sh."""
     home = _make_home(tmp_path)
     assert _lion(home, "shlib", "install").returncode == 0
 
@@ -175,13 +175,15 @@ def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
     assert "unsorted: no" in installed_status.stdout
 
     zshrc = home / ".zshrc"
+    lock = home / ".shlib" / "locks" / "shlib-version-of.zshrc"
     tail = b'printf "tail\\n" >> "$HOME/order.log"\n'
     zshrc.write_bytes(zshrc.read_bytes() + tail)
-    zshrc_before = zshrc.read_bytes()
 
     captured = _lion(home, "shlib", "it")
     assert captured.returncode == 0, captured.stderr
-    assert zshrc.read_bytes() == zshrc_before
+    assert zshrc.read_bytes() == lock.read_bytes()
+    assert "Removed lines 16-16 from ~/.zshrc" in captured.stdout
+    assert "it now matches the lock file" in captured.stdout
 
     unsorted = home / ".shlib" / "shlibs" / "99-unsorted.sh"
     content = unsorted.read_bytes()
@@ -194,30 +196,15 @@ def test_it_captures_tail_and_status_tracks_unsorted(tmp_path: Path) -> None:
     assert status.returncode == 1
     assert "original: yes" in status.stdout
     assert "unsorted: yes" in status.stdout
-    assert "zshrc: drift" in status.stdout
+    assert "zshrc: ok" in status.stdout
     assert "hint: resolve 00-original-zshrc.sh, 99-unsorted.sh, then delete" in status.stdout
     assert "\x1b[" not in status.stdout
 
     (home / "order.log").unlink(missing_ok=True)
-    doubled = _zsh(home, 'source "$HOME/.zshrc"')
-    assert doubled.returncode == 0, doubled.stderr
-    order = (home / "order.log").read_text(encoding="utf-8").splitlines()
-    assert order == ["original", "tail", "tail"]
-
-    current = zshrc.read_bytes()
-    assert current.endswith(tail)
-    zshrc.write_bytes(current[: -len(tail)])
-
-    (home / "order.log").unlink()
     single = _zsh(home, 'source "$HOME/.zshrc"')
     assert single.returncode == 0, single.stderr
     order = (home / "order.log").read_text(encoding="utf-8").splitlines()
     assert order == ["original", "tail"]
-
-    status_after = _lion(home, "shlib", "status")
-    assert status_after.returncode == 1
-    assert "zshrc: ok" in status_after.stdout
-    assert "unsorted: yes" in status_after.stdout
 
     unsorted.unlink()
     (home / ".shlib" / "shlibs" / "00-original-zshrc.sh").unlink()

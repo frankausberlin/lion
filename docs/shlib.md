@@ -105,8 +105,8 @@ visible, independent of color.
 
 A fresh installation is yellow because `install` creates
 `00-original-zshrc.sh`. It stays yellow after `lion shlib it` because
-`99-unsorted.sh` was created. Both files must be resolved and deleted by you
-before the status is green.
+`99-unsorted.sh` was created; the `zshrc` drift is already gone after that run.
+Both files must be resolved and deleted by you before the status is green.
 
 Exit codes: `0` everything is clean, `1` not installed or a warning (drift,
 `00-original-zshrc.sh` or `99-unsorted.sh`), `2` inconsistent or a read error.
@@ -118,8 +118,9 @@ when stdout is not a terminal.
 
 Content added after the managed bootstrap block stays in `~/.zshrc` and keeps
 running. `lion shlib it` copies that tail into
-`~/.shlib/shlibs/99-unsorted.sh` so it survives an uninstall; it **never
-changes `~/.zshrc`**.
+`~/.shlib/shlibs/99-unsorted.sh` and then removes it from `~/.zshrc`, so the
+file matches the lock file again. The captured content then runs only from
+`99-unsorted.sh`.
 
 ```bash
 lion shlib it --dry-run
@@ -139,19 +140,22 @@ Each capture is framed by markers:
 # <<< lion shlib it sha256:<hex>
 ```
 
-A second run with the identical tail is a no-op. An empty or whitespace-only
-tail is a no-op as well. New files are created with mode `0600`; an existing
-regular `99-unsorted.sh` keeps its mode, and a group- or world-readable file
-triggers a warning. Symlinks and directories at the target path abort.
+A second run without appended content is a no-op. A re-added tail whose hash is
+already captured is not written again; only the `.zshrc` tail is removed. An
+empty tail is a no-op; whitespace-only content is captured and removed like any
+other tail. New files are created with mode `0600`; an existing regular
+`99-unsorted.sh` keeps its mode, and a group- or world-readable file triggers a
+warning. Symlinks and directories at the target path abort.
 
-**The tail still runs from `~/.zshrc` until you remove it there.** During that
-time the same code runs twice: once from `99-unsorted.sh` and once from the
-`.zshrc` tail. The command prints the line range to remove, but only as a hint;
-it never edits `~/.zshrc` and never deletes the cleanup file. After removing
-the tail, resolve the captured content into sorted `NN-*.sh` files and delete
-`99-unsorted.sh` yourself. Until then `lion shlib status` stays yellow with
-`unsorted: yes`. A clean shlib tree contains neither `00-original-zshrc.sh` nor
-`99-unsorted.sh`.
+The target is written first. Only after that succeeds is `~/.zshrc` replaced
+atomically with the reference content, keeping its mode. If the rewrite fails,
+the command reports that the tail still runs from both files; the original
+`.zshrc` is not lost.
+
+After the run, `99-unsorted.sh` remains a cleanup file: resolve the captured
+content into sorted `NN-*.sh` files and delete `99-unsorted.sh` yourself. Until
+then `lion shlib status` stays yellow with `unsorted: yes`. A clean shlib tree
+contains neither `00-original-zshrc.sh` nor `99-unsorted.sh`.
 
 `99-unsorted.sh` sorts before a later `99-LAST.sh`, because the uppercase `L`
 sorts before the lowercase `u`. If a later fallback is needed, choose another

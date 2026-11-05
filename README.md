@@ -50,8 +50,8 @@ stdout before startup. The smoke tests call the server through the in-memory
 lion shlib install --dry-run   # validate and show the plan
 lion shlib install             # write ~/.shlib and replace ~/.zshrc
 lion shlib status              # show installation, drift and cleanup state
-lion shlib it --dry-run        # show appended content that would be copied
-lion shlib it                  # copy appended .zshrc content into 99-unsorted.sh
+lion shlib it --dry-run        # show appended content that would be moved
+lion shlib it                  # move appended content into 99-unsorted.sh
 lion shlib uninstall           # flatten back into ~/.zshrc, keep a backup
 ```
 
@@ -62,9 +62,10 @@ file and replaces `~/.zshrc` with a bootstrap block. Files in
 named `NN-*.sh` are sourced in sorted order. `uninstall` combines everything
 into a flat `~/.zshrc` and keeps the old tree as
 `~/.shlib.uninstalled-<timestamp>`; it does not restore the previous file.
-`it` only copies content appended after the managed block into
-`~/.shlib/shlibs/99-unsorted.sh` and never edits `~/.zshrc`; the tail therefore
-runs twice until you remove it there.
+`it` copies content appended after the managed block into
+`~/.shlib/shlibs/99-unsorted.sh` and removes it from `~/.zshrc`, so the file
+matches the lock file again. The captured content then runs only from
+`99-unsorted.sh`.
 
 `00-original-zshrc.sh` and `99-unsorted.sh` are temporary cleanup files, not
 permanent parts of the tree. The target state is a shlib tree without either

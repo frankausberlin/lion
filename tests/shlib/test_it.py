@@ -41,12 +41,13 @@ def _mode(path: Path) -> int:
     return stat.S_IMODE(path.stat().st_mode)
 
 
-def test_it_captures_appended_tail(home: Path, layout: ShlibLayout) -> None:
-    """The tail is copied, the .zshrc stays byte-identical and the target is 0600."""
+def test_it_captures_and_removes_appended_tail(home: Path, layout: ShlibLayout) -> None:
+    """The tail is copied, removed from .zshrc and the target is 0600."""
     _install(layout)
+    zshrc = home / ".zshrc"
+    zshrc.chmod(0o640)
     tail = b"export TAIL=1\nprintf 'tail\\n' >> \"$HOME/order.log\"\n"
     _append(home, tail)
-    zshrc_before = (home / ".zshrc").read_bytes()
     digest = hashlib.sha256(tail).hexdigest()
 
     plan = plan_it(layout)
@@ -56,12 +57,16 @@ def test_it_captures_appended_tail(home: Path, layout: ShlibLayout) -> None:
     assert plan.tail == tail
     assert plan.tail_bytes == len(tail)
     assert plan.tail_sha256 == digest
+    assert plan.zshrc_content == BOOTSTRAP.encode()
+    assert plan.zshrc_mode == 0o640
     assert plan.line_start == BOOTSTRAP.count("\n") + 1
     assert plan.line_end == plan.line_start + 1
     assert report.wrote
+    assert report.wrote_zshrc
     assert report.line_count == 2
     assert report.tail_bytes == len(tail)
-    assert (home / ".zshrc").read_bytes() == zshrc_before
+    assert zshrc.read_bytes() == BOOTSTRAP.encode()
+    assert _mode(zshrc) == 0o640
     content = _target(layout).read_bytes()
     assert tail in content
     assert b"# >>> lion shlib it " in content
@@ -85,21 +90,24 @@ def test_it_without_tail_is_noop(home: Path, layout: ShlibLayout) -> None:
     assert (home / ".zshrc").read_bytes() == zshrc_before
 
 
-def test_it_whitespace_tail_is_noop(home: Path, layout: ShlibLayout) -> None:
-    """Whitespace-only appended content is treated as no tail."""
+def test_it_whitespace_tail_is_captured_and_removed(home: Path, layout: ShlibLayout) -> None:
+    """Whitespace-only appended content is captured and removed like any tail."""
     _install(layout)
     _append(home, b"  \n\t\n")
 
     plan = plan_it(layout)
     report = apply_it(plan)
 
-    assert plan.empty
-    assert not report.wrote
-    assert not _target(layout).exists()
+    assert not plan.empty
+    assert plan.tail == b"  \n\t\n"
+    assert report.wrote
+    assert report.wrote_zshrc
+    assert _target(layout).exists()
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
 
 
 def test_it_second_run_is_idempotent(home: Path, layout: ShlibLayout) -> None:
-    """Repeating the capture with the same tail does not add a second block."""
+    """After the first run the tail is gone, so a second run is a no-op."""
     _install(layout)
     _append(home, b"export TAIL=1\n")
     apply_it(plan_it(layout))
@@ -107,8 +115,27 @@ def test_it_second_run_is_idempotent(home: Path, layout: ShlibLayout) -> None:
     plan = plan_it(layout)
     report = apply_it(plan)
 
+    assert plan.empty
+    assert not report.wrote
+    assert not report.wrote_zshrc
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
+    assert _target(layout).read_bytes().count(b"# >>> lion shlib it ") == 1
+
+
+def test_it_already_captured_tail_is_removed(home: Path, layout: ShlibLayout) -> None:
+    """A tail whose hash is already in the target is only removed from .zshrc."""
+    _install(layout)
+    _append(home, b"export TAIL=1\n")
+    apply_it(plan_it(layout))
+    _append(home, b"export TAIL=1\n")
+
+    plan = plan_it(layout)
+    report = apply_it(plan)
+
     assert plan.already_captured
     assert not report.wrote
+    assert report.wrote_zshrc
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
     assert _target(layout).read_bytes().count(b"# >>> lion shlib it ") == 1
 
 
@@ -131,6 +158,7 @@ def test_it_appends_to_existing_file_and_keeps_mode(home: Path, layout: ShlibLay
     assert b"# existing\n\n# >>> lion shlib it " in content
     assert b"export TAIL=1\n" in content
     assert _mode(target) == 0o640
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
 
 
 def test_it_rejects_symlink_target(home: Path, layout: ShlibLayout) -> None:
@@ -228,6 +256,8 @@ def test_it_falls_back_to_bootstrap_without_lock(home: Path, layout: ShlibLayout
 
     assert any("using the built-in bootstrap" in warning for warning in plan.warnings)
     assert report.wrote
+    assert report.wrote_zshrc
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
     assert b"export TAIL=1\n" in _target(layout).read_bytes()
 
 
@@ -382,6 +412,31 @@ def test_it_write_failure_keeps_target(home: Path, layout: ShlibLayout, monkeypa
     assert (home / ".zshrc").read_bytes() == zshrc_before
 
 
+def test_it_zshrc_write_failure_keeps_tail(home: Path, layout: ShlibLayout, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A failed .zshrc rewrite reports that the tail still runs from both files."""
+    import lion.shlib.it as it_module
+
+    _install(layout)
+    zshrc = home / ".zshrc"
+    _append(home, b"export TAIL=1\n")
+    zshrc_before = zshrc.read_bytes()
+    plan = plan_it(layout)
+    real_write = it_module.atomic_write
+
+    def fail_zshrc(path: Path, data: bytes, mode: int) -> None:
+        if path == zshrc:
+            raise OSError("write failed")
+        real_write(path, data, mode)
+
+    monkeypatch.setattr(it_module, "atomic_write", fail_zshrc)
+
+    with pytest.raises(ShlibError, match="cannot remove the captured tail"):
+        apply_it(plan)
+
+    assert zshrc.read_bytes() == zshrc_before
+    assert b"export TAIL=1\n" in _target(layout).read_bytes()
+
+
 def test_it_cli_dry_run_writes_nothing(home: Path, layout: ShlibLayout) -> None:
     """The dry run explains the capture and changes nothing."""
     _install(layout)
@@ -395,7 +450,7 @@ def test_it_cli_dry_run_writes_nothing(home: Path, layout: ShlibLayout) -> None:
     assert "Would capture 1 line(s)" in result.output
     assert "Tail: lines" in result.output
     assert f"{len(tail)} bytes" in result.output
-    assert "will run twice" in result.output
+    assert "Would remove lines 16-16 from ~/.zshrc; it would match the lock file." in result.output
     assert "Dry run: no changes made." in result.output
     assert not _target(layout).exists()
     assert (home / ".zshrc").read_bytes() == zshrc_before
@@ -413,10 +468,12 @@ def test_it_cli_success_does_not_reveal_content(home: Path, layout: ShlibLayout)
     assert "Captured 1 line(s)" in result.output
     assert f"{len(tail)} bytes" in result.output
     assert "sha256:" in result.output
-    assert "warning: the tail is still in ~/.zshrc" in result.output
+    assert "Removed lines 16-16 from ~/.zshrc; it now matches the lock file." in result.output
     assert "hint: resolve ~/.shlib/shlibs/99-unsorted.sh" in result.output
+    assert "will run twice" not in result.output
     assert "s3cr3t-value" not in result.output
     assert b"export SECRET=s3cr3t-value\n" in _target(layout).read_bytes()
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
 
 
 def test_it_cli_without_tail(home: Path, layout: ShlibLayout) -> None:
@@ -430,16 +487,18 @@ def test_it_cli_without_tail(home: Path, layout: ShlibLayout) -> None:
 
 
 def test_it_cli_already_captured(home: Path, layout: ShlibLayout) -> None:
-    """A second CLI run reports the existing capture."""
+    """A re-added tail is reported as captured and removed from .zshrc again."""
     _install(layout)
     _append(home, b"export TAIL=1\n")
     assert runner.invoke(app, ["shlib", "it", "--home", str(home)]).exit_code == 0
+    _append(home, b"export TAIL=1\n")
 
     result = runner.invoke(app, ["shlib", "it", "--home", str(home)])
 
     assert result.exit_code == 0
     assert "Tail already captured in ~/.shlib/shlibs/99-unsorted.sh" in result.output
-    assert "will run twice" in result.output
+    assert "Removed lines 16-16 from ~/.zshrc; it now matches the lock file." in result.output
+    assert (home / ".zshrc").read_bytes() == BOOTSTRAP.encode()
 
 
 def test_it_cli_reports_errors(home: Path, layout: ShlibLayout) -> None:
