@@ -232,6 +232,33 @@ def test_status_missing_lock_is_inconsistent(home: Path, layout: ShlibLayout) ->
     assert any("lock" in issue for issue in report.issues)
 
 
+def test_status_missing_lock_with_tail_reports_drift(home: Path, layout: ShlibLayout) -> None:
+    """The bootstrap fallback still classifies appended content as drift."""
+    _install(layout)
+    layout.lock_file.unlink()
+    _append(home, b"export TAIL=1\n")
+
+    report = collect_status(layout)
+
+    assert report.installation == INCONSISTENT
+    assert report.zshrc == "drift"
+    assert report.zshrc_detail == "1 appended line(s)"
+    assert report.exit_code == 2
+
+
+def test_status_empty_lock_is_inconsistent(home: Path, layout: ShlibLayout) -> None:
+    """An empty lock is reported instead of treating the whole .zshrc as a tail."""
+    _install(layout)
+    layout.lock_file.write_bytes(b"")
+
+    report = collect_status(layout)
+
+    assert report.zshrc == "drift"
+    assert report.zshrc_detail == "other changes"
+    assert report.exit_code == 2
+    assert any("empty or incomplete" in issue for issue in report.issues)
+
+
 def test_status_missing_zshrc_is_inconsistent(home: Path, layout: ShlibLayout) -> None:
     """A missing .zshrc next to an installed tree is inconsistent."""
     _install(layout)

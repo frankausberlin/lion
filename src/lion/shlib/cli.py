@@ -176,7 +176,10 @@ def _print_it_capture(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix
         f"{prefix} {capture.line_end - capture.line_start + 1} line(s) from "
         f"{_display(layout.zshrc, home)} into {_display(capture.target, home)}."
     )
-    typer.echo(f"Tail: lines {capture.line_start}-{capture.line_end} (sha256:{_short_hash(capture.tail_sha256)})")
+    typer.echo(
+        f"Tail: lines {capture.line_start}-{capture.line_end}, {capture.tail_bytes} bytes "
+        f"(sha256:{_short_hash(capture.tail_sha256)})"
+    )
 
 
 def _print_twice_warning(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:

@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from lion.shlib.bootstrap import BOOTSTRAP
+from lion.shlib.bootstrap import BOOTSTRAP, BOOTSTRAP_BEGIN, BOOTSTRAP_END
 from lion.shlib.errors import ShlibError
 from lion.shlib.layout import ShlibLayout
 
@@ -54,6 +54,7 @@ def load_reference(layout: ShlibLayout, current: bytes) -> Reference:
             data = lock_file.read_bytes()
         except OSError as exc:
             raise ShlibError(f"cannot read {lock_file}: {exc}") from exc
+        _validate_reference(data, lock_file)
         return Reference(data=data, path=lock_file, warnings=())
 
     bootstrap = BOOTSTRAP.encode()
@@ -86,3 +87,14 @@ def split_tail(current: bytes, reference: bytes) -> bytes:
             "Move other changes manually"
         )
     return current[len(reference) :]
+
+
+def _validate_reference(data: bytes, lock_file: Path) -> None:
+    """Reject an empty, truncated or incomplete managed block."""
+    begin = BOOTSTRAP_BEGIN.encode() + b"\n"
+    end = BOOTSTRAP_END.encode()
+    if not data.startswith(begin) or not data.endswith(b"\n") or not data.rstrip(b"\n").endswith(end):
+        raise ShlibError(
+            f"{lock_file} is empty or incomplete; refusing to use it as a reference. "
+            "Restore it or remove it to use the built-in bootstrap"
+        )

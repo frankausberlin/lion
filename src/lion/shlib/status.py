@@ -160,14 +160,16 @@ def _zshrc_state(layout: ShlibLayout, installation: str, issues: list[str]) -> t
         issues.append(f"cannot read {zshrc}: {exc}")
         return "inconsistent", None
 
-    if installation != INSTALLED:
+    if installation == NOT_INSTALLED:
         return "ok", None
 
     try:
         reference = load_reference(layout, current)
     except ShlibError as exc:
-        issues.append(str(exc))
-        return "drift", "other changes"
+        if installation == INSTALLED:
+            issues.append(str(exc))
+            return "drift", "other changes"
+        return "ok", None
 
     try:
         tail = split_tail(current, reference.data)

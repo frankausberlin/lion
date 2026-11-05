@@ -29,6 +29,7 @@ class ItPlan:
         content: Exact bytes for the target after the capture.
         mode: Permission bits for the target.
         tail: Appended ``.zshrc`` bytes.
+        tail_bytes: Size of ``tail`` in bytes.
         tail_sha256: Hex digest of ``tail``.
         line_start: First line of the tail in ``.zshrc``.
         line_end: Last line of the tail in ``.zshrc``.
@@ -42,6 +43,7 @@ class ItPlan:
     content: bytes
     mode: int
     tail: bytes
+    tail_bytes: int
     tail_sha256: str
     line_start: int
     line_end: int
@@ -56,6 +58,7 @@ class ItReport:
 
     Attributes:
         target: Fallback shlib file for the tail.
+        tail_bytes: Size of the tail in bytes.
         tail_sha256: Hex digest of the tail.
         line_start: First line of the tail in ``.zshrc``.
         line_end: Last line of the tail in ``.zshrc``.
@@ -66,6 +69,7 @@ class ItReport:
     """
 
     target: Path
+    tail_bytes: int
     tail_sha256: str
     line_start: int
     line_end: int
@@ -134,6 +138,7 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
             content=b"",
             mode=0o600,
             tail=tail,
+            tail_bytes=len(tail),
             tail_sha256=hashlib.sha256(tail).hexdigest(),
             line_start=0,
             line_end=0,
@@ -173,6 +178,7 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
         content=_render(existing, tail, digest),
         mode=mode,
         tail=tail,
+        tail_bytes=len(tail),
         tail_sha256=digest,
         line_start=line_start,
         line_end=line_end,
@@ -207,6 +213,7 @@ def apply_it(plan: ItPlan) -> ItReport:
 
     return ItReport(
         target=plan.target,
+        tail_bytes=plan.tail_bytes,
         tail_sha256=plan.tail_sha256,
         line_start=plan.line_start,
         line_end=plan.line_end,

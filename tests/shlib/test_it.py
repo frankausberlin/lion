@@ -54,11 +54,13 @@ def test_it_captures_appended_tail(home: Path, layout: ShlibLayout) -> None:
 
     assert not plan.empty
     assert plan.tail == tail
+    assert plan.tail_bytes == len(tail)
     assert plan.tail_sha256 == digest
     assert plan.line_start == BOOTSTRAP.count("\n") + 1
     assert plan.line_end == plan.line_start + 1
     assert report.wrote
     assert report.line_count == 2
+    assert report.tail_bytes == len(tail)
     assert (home / ".zshrc").read_bytes() == zshrc_before
     content = _target(layout).read_bytes()
     assert tail in content
@@ -260,6 +262,26 @@ def test_it_rejects_lock_directory(home: Path, layout: ShlibLayout) -> None:
         plan_it(layout)
 
 
+def test_it_rejects_empty_lock(home: Path, layout: ShlibLayout) -> None:
+    """An empty lock cannot turn the whole .zshrc into captured content."""
+    _install(layout)
+    layout.lock_file.write_bytes(b"")
+    _append(home, b"export TAIL=1\n")
+
+    with pytest.raises(ShlibError, match="empty or incomplete"):
+        plan_it(layout)
+
+
+def test_it_rejects_truncated_lock(home: Path, layout: ShlibLayout) -> None:
+    """A lock without the closing marker is not a usable reference."""
+    _install(layout)
+    layout.lock_file.write_bytes(BOOTSTRAP.encode().rstrip(b"\n"))
+    _append(home, b"export TAIL=1\n")
+
+    with pytest.raises(ShlibError, match="empty or incomplete"):
+        plan_it(layout)
+
+
 def test_it_preserves_non_utf8_bytes(home: Path, layout: ShlibLayout) -> None:
     """The tail is copied as bytes, not decoded."""
     _install(layout)
@@ -363,7 +385,8 @@ def test_it_write_failure_keeps_target(home: Path, layout: ShlibLayout, monkeypa
 def test_it_cli_dry_run_writes_nothing(home: Path, layout: ShlibLayout) -> None:
     """The dry run explains the capture and changes nothing."""
     _install(layout)
-    _append(home, b"export TAIL=1\n")
+    tail = b"export TAIL=1\n"
+    _append(home, tail)
     zshrc_before = (home / ".zshrc").read_bytes()
 
     result = runner.invoke(app, ["shlib", "it", "--home", str(home), "--dry-run"])
@@ -371,6 +394,7 @@ def test_it_cli_dry_run_writes_nothing(home: Path, layout: ShlibLayout) -> None:
     assert result.exit_code == 0
     assert "Would capture 1 line(s)" in result.output
     assert "Tail: lines" in result.output
+    assert f"{len(tail)} bytes" in result.output
     assert "will run twice" in result.output
     assert "Dry run: no changes made." in result.output
     assert not _target(layout).exists()
@@ -380,12 +404,14 @@ def test_it_cli_dry_run_writes_nothing(home: Path, layout: ShlibLayout) -> None:
 def test_it_cli_success_does_not_reveal_content(home: Path, layout: ShlibLayout) -> None:
     """The output names paths and counts but never the captured values."""
     _install(layout)
-    _append(home, b"export SECRET=s3cr3t-value\n")
+    tail = b"export SECRET=s3cr3t-value\n"
+    _append(home, tail)
 
     result = runner.invoke(app, ["shlib", "it", "--home", str(home)])
 
     assert result.exit_code == 0
     assert "Captured 1 line(s)" in result.output
+    assert f"{len(tail)} bytes" in result.output
     assert "sha256:" in result.output
     assert "warning: the tail is still in ~/.zshrc" in result.output
     assert "s3cr3t-value" not in result.output
