@@ -113,13 +113,19 @@ without printing file contents, export values or diff bodies.
 lion doctor             # read-only report
 lion doctor --dry-run   # show the scoped fix plan
 lion doctor --fix       # create missing dirs/key and remove orphaned locks
+lion doctor --deep      # add the optional Gitleaks stage
+lion list-prefixes      # show the effective prefix rules
 ```
 
 Exit codes are `0` (clean), `1` (warning) and `2` (error or inconsistent
 state). `--fix` never deletes or retargets a dash link, never repairs a
-non-regular lock and never edits a suspected secret. Secret detection is
-heuristic: confidence is a percentage for prioritization, not a calibrated
-probability, and a low value means "not detected", never "clean".
+non-regular lock and never edits a suspected secret.
+
+Secret detection is best effort and deliberately incomplete: a clean security
+section means "nothing suspected was found", not "safe". It has three stages:
+user-maintainable prefixes in `~/.shlib/secret-prefixes.txt`, built-in context
+rules, and optional Gitleaks with `--deep` when it is installed. Confidence is
+a percentage for prioritization, not a calibrated probability.
 
 Masks use `[REDACTED:<kind>:<fingerprint>]` with an HMAC-SHA256 fingerprint
 from the per-installation key `~/.shlib/.redaction-key` (mode `0600`). Without

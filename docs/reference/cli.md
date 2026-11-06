@@ -21,6 +21,7 @@ $ lion [OPTIONS] COMMAND [ARGS]...
 
 * `watch`: Compare locked dash entries with their...
 * `doctor`: Diagnose shlib, dash, lock and secret...
+* `list-prefixes`: Show the effective secret prefix rules...
 * `hello`: Print a greeting.
 * `mcp`: Run the MCP server over stdio.
 * `shlib`: Install or remove the zsh shlib layout.
@@ -49,6 +50,7 @@ Diagnose shlib, dash, lock and secret state without printing file contents.
 The default run is read-only. ``--fix`` creates missing lion-owned
 directories and the redaction key, and removes orphaned dash locks; it
 never touches a dash link, a changed target or a suspected secret.
+``--deep`` adds the optional Gitleaks stage; it never runs automatically.
 
 **Usage**:
 
@@ -62,6 +64,22 @@ $ lion doctor [OPTIONS]
 * `--fix`: Apply the scoped fixes to lion-owned artifacts.
 * `--dry-run`: Show the fix plan without changing anything.
 * `--no-color`: Disable ANSI colors in the report.
+* `--deep`: Run the optional Gitleaks stage when it is installed.
+* `--help`: Show this message and exit.
+
+## `lion list-prefixes`
+
+Show the effective secret prefix rules without scanning any file.
+
+**Usage**:
+
+```console
+$ lion list-prefixes [OPTIONS]
+```
+
+**Options**:
+
+* `--home <str>`: Home directory to operate on. Defaults to the current user&#x27;s home.
 * `--help`: Show this message and exit.
 
 ## `lion hello`

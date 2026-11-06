@@ -1,8 +1,14 @@
 """Dependency-free secret detection, confidence scoring and masking.
 
-The detector is heuristic: provider patterns and Shannon entropy produce a
-confidence in percent, but that number is not a calibrated probability. A low
-confidence means "not detected", never "clean".
+The detector is best effort: provider rules, prefix rules, sensitive key names
+and URL userinfo produce a confidence in percent, but that number is not a
+calibrated probability. A low confidence means "not detected", never "clean".
+There is no free entropy detection.
+
+Prefix rules only match inside value regions: assignment values, shell quotes
+and the whole content of an export file. A naked token such as
+``cmd ghp_...`` in a shlib file is left to the optional Gitleaks stage of
+``lion doctor --deep``.
 
 Findings never store the raw value. Masking re-reads the span from the original
 text only while building the replacement token. Fingerprints use HMAC-SHA256
@@ -18,9 +24,12 @@ import os
 import re
 import stat
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from itertools import pairwise
 from pathlib import Path
+
+from lion.secret_prefixes import DEFAULT_PREFIXES, PrefixRule
 
 MAX_SCAN_BYTES = 1024 * 1024
 """Largest file that is scanned for secrets, in bytes."""
@@ -68,7 +77,6 @@ _ASSIGNMENT = re.compile(
     r"^(?P<indent>[ \t]*)(?:(?:export|set)[ \t]+)?"
     r"(?P<key>[A-Za-z_][A-Za-z0-9_.-]*)[ \t]*(?P<sep>=|:)[ \t]*(?P<value>[^\r\n]*)"
 )
-_QUOTED = re.compile(r"(?P<quote>['\"])(?P<value>[^'\"\r\n]{20,})(?P=quote)")
 _URL_CREDENTIALS = re.compile(r"(?P<scheme>[A-Za-z][A-Za-z0-9+.-]*://)(?P<user>[^/\s:@]+):(?P<password>[^/\s@]+)@")
 
 _PLACEHOLDER_PATTERNS = (
@@ -79,7 +87,15 @@ _PLACEHOLDER_PATTERNS = (
     re.compile(r"^\{\{.*\}\}$"),
     re.compile(r"^\*+$"),
     re.compile(r"^<.*>$"),
+    re.compile(r"^x+$", re.IGNORECASE),
+    re.compile(r"^0+$"),
+    re.compile(r"^(?:example|dummy|fake|redacted|none|null)$", re.IGNORECASE),
 )
+
+_REFERENCE_PATTERN = re.compile(r"^[$`]")
+_URL_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://")
+_BOUNDARY_BEFORE = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-.")
+_TAIL_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~+/=-")
 
 _PEM_BEGIN = re.compile(r"-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")
 _PEM_END = re.compile(r"-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----")
@@ -98,66 +114,13 @@ class _ProviderRule:
 
 _PROVIDER_RULES = (
     _ProviderRule(
-        kind="aws-access-key",
-        rule="provider.aws_access_key",
-        pattern=re.compile(r"(?<![A-Z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Z0-9])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="github-token",
-        rule="provider.github_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}(?![A-Za-z0-9])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="gitlab-token",
-        rule="provider.gitlab_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9])glpat-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="openai-token",
-        rule="provider.openai_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9])sk-[A-Za-z0-9_-]{20,}(?![A-Za-z0-9_-])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="slack-token",
-        rule="provider.slack_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}(?![A-Za-z0-9-])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="stripe-token",
-        rule="provider.stripe_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9])[rs]k_live_[A-Za-z0-9]{16,}(?![A-Za-z0-9])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="google-api-key",
-        rule="provider.google_api_key",
-        pattern=re.compile(r"(?<![A-Za-z0-9_-])AIza[0-9A-Za-z_-]{35}(?![A-Za-z0-9_-])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="pypi-token",
-        rule="provider.pypi_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9_-])pypi-[A-Za-z0-9_-]{16,}(?![A-Za-z0-9_-])"),
-        confidence=95,
-    ),
-    _ProviderRule(
-        kind="npm-token",
-        rule="provider.npm_token",
-        pattern=re.compile(r"(?<![A-Za-z0-9])npm_[A-Za-z0-9]{36}(?![A-Za-z0-9])"),
-        confidence=95,
-    ),
-    _ProviderRule(
         kind="jwt",
         rule="provider.jwt",
         pattern=re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+(?![A-Za-z0-9_-])"),
         confidence=95,
     ),
 )
+"""Complex provider rules that do not map to a simple token prefix."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +159,28 @@ class ScanResult:
     findings: tuple[SecretFinding, ...]
     line_numbers: tuple[int, ...] = ()
     skipped: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ScanText:
+    """Safely read text of one scan target.
+
+    Attributes:
+        text: Decoded text, or ``None`` when the target was skipped.
+        skipped: Reason the target was not scanned, or ``None`` when read.
+    """
+
+    text: str | None
+    skipped: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _ValueRegion:
+    """One region where prefix candidates may appear."""
+
+    start: int
+    end: int
+    key_name: str | None = None
 
 
 class RedactionKeyError(Exception):
@@ -242,77 +227,114 @@ def is_sensitive_name(name: str) -> bool:
     return any(pair in _SENSITIVE_PAIRS for pair in paired)
 
 
-def find_secrets(text: str, *, key_name: str | None = None) -> tuple[SecretFinding, ...]:
+def find_secrets(
+    text: str,
+    *,
+    key_name: str | None = None,
+    prefixes: tuple[PrefixRule, ...] | None = None,
+) -> tuple[SecretFinding, ...]:
     """Detect suspected secrets without storing their values.
 
     Args:
         text: Text to scan.
         key_name: Name of the surrounding key or file, if known.
+        prefixes: Active prefix rules, or the built-in defaults when ``None``.
 
     Returns:
-        Non-overlapping findings sorted by start offset. The highest confidence
-        wins an overlap; provider rules win ties against generic rules.
+        Non-overlapping findings sorted by start offset. Rule priority wins an
+        overlap; at equal priority the longer span wins.
     """
+    rules = DEFAULT_PREFIXES if prefixes is None else prefixes
+    rules = tuple(sorted(rules, key=lambda rule: (-len(rule.prefix), rule.prefix)))
+    regions = list(_value_regions(text))
+    if key_name is not None:
+        regions = list(_merge_regions([*regions, _ValueRegion(0, len(text), key_name)]))
     candidates: list[SecretFinding] = []
     candidates.extend(_pem_findings(text))
     candidates.extend(_provider_findings(text))
     candidates.extend(_url_findings(text))
+    candidates.extend(_prefix_findings(text, rules, regions))
     candidates.extend(_assignment_findings(text))
-    candidates.extend(_quoted_entropy_findings(text))
     if key_name is not None and is_sensitive_name(key_name):
         sensitive = _sensitive_content_finding(text, key_name)
         if sensitive is not None:
             candidates.append(sensitive)
-    specific = [finding for finding in candidates if not finding.rule.startswith("entropy.")]
-    entropy = [
-        finding
-        for finding in candidates
-        if finding.rule.startswith("entropy.") and not any(_overlaps(finding, other) for other in specific)
-    ]
-    return _merge_findings(specific + entropy)
+    return merge_findings(candidates)
 
 
-def scan_file(path: Path, *, key_name: str | None = None) -> ScanResult:
+def read_scan_text(path: Path) -> ScanText:
+    """Read one scan target without following unsafe or oversized content.
+
+    Args:
+        path: File to read.
+
+    Returns:
+        The decoded text and, for skipped files, the reason. Unreadable, binary
+        and oversized files are skipped and never produce content findings.
+    """
+    try:
+        handle = path.open("rb")
+    except IsADirectoryError:
+        return ScanText(text=None, skipped="not a regular file")
+    except OSError:
+        return ScanText(text=None, skipped="unreadable")
+    with handle:
+        try:
+            info = os.fstat(handle.fileno())
+        except OSError:
+            return ScanText(text=None, skipped="unreadable")
+        if not stat.S_ISREG(info.st_mode):
+            return ScanText(text=None, skipped="not a regular file")
+        if info.st_size > MAX_SCAN_BYTES:
+            return ScanText(text=None, skipped="larger than 1 MiB")
+        try:
+            data = handle.read(MAX_SCAN_BYTES + 1)
+        except OSError:
+            return ScanText(text=None, skipped="unreadable")
+    if len(data) > MAX_SCAN_BYTES:
+        return ScanText(text=None, skipped="larger than 1 MiB")
+    if b"\x00" in data:
+        return ScanText(text=None, skipped="binary content")
+    try:
+        return ScanText(text=data.decode("utf-8"))
+    except UnicodeDecodeError:
+        return ScanText(text=None, skipped="binary content")
+
+
+def scan_file(
+    path: Path,
+    *,
+    key_name: str | None = None,
+    prefixes: tuple[PrefixRule, ...] | None = None,
+) -> ScanResult:
     """Scan a file for secrets without reading unsafe or oversized content.
 
     Args:
         path: File to scan.
         key_name: Name of the surrounding key or file, if known.
+        prefixes: Active prefix rules, or the built-in defaults when ``None``.
 
     Returns:
-        The findings and, for skipped files, the reason. Unreadable, binary and
-        oversized files are skipped and never produce content findings.
+        The findings and, for skipped files, the reason.
     """
-    try:
-        handle = path.open("rb")
-    except IsADirectoryError:
-        return ScanResult(findings=(), skipped="not a regular file")
-    except OSError:
-        return ScanResult(findings=(), skipped="unreadable")
-    with handle:
-        try:
-            info = os.fstat(handle.fileno())
-        except OSError:
-            return ScanResult(findings=(), skipped="unreadable")
-        if not stat.S_ISREG(info.st_mode):
-            return ScanResult(findings=(), skipped="not a regular file")
-        if info.st_size > MAX_SCAN_BYTES:
-            return ScanResult(findings=(), skipped="larger than 1 MiB")
-        try:
-            data = handle.read(MAX_SCAN_BYTES + 1)
-        except OSError:
-            return ScanResult(findings=(), skipped="unreadable")
-    if len(data) > MAX_SCAN_BYTES:
-        return ScanResult(findings=(), skipped="larger than 1 MiB")
-    if b"\x00" in data:
-        return ScanResult(findings=(), skipped="binary content")
-    try:
-        text = data.decode("utf-8")
-    except UnicodeDecodeError:
-        return ScanResult(findings=(), skipped="binary content")
-    findings = find_secrets(text, key_name=key_name)
-    lines = tuple(text.count("\n", 0, finding.start) + 1 for finding in findings)
-    return ScanResult(findings=findings, line_numbers=lines)
+    result = read_scan_text(path)
+    if result.text is None:
+        return ScanResult(findings=(), skipped=result.skipped)
+    findings = find_secrets(result.text, key_name=key_name, prefixes=prefixes)
+    return ScanResult(findings=findings, line_numbers=line_numbers(result.text, findings))
+
+
+def line_numbers(text: str, findings: tuple[SecretFinding, ...] | list[SecretFinding]) -> tuple[int, ...]:
+    """Return one-based line numbers for findings in ``text``.
+
+    Args:
+        text: Original scanned text.
+        findings: Findings with offsets into ``text``.
+
+    Returns:
+        One line number per finding, in the same order.
+    """
+    return tuple(text.count("\n", 0, finding.start) + 1 for finding in findings)
 
 
 def mask_text(
@@ -495,8 +517,110 @@ def _url_findings(text: str) -> list[SecretFinding]:
     return findings
 
 
+def _value_regions(text: str) -> tuple[_ValueRegion, ...]:
+    """Return assignment values and shell-quoted regions.
+
+    Regions are merged when they overlap or touch, so a quoted assignment value
+    is scanned once. An unterminated quote extends to the end of the text; it
+    must not be skipped silently.
+    """
+    regions: list[_ValueRegion] = []
+    line_start = 0
+    for line in text.splitlines(keepends=True):
+        content = line.rstrip("\r\n")
+        match = _ASSIGNMENT.match(content)
+        if match is not None and not content.lstrip().startswith("#"):
+            inner_start, inner_end = _value_span(content, match.start("value"))
+            if inner_end > inner_start:
+                regions.append(_ValueRegion(line_start + inner_start, line_start + inner_end, match.group("key")))
+        line_start += len(line)
+
+    index = 0
+    while index < len(text):
+        character = text[index]
+        if character == "\\":
+            index += 2
+            continue
+        if character not in {"'", '"'}:
+            index += 1
+            continue
+        close = _closing_quote(text, index)
+        if close == -1:
+            regions.append(_ValueRegion(index + 1, len(text)))
+            break
+        regions.append(_ValueRegion(index + 1, close))
+        index = close + 1
+    return _merge_regions(regions)
+
+
+def _merge_regions(regions: list[_ValueRegion]) -> tuple[_ValueRegion, ...]:
+    """Merge overlapping or touching value regions."""
+    ordered = sorted((region for region in regions if region.end > region.start), key=lambda region: region.start)
+    merged: list[_ValueRegion] = []
+    for region in ordered:
+        if merged and region.start <= merged[-1].end:
+            previous = merged[-1]
+            merged[-1] = _ValueRegion(
+                start=previous.start,
+                end=max(previous.end, region.end),
+                key_name=previous.key_name or region.key_name,
+            )
+            continue
+        merged.append(region)
+    return tuple(merged)
+
+
+def _prefix_findings(
+    text: str,
+    rules: tuple[PrefixRule, ...],
+    regions: Sequence[_ValueRegion],
+) -> list[SecretFinding]:
+    """Return candidates for prefix rules inside value regions only."""
+    findings: list[SecretFinding] = []
+    for region in regions:
+        segment = text[region.start : region.end]
+        for rule in rules:
+            search = 0
+            while True:
+                index = segment.find(rule.prefix, search)
+                if index == -1:
+                    break
+                search = index + 1
+                if index > 0 and segment[index - 1] in _BOUNDARY_BEFORE:
+                    continue
+                tail_start = index + len(rule.prefix)
+                tail_end = tail_start
+                while tail_end < len(segment) and segment[tail_end] in _TAIL_CHARS:
+                    tail_end += 1
+                tail = segment[tail_start:tail_end]
+                if len(tail) < rule.min_tail:
+                    continue
+                if rule.max_tail is not None and len(tail) > rule.max_tail:
+                    continue
+                if len(set(tail)) <= 1:
+                    continue
+                candidate = rule.prefix + tail
+                if _is_placeholder(candidate):
+                    continue
+                findings.append(
+                    SecretFinding(
+                        kind=rule.kind,
+                        rule=rule.rule,
+                        start=region.start + index,
+                        end=region.start + tail_end,
+                        confidence=95,
+                        key_name=region.key_name,
+                    )
+                )
+    return findings
+
+
 def _assignment_findings(text: str) -> list[SecretFinding]:
-    """Return findings for sensitive assignments and high-entropy values."""
+    """Return findings for sensitive assignments only.
+
+    References, paths, URLs and placeholders are not values and are skipped.
+    There is no entropy fallback.
+    """
     findings: list[SecretFinding] = []
     line_start = 0
     for line in text.splitlines(keepends=True):
@@ -506,64 +630,25 @@ def _assignment_findings(text: str) -> list[SecretFinding]:
             key = match.group("key")
             inner_start, inner_end = _value_span(content, match.start("value"))
             inner = content[inner_start:inner_end]
-            if inner and not _is_placeholder(inner):
-                start = line_start + inner_start
-                end = line_start + inner_end
-                if is_sensitive_name(key):
-                    confidence = _sensitive_confidence(inner)
-                    findings.append(
-                        SecretFinding(
-                            kind=_kind_for_name(key),
-                            rule="assignment.sensitive_key",
-                            start=start,
-                            end=end,
-                            confidence=confidence,
-                            key_name=key,
-                        )
+            if inner and is_sensitive_name(key) and not _ignored_value(inner):
+                findings.append(
+                    SecretFinding(
+                        kind=_kind_for_name(key),
+                        rule="assignment.sensitive_key",
+                        start=line_start + inner_start,
+                        end=line_start + inner_end,
+                        confidence=_sensitive_confidence(inner),
+                        key_name=key,
                     )
-                else:
-                    confidence = _entropy_confidence(inner)
-                    if confidence:
-                        findings.append(
-                            SecretFinding(
-                                kind="high-entropy",
-                                rule="entropy.assignment",
-                                start=start,
-                                end=end,
-                                confidence=confidence,
-                                key_name=key,
-                            )
-                        )
+                )
         line_start += len(line)
-    return findings
-
-
-def _quoted_entropy_findings(text: str) -> list[SecretFinding]:
-    """Return entropy findings for long quoted values."""
-    findings: list[SecretFinding] = []
-    for match in _QUOTED.finditer(text):
-        value = match.group("value")
-        if _is_placeholder(value):
-            continue
-        confidence = _entropy_confidence(value)
-        if not confidence:
-            continue
-        findings.append(
-            SecretFinding(
-                kind="high-entropy",
-                rule="entropy.quoted",
-                start=match.start("value"),
-                end=match.end("value"),
-                confidence=confidence,
-            )
-        )
     return findings
 
 
 def _sensitive_content_finding(text: str, key_name: str) -> SecretFinding | None:
     """Return a whole-value finding for a sensitive export file name."""
     stripped = text.strip()
-    if not stripped or _is_placeholder(stripped):
+    if not stripped or _ignored_value(stripped):
         return None
     return SecretFinding(
         kind=_kind_for_name(key_name),
@@ -574,6 +659,18 @@ def _sensitive_content_finding(text: str, key_name: str) -> SecretFinding | None
         key_name=key_name,
         multiline="\n" in text,
     )
+
+
+def _ignored_value(value: str) -> bool:
+    """Return whether a value is a placeholder, reference, path or URL."""
+    candidate = value.strip().strip("'\"")
+    if not candidate or _is_placeholder(candidate):
+        return True
+    if _REFERENCE_PATTERN.match(candidate):
+        return True
+    if candidate.startswith(("~", "/", "./", "../")):
+        return True
+    return _URL_PATTERN.match(candidate) is not None
 
 
 def _value_span(content: str, value_start: int) -> tuple[int, int]:
@@ -637,23 +734,6 @@ def _closing_quote(value: str, start: int) -> int:
     return -1
 
 
-def _entropy_confidence(value: str) -> int:
-    """Return an entropy-only confidence, or ``0`` below the threshold."""
-    candidate = value.strip()
-    if len(candidate) < 20 or any(character.isspace() for character in candidate):
-        return 0
-    entropy = shannon_entropy(candidate)
-    if entropy >= 4.5:
-        return 80
-    if entropy >= 4.0:
-        return 70
-    if entropy >= 3.5:
-        return 55
-    if entropy >= 3.0:
-        return 45
-    return 0
-
-
 def _sensitive_confidence(value: str) -> int:
     """Return the confidence for a sensitive key with an entropy bonus."""
     entropy = shannon_entropy(value)
@@ -673,8 +753,8 @@ def _kind_for_name(name: str) -> str:
     return "credential"
 
 
-def _merge_findings(findings: list[SecretFinding]) -> tuple[SecretFinding, ...]:
-    """Merge overlapping spans, preferring confidence and specificity."""
+def merge_findings(findings: list[SecretFinding]) -> tuple[SecretFinding, ...]:
+    """Merge overlapping spans using rule priority, length and confidence."""
     ordered = sorted(findings, key=lambda finding: (finding.start, finding.end))
     merged: list[SecretFinding] = []
     for finding in ordered:
@@ -700,30 +780,32 @@ def _merge_findings(findings: list[SecretFinding]) -> tuple[SecretFinding, ...]:
 
 
 def _prefer(left: SecretFinding, right: SecretFinding) -> SecretFinding:
-    """Return the finding whose kind and confidence should win an overlap."""
-    if right.confidence > left.confidence:
-        return right
-    if left.confidence > right.confidence:
-        return left
-    left_specific = _is_specific(left)
-    right_specific = _is_specific(right)
-    if right_specific and not left_specific:
-        return right
-    if left_specific and not right_specific:
-        return left
-    if right.end - right.start > left.end - left.start:
-        return right
+    """Return the finding that should win an overlap.
+
+    Priority order: prefix, provider and URL rules; then Gitleaks; then
+    sensitive assignments and file names. At equal priority, the longer span
+    wins, then the higher confidence and finally the left finding.
+    """
+    left_priority = _priority(left)
+    right_priority = _priority(right)
+    if right_priority != left_priority:
+        return right if right_priority > left_priority else left
+    left_length = left.end - left.start
+    right_length = right.end - right.start
+    if right_length != left_length:
+        return right if right_length > left_length else left
+    if right.confidence != left.confidence:
+        return right if right.confidence > left.confidence else left
     return left
 
 
-def _is_specific(finding: SecretFinding) -> bool:
-    """Return whether a finding comes from a provider-specific rule."""
-    return finding.rule.startswith(("provider.", "url."))
-
-
-def _overlaps(left: SecretFinding, right: SecretFinding) -> bool:
-    """Return whether two spans overlap."""
-    return left.start < right.end and right.start < left.end
+def _priority(finding: SecretFinding) -> int:
+    """Return the overlap priority of one rule."""
+    if finding.rule.startswith(("provider.", "prefix.", "url.")):
+        return 3
+    if finding.rule.startswith("gitleaks."):
+        return 2
+    return 1
 
 
 def _is_placeholder(value: str) -> bool:

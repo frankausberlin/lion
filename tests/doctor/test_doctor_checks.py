@@ -286,7 +286,7 @@ def test_owner_only_export_secret_is_info_only(installed: ShlibLayout) -> None:
 
 def test_shlib_secret_warns_about_uninstall_inlining(installed: ShlibLayout) -> None:
     """A secret in a shlib file is a warning with the uninstall caveat."""
-    token = "ghp_" + "a" * 36
+    token = "ghp_aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU"
     path = installed.shlibs / "10-api.sh"
     path.write_text(f"GITHUB_TOKEN={token}\n", encoding="utf-8")
 
@@ -434,3 +434,30 @@ def test_export_secret_hint_quotes_the_file_name(installed: ShlibLayout) -> None
 
     assert finding.hint is not None
     assert shlex.quote(name) in finding.hint
+
+
+def test_invalid_prefix_file_is_a_warning_line(installed: ShlibLayout) -> None:
+    """A broken prefix line is reported without its content."""
+    installed.secret_prefixes.write_text("acme_ bad/kind SECRETVALUE\n", encoding="utf-8")
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "prefixes.invalid")
+
+    assert finding.severity == "warning"
+    assert finding.line == 1
+    assert "SECRETVALUE" not in finding.summary
+    assert "SECRETVALUE" not in repr(finding)
+
+
+def test_user_prefix_is_used_by_doctor(installed: ShlibLayout) -> None:
+    """The user overlay reaches the export scan."""
+    installed.secret_prefixes.write_text("acme_ acme-token 20\n", encoding="utf-8")
+    path = installed.exports / "ACME_TOKEN"
+    path.write_text("acme_aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU\n", encoding="utf-8")
+    path.chmod(0o600)
+
+    report = collect_diagnosis(installed)
+    finding = next(finding for finding in report.findings if finding.code == "exports.possible_secret")
+
+    assert "acme-token" in finding.summary
+    assert "rule prefix.acme" in (finding.detail or "")

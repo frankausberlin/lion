@@ -133,7 +133,7 @@ def test_fingerprint_is_stable_and_key_bound() -> None:
 def test_scan_file_reports_provider_token(tmp_path: Path) -> None:
     """A provider token in a file is detected."""
     path = tmp_path / "config"
-    path.write_text("ghp_" + "a" * 36 + "\n", encoding="utf-8")
+    path.write_text('GITHUB_TOKEN="ghp_aB3dE5fG7hI9jK1lM3nO5pQ7rS9tU"\n', encoding="utf-8")
 
     result = scan_file(path)
 

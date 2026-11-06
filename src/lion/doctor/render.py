@@ -11,11 +11,14 @@ _SECTION_CODES = {
     "dash": "dash",
     "locks": "dash",
     "redaction": "security",
+    "prefixes": "security",
     "exports.possible_secret": "security",
     "shlibs.possible_secret": "security",
+    "gitleaks": "security",
     "scan": "security",
 }
 _SECTIONS = ("shlib", "dash", "security")
+_EMPTY_SECTION_TEXT = {"security": "no suspected secrets found (best effort)"}
 _COLORS = {
     ERROR: "\x1b[31m",
     WARNING: "\x1b[33m",
@@ -52,7 +55,8 @@ def render_report(report: DiagnosisReport, *, color: bool) -> list[str]:
         findings = [finding for finding in report.findings if _section(finding) == section]
         lines.append(_style(f"{section}:", OK, color))
         if not findings:
-            lines.append(f"  {_style('ok', OK, color)}")
+            empty = _EMPTY_SECTION_TEXT.get(section, "ok")
+            lines.append(f"  {_style(empty, OK, color)}")
             continue
         for finding in findings:
             lines.extend(_render_finding(finding, color))

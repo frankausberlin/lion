@@ -23,6 +23,10 @@ FixOption = Annotated[
     bool,
     typer.Option("--fix", help="Apply the scoped fixes to lion-owned artifacts."),
 ]
+DeepOption = Annotated[
+    bool,
+    typer.Option("--deep", help="Run the optional Gitleaks stage when it is installed."),
+]
 DryRunOption = Annotated[
     bool,
     typer.Option("--dry-run", help="Show the fix plan without changing anything."),
@@ -38,12 +42,14 @@ def doctor_command(
     fix: FixOption = False,
     dry_run: DryRunOption = False,
     no_color: NoColorOption = False,
+    deep: DeepOption = False,
 ) -> None:
     """Diagnose shlib, dash, lock and secret state without printing file contents.
 
     The default run is read-only. ``--fix`` creates missing lion-owned
     directories and the redaction key, and removes orphaned dash locks; it
     never touches a dash link, a changed target or a suspected secret.
+    ``--deep`` adds the optional Gitleaks stage; it never runs automatically.
     """
     try:
         layout = ShlibLayout.from_option(home)
@@ -52,7 +58,7 @@ def doctor_command(
     if fix and dry_run:
         _fail_message("--fix and --dry-run are mutually exclusive")
 
-    report = collect_diagnosis(layout)
+    report = collect_diagnosis(layout, deep=deep)
     color = color_enabled(no_color)
 
     if not fix and not dry_run:
@@ -86,7 +92,7 @@ def doctor_command(
     for error in outcome.errors:
         typer.echo(f"error: {display_text(error, layout.home)}", err=True)
 
-    report = collect_diagnosis(layout)
+    report = collect_diagnosis(layout, deep=deep)
     _print_report(report, color)
     raise typer.Exit(2 if outcome.errors else report.exit_code)
 

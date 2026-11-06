@@ -6,6 +6,7 @@ import os
 import re
 import shlex
 import stat
+from dataclasses import dataclass
 from pathlib import Path
 
 from lion.dash.errors import DashError
@@ -18,7 +19,18 @@ from lion.dash.registry import (
     unlock_entry,
 )
 from lion.output import display_path, display_text
-from lion.redaction import MAX_SCAN_BYTES, RedactionKeyError, create_key, read_key, scan_file
+from lion.redaction import (
+    MAX_SCAN_BYTES,
+    RedactionKeyError,
+    SecretFinding,
+    create_key,
+    find_secrets,
+    line_numbers,
+    merge_findings,
+    read_key,
+    read_scan_text,
+)
+from lion.secret_prefixes import PrefixConfig, PrefixRule, effective_rules, load_prefixes
 from lion.shlib.bootstrap import ORIGINAL_NAME
 from lion.shlib.it import UNSORTED_NAME
 from lion.shlib.layout import ShlibLayout
@@ -27,6 +39,9 @@ from lion.watch.errors import WatchError
 from lion.watch.findings import collect_findings
 from lion.watch.model import WatchFinding
 
+from .gitleaks import GitleaksProblem, GitleaksSetup
+from .gitleaks import detect as detect_gitleaks
+from .gitleaks import scan_file as gitleaks_scan_file
 from .model import (
     ERROR,
     INFO,
@@ -42,7 +57,17 @@ _EXPORT_NAME = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 _DIRECTORIES = ("locks", "exports", "dash", "shlibs")
 
 
-def collect_diagnosis(layout: ShlibLayout) -> DiagnosisReport:
+@dataclass(frozen=True, slots=True)
+class _FileScan:
+    """One file after stages 1-3, without any value."""
+
+    skipped: str | None
+    findings: tuple[SecretFinding, ...] = ()
+    lines: tuple[int, ...] = ()
+    problems: tuple[GitleaksProblem, ...] = ()
+
+
+def collect_diagnosis(layout: ShlibLayout, *, deep: bool = False) -> DiagnosisReport:
     """Collect all shlib, dash and security findings without changing anything.
 
     The function is the reusable core for the future MCP ``diagnose`` tool and
@@ -50,6 +75,7 @@ def collect_diagnosis(layout: ShlibLayout) -> DiagnosisReport:
 
     Args:
         layout: Paths below the selected home directory.
+        deep: Whether to run the optional Gitleaks stage. Never automatic.
 
     Returns:
         The findings and their exit code.
@@ -83,6 +109,7 @@ def collect_diagnosis(layout: ShlibLayout) -> DiagnosisReport:
             )
         return _report(layout, status, findings)
 
+    prefixes = load_prefixes(layout.secret_prefixes)
     findings.extend(_inconsistent_findings(status, home))
     findings.extend(_zshrc_findings(layout, status))
     findings.extend(_cleanup_findings(layout, status))
@@ -92,7 +119,8 @@ def collect_diagnosis(layout: ShlibLayout) -> DiagnosisReport:
     findings.extend(_dash_findings(layout))
     findings.extend(_lock_findings(layout))
     findings.extend(_key_findings(layout))
-    findings.extend(_security_findings(layout))
+    findings.extend(_prefix_problem_findings(layout, prefixes))
+    findings.extend(_security_findings(layout, prefixes, deep=deep))
     if status.backups:
         findings.append(
             Finding(
@@ -604,14 +632,42 @@ def _key_findings(layout: ShlibLayout) -> list[Finding]:
     return []
 
 
-def _security_findings(layout: ShlibLayout) -> list[Finding]:
-    """Return metadata-only secret findings for exports and shlib files."""
-    findings = _scan_export_findings(layout)
-    findings.extend(_scan_shlib_findings(layout))
+def _prefix_problem_findings(layout: ShlibLayout, config: PrefixConfig) -> list[Finding]:
+    """Return one warning per value-free prefix configuration problem."""
+    home = layout.home
+    display = display_path(layout.secret_prefixes, home)
+    findings: list[Finding] = []
+    for problem in config.problems:
+        location = f"{display}: line {problem.line}: " if problem.line is not None else f"{display}: "
+        findings.append(
+            Finding(
+                code="prefixes.invalid",
+                severity=WARNING,
+                summary=f"{location}{problem.message}",
+                path=layout.secret_prefixes,
+                line=problem.line,
+                detail=problem.message,
+            )
+        )
     return findings
 
 
-def _scan_export_findings(layout: ShlibLayout) -> list[Finding]:
+def _security_findings(layout: ShlibLayout, config: PrefixConfig, *, deep: bool) -> list[Finding]:
+    """Return metadata-only secret findings for exports and shlib files."""
+    rules = effective_rules(config)
+    setup = detect_gitleaks() if deep else None
+    findings = _scan_export_findings(layout, rules, setup)
+    findings.extend(_scan_shlib_findings(layout, rules, setup))
+    if setup is not None and setup.problem is not None:
+        findings.append(_gitleaks_problem_finding(layout, setup.problem))
+    return findings
+
+
+def _scan_export_findings(
+    layout: ShlibLayout,
+    rules: tuple[PrefixRule, ...],
+    setup: GitleaksSetup | None,
+) -> list[Finding]:
     """Scan export files and report metadata only."""
     directory = layout.exports
     if not _is_real_directory(directory):
@@ -630,18 +686,19 @@ def _scan_export_findings(layout: ShlibLayout) -> list[Finding]:
         ]
     findings: list[Finding] = []
     for entry in entries:
-        result = scan_file(entry, key_name=entry.name)
+        scan = _scan_entry(entry, key_name=entry.name, rules=rules, setup=setup)
         display = display_path(entry, home)
-        if result.skipped is not None:
+        if scan.skipped is not None:
             findings.append(
                 Finding(
                     code="scan.skipped",
                     severity=INFO,
-                    summary=f"{display}: not scanned ({result.skipped})",
+                    summary=f"{display}: not scanned ({scan.skipped})",
                     path=entry,
                 )
             )
             continue
+        findings.extend(_gitleaks_problem_findings(layout, entry, scan.problems))
         try:
             mode = stat.S_IMODE(entry.stat().st_mode)
         except OSError:
@@ -649,7 +706,7 @@ def _scan_export_findings(layout: ShlibLayout) -> list[Finding]:
         public = mode is None or mode & 0o077 != 0
         severity = WARNING if public else INFO
         mode_text = f"{mode:04o}" if mode is not None else "unknown"
-        for secret, line in zip(result.findings, result.line_numbers, strict=True):
+        for secret, line in zip(scan.findings, scan.lines, strict=True):
             key_name = secret.key_name or entry.name
             hint = None
             if public:
@@ -673,7 +730,11 @@ def _scan_export_findings(layout: ShlibLayout) -> list[Finding]:
     return findings
 
 
-def _scan_shlib_findings(layout: ShlibLayout) -> list[Finding]:
+def _scan_shlib_findings(
+    layout: ShlibLayout,
+    rules: tuple[PrefixRule, ...],
+    setup: GitleaksSetup | None,
+) -> list[Finding]:
     """Scan shlib files and report metadata only."""
     directory = layout.shlibs
     if not _is_real_directory(directory):
@@ -692,19 +753,20 @@ def _scan_shlib_findings(layout: ShlibLayout) -> list[Finding]:
         ]
     findings: list[Finding] = []
     for entry in entries:
-        result = scan_file(entry)
+        scan = _scan_entry(entry, key_name=None, rules=rules, setup=setup)
         display = display_path(entry, home)
-        if result.skipped is not None:
+        if scan.skipped is not None:
             findings.append(
                 Finding(
                     code="scan.skipped",
                     severity=INFO,
-                    summary=f"{display}: not scanned ({result.skipped})",
+                    summary=f"{display}: not scanned ({scan.skipped})",
                     path=entry,
                 )
             )
             continue
-        for secret, line in zip(result.findings, result.line_numbers, strict=True):
+        findings.extend(_gitleaks_problem_findings(layout, entry, scan.problems))
+        for secret, line in zip(scan.findings, scan.lines, strict=True):
             findings.append(
                 Finding(
                     code="shlibs.possible_secret",
@@ -720,6 +782,69 @@ def _scan_shlib_findings(layout: ShlibLayout) -> list[Finding]:
                 )
             )
     return findings
+
+
+def _scan_entry(
+    entry: Path,
+    *,
+    key_name: str | None,
+    rules: tuple[PrefixRule, ...],
+    setup: GitleaksSetup | None,
+) -> _FileScan:
+    """Read and scan one file once, optionally adding the deep stage."""
+    result = read_scan_text(entry)
+    if result.text is None:
+        return _FileScan(skipped=result.skipped)
+    text = result.text
+    candidates = list(find_secrets(text, key_name=key_name, prefixes=rules))
+    problems: tuple[GitleaksProblem, ...] = ()
+    if setup is not None and setup.executable is not None:
+        deep_scan = gitleaks_scan_file(entry, text, executable=setup.executable)
+        candidates.extend(deep_scan.findings)
+        problems = deep_scan.problems
+    merged = merge_findings(candidates)
+    return _FileScan(
+        skipped=None,
+        findings=merged,
+        lines=line_numbers(text, merged),
+        problems=problems,
+    )
+
+
+def _gitleaks_problem_findings(
+    layout: ShlibLayout,
+    path: Path,
+    problems: tuple[GitleaksProblem, ...],
+) -> list[Finding]:
+    """Return one finding per scanner problem without stderr content."""
+    home = layout.home
+    display = display_path(path, home)
+    findings: list[Finding] = []
+    for problem in problems:
+        findings.append(
+            Finding(
+                code=problem.code,
+                severity=_gitleaks_severity(problem.code),
+                summary=f"{display}: {problem.message}",
+                path=path,
+            )
+        )
+    return findings
+
+
+def _gitleaks_problem_finding(layout: ShlibLayout, problem: GitleaksProblem) -> Finding:
+    """Return the single global Gitleaks setup finding."""
+    return Finding(
+        code=problem.code,
+        severity=_gitleaks_severity(problem.code),
+        summary=problem.message,
+        path=layout.root,
+    )
+
+
+def _gitleaks_severity(code: str) -> str:
+    """Return the severity for a Gitleaks finding code."""
+    return INFO if code == "gitleaks.unavailable" else WARNING
 
 
 def _directory(layout: ShlibLayout, name: str) -> Path:

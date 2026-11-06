@@ -33,6 +33,7 @@ complete preflight and prints the plan without touching the filesystem.
 ├── .zshrc                                  # bootstrap block after install
 └── .shlib/
     ├── .redaction-key                      # HMAC key for secret masks (0600)
+    ├── secret-prefixes.txt                 # user prefix overlay (0644, optional)
     ├── dash/                               # user-maintained watch links (0700)
     ├── exports/                            # NAME -> file content as value
     ├── locks/
@@ -53,6 +54,13 @@ already contains the bootstrap marker. Directories are created with mode
 mode `0644`. A private redaction key with 32 random bytes and mode `0600` is
 created as `~/.shlib/.redaction-key`; `lion doctor --fix` recreates it when it
 is missing.
+
+`~/.shlib/secret-prefixes.txt` is an optional user-maintained overlay for the
+prefix stage of `lion doctor`. It is not sourced by the shell; `lion doctor`
+and `lion list-prefixes` read it as data. A missing file means the built-in
+prefixes apply. The file is moved into the backup by `uninstall` like every
+other file in `~/.shlib`; the backup copy is not read after uninstall. See
+[doctor](doctor.md#prefix-overlay) for the exact format.
 
 `00-original-zshrc.sh` and `99-unsorted.sh` are temporary cleanup files. Both
 are sourced by the bootstrap, but the target state is a tree without either

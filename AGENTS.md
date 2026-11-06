@@ -169,6 +169,21 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
   Symlink, Verzeichnis, falsche Größe oder Lesefehler sind Fehler und werden
   nie automatisch ersetzt.
 
+### MCP liefert nur Metadaten
+
+- **Situation**: Künftige MCP-Ressourcen und das `diagnose`-Tool könnten Dateiinhalte oder maskierte Ausschnitte zugänglich machen.
+- **Handhabung**: Nur Pfade, Zeilennummern, Namen, Arten, Zähler und Dateimodi liefern; `collect_diagnosis` unverändert wiederverwenden und keinen Wertezugriff ergänzen. Gitleaks bleibt Erkennungsstufe, keine Sicherheitsgrenze.
+
+### Doctor-Token-Erkennung ist Best-Effort
+
+- **Situation**: Ein leeres Security-Segment oder ein niedriger Confidence-Wert könnte als „sauber“ missverstanden werden.
+- **Handhabung**: Ausgabe und Doku sagen `no suspected secrets found (best effort)`; keine Vollständigkeits- oder Garantieaussage ergänzen. Prefixe, sensible Keys, PEM, URL und JWT bleiben Heuristiken.
+
+### Prefix-Overlay ist Nutzerkonfiguration
+
+- **Situation**: `~/.shlib/secret-prefixes.txt` erweitert und deaktiviert Erkennungsregeln, wird aber nicht gesourct und wandert bei `uninstall` ins Backup.
+- **Handhabung**: Nur über `load_prefixes` lesen und nie schreiben; Format `prefix [kind] [min_tail] [max_tail]`, `!prefix` deaktiviert; fehlende Datei heißt Defaults. Keine Werte in Meldungen.
+
 ## Herkunft
 
 - lupysta_version: `0.15.0`

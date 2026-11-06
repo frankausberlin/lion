@@ -6,10 +6,14 @@ suspected secrets. Findings never contain file contents, diff bodies, export
 values, lock values or secret values. Only path, line, key name, kind and a
 heuristic confidence are printed.
 
+Secret detection is **best effort** and deliberately incomplete. A clean
+security section means "nothing suspected was found", not "the tree is safe".
+
 ```bash
 lion doctor
 lion doctor --dry-run   # show the fix plan, change nothing
 lion doctor --fix       # repair scoped, lion-owned structural problems
+lion doctor --deep      # add the optional Gitleaks stage
 ```
 
 All commands accept `--home PATH` for a throwaway home. `--no-color`, the
@@ -29,13 +33,14 @@ dash:
   warning dash.broken_link: dash entry 'conf' is a broken link [manual]
     hint: rm -- ~/.shlib/dash/conf
 security:
-  ok
+  no suspected secrets found (best effort)
 doctor: 0 fixable, 1 manual
 ```
 
 Every finding line names the severity, the stable code, the subject and one of
 `fixable`, `manual` or `info`. Hints are plain text and are never executed.
-A clean section prints `ok`.
+A clean `shlib` or `dash` section prints `ok`. A clean `security` section
+prints `no suspected secrets found (best effort)`.
 
 ## Exit codes
 
@@ -102,8 +107,71 @@ remaining state; a failed action forces exit `2`.
 - `scan.skipped`: info for binary, oversized or unreadable files.
 
 Secret scanning reads at most 1 MiB per file and skips files with NUL bytes or
-invalid UTF-8. It scans exports and shlib files only; `.zshrc` and dash targets
-are out of scope.
+invalid UTF-8. It scans exports and shlib files only; `.zshrc`, locks and dash
+targets are out of scope.
+
+### Secret detection stages
+
+Detection runs in three stages. Stages 1 and 2 are built in; stage 3 is
+optional and never runs automatically.
+
+1. **Prefix rules.** A literal provider prefix such as `ghp_`, `AKIA` or
+   `sk-proj-` is searched only in value regions: after `=`/`:` and inside
+   single or double quotes. A naked token such as `cmd ghp_...` is left to
+   stage 3. The longest matching prefix wins. The candidate needs a minimum
+   tail length, must not be a placeholder and must not consist of one repeated
+   character.
+2. **Context rules.** Sensitive key names (`PASSWORD`, `TOKEN`, `SECRET`,
+   `API_KEY`, …), PEM private key blocks, JWT shapes and URL userinfo
+   passwords. References (`$VAR`, `${...}`, `$(...)`, backticks), paths,
+   URLs and placeholders are skipped. There is no free entropy detection.
+3. **Gitleaks.** Only with `--deep`. If Gitleaks is missing, the run continues
+   with stages 1 and 2 and reports `gitleaks.unavailable` as info. Gitleaks
+   older than 8.0.0, invalid output, a non-zero exit or a timeout becomes a
+   warning and does not abort the run. Only rule id and positions are used;
+   Gitleaks `Secret` and `Match` fields and its stderr are never shown.
+
+Overlaps are merged. Prefix, provider and URL findings win against Gitleaks,
+which wins against sensitive-assignment and file-name findings. At equal
+priority the longer span wins.
+
+### Prefix overlay
+
+The prefix list is `~/.shlib/secret-prefixes.txt`, a user-maintained overlay on
+the built-in defaults. The file is never sourced by the shell. Missing file:
+the defaults apply. An unreadable, symlinked, oversized (above 64 KiB),
+non-UTF-8 or NUL-containing file reports `prefixes.invalid` and falls back to
+the defaults.
+
+Format, one entry per line:
+
+```text
+prefix [kind] [min_tail] [max_tail]
+```
+
+- `#` starts a comment line; blank lines are ignored.
+- `kind` defaults to `prefixed-secret`, `min_tail` to `20`, `max_tail` to
+  unlimited (`-` is also accepted for unlimited).
+- `!prefix` disables an existing entry; an unknown prefix is a warning.
+- A user entry replaces the same built-in prefix without a warning.
+- A duplicate user prefix keeps the last line and warns on that line.
+- Matching is case-sensitive and the longest prefix wins.
+- Messages name only the line number and the problem, never the line content.
+
+`lion list-prefixes` shows the effective list, including active/disabled state
+and the source (`builtin` or `user`). It is read-only:
+
+```bash
+lion list-prefixes
+lion list-prefixes --home /tmp/test-home
+```
+
+Configuration problems are printed as `warning: ...: line N: ...` on stderr;
+the command still exits `0`.
+
+- `prefixes.invalid`: warning for a prefix-file or prefix-line problem.
+- `gitleaks.unavailable`: info, only with `--deep`.
+- `gitleaks.unsupported`, `gitleaks.error`: warning.
 
 ## Fix scope
 
@@ -135,11 +203,12 @@ until you resolve and delete it.
 
 ## Redaction confidence and fingerprints
 
-Secret detection is heuristic and **not calibrated**. It combines provider
-patterns (AWS, GitHub, GitLab, OpenAI/Anthropic, Slack, Stripe, Google, PyPI,
-npm, JWT, PEM), sensitive key names, URL userinfo and Shannon entropy. The
-reported confidence is an integer percentage for prioritization; low
-confidence means "not detected", never "clean".
+Secret detection is heuristic and **not calibrated**. It combines prefix and
+provider rules (AWS, GitHub, GitLab, OpenAI/Anthropic, Slack, Stripe, Google,
+PyPI, npm, Hugging Face, Docker, JWT, PEM), sensitive key names and URL
+userinfo. The reported confidence is an integer percentage for prioritization;
+low confidence means "not detected", never "clean". There is no completeness
+claim: a value with an unknown name and no recognizable prefix can be missed.
 
 Masks use `[REDACTED:<kind>:<fingerprint>]`, or `[REDACTED:<kind>]` when no key
 is available. The fingerprint is
@@ -154,9 +223,19 @@ different token. There is no plain SHA-256 fallback and no length or prefix in
 the mask. Fingerprints are local to one installation: after `uninstall` and a
 new install, on another machine, or after key rotation they are not comparable.
 
+## MCP metadata rule
+
+MCP tools and resources may expose metadata only: paths, line numbers, names,
+kinds, counts and file modes. They never expose file contents, values, diffs or
+masked snippets. `Finding` has no value field, and the future `diagnose` tool
+must reuse `collect_diagnosis` unchanged. Gitleaks is an optional detection
+stage, not a security boundary.
+
 ## Limits
 
-- No `--json`, no masked snippets, no MCP changes in this step.
+- No `--json`, no masked snippets, no MCP value access in this step.
 - No automatic repair of dash links, names, changed targets or secrets.
-- No secret scanning of `.zshrc` or dash targets.
+- No secret scanning of `.zshrc`, locks or dash targets in this step.
+- Gitleaks is not a project or runtime dependency and never runs without
+  `--deep`.
 - No cross-platform behavior; the layout remains Linux/zsh oriented.

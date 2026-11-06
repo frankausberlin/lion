@@ -54,6 +54,11 @@ class ShlibLayout:
         """Return the per-installation secret redaction key."""
         return self.root / ".redaction-key"
 
+    @property
+    def secret_prefixes(self) -> Path:
+        """Return the user-maintained secret prefix overlay."""
+        return self.root / "secret-prefixes.txt"
+
     def lock_for(self, name: str) -> Path:
         """Return the lock copy for a dash entry.
 
