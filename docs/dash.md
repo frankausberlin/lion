@@ -75,6 +75,18 @@ refused, as is a missing or symlinked lock directory. Output names the entry,
 the resolved target, the byte count and a short SHA-256; contents are never
 printed.
 
+## Tab completion
+
+`lion dash lock <TAB>` completes direct dash entries that resolve to regular
+files. Enable completion once for zsh:
+
+```bash
+lion --install-completion zsh
+```
+
+Restart the shell afterwards. When `--home` is given before the partial name,
+completion uses that home directory; otherwise it uses the current user's home.
+
 ## `lion dash unlock <name>`
 
 ```bash

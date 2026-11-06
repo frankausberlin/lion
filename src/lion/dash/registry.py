@@ -99,6 +99,21 @@ def list_entries(layout: ShlibLayout) -> tuple[DashEntry, ...]:
     return tuple(sorted(entries, key=lambda entry: entry.name))
 
 
+def lockable_entry_names(layout: ShlibLayout) -> tuple[str, ...]:
+    """Return direct dash entry names whose target is a regular file.
+
+    Args:
+        layout: Paths below the selected home directory.
+
+    Returns:
+        Sorted names that ``lock_entry`` accepts.
+
+    Raises:
+        DashError: If the dash directory is missing, symlinked or unreadable.
+    """
+    return tuple(entry.name for entry in list_entries(layout) if entry.kind == KIND_FILE)
+
+
 def lock_entry(layout: ShlibLayout, name: str) -> LockResult:
     """Write the current content of one dash entry to its lock copy.
 

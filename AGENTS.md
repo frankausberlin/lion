@@ -188,3 +188,12 @@ ersatzlos gelöscht; die Git-Historie ist das Archiv.
 
 - lupysta_version: `0.15.0`
 - contract_version: `4`
+
+### dash-Vervollständigung bleibt still und nennt nur Namen
+
+- **Situation**: `lion dash lock <TAB>` liest das Dash-Register, und Fehler
+  oder Dateiinhalte in der Vervollständigung würden die Shell stören oder
+  Werte preisgeben.
+- **Handhabung**: Nur Namen lockbarer Einträge (`kind == file`) liefern;
+  fehlendes, symlinktes oder unlesbares `dash/` und unbekanntes Home still als
+  leere Liste behandeln; nie Inhalte, Ziele oder Fehlermeldungen ausgeben.

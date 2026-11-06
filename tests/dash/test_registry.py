@@ -18,6 +18,7 @@ from lion.dash.registry import (
     KIND_OTHER,
     list_entries,
     lock_entry,
+    lockable_entry_names,
     unlock_entry,
     validate_name,
 )
@@ -389,3 +390,15 @@ def test_unlock_entry_rejects_invalid_name(installed: ShlibLayout) -> None:
     """Invalid names are refused before touching the filesystem."""
     with pytest.raises(DashError):
         unlock_entry(installed, "nested/name")
+
+
+def test_lockable_entry_names_only_regular_file_targets(installed: ShlibLayout, home: Path) -> None:
+    """Completion candidates are the entries that ``lock_entry`` accepts."""
+    target = home / "target"
+    target.write_bytes(b"data\n")
+    _link(installed, "conf", target)
+    _link(installed, "folder", home)
+    _link(installed, "broken", home / "missing")
+    (installed.dash / "plain").write_text("not a link\n", encoding="utf-8")
+
+    assert lockable_entry_names(installed) == ("conf",)

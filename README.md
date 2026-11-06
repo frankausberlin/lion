@@ -95,6 +95,10 @@ lion watch-dog status          # on (exit 0) or off (exit 1)
 lion watch-dog off             # remove the managed watchdog file
 ```
 
+`lion dash lock <TAB>` completes the direct dash entries that resolve to
+regular files. Enable zsh completion once with `lion --install-completion zsh`
+and restart the shell.
+
 Drift is a normal result: `lion watch` exits `0` and prints diffs; scan and
 read errors exit `2`. A clean state and a missing dash tree are silent, so a
 flattened `.zshrc` after `uninstall` does not complain on every shell start.

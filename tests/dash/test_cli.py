@@ -112,3 +112,41 @@ def test_dash_symlinked_dash_is_refused(installed: ShlibLayout, home: Path) -> N
 
     assert result.exit_code == 2
     assert "error:" in result.stderr
+
+
+def test_dash_lock_completion_suggests_lockable_entries(installed: ShlibLayout, home: Path) -> None:
+    """Tab completion offers regular-file dash links for ``lock``."""
+    target = home / "test2.cfg"
+    target.write_text("cfg\n", encoding="utf-8")
+    (installed.dash / "config-of-app.cfg").symlink_to(target)
+    (installed.dash / "folder").symlink_to(home)
+    (installed.dash / "broken").symlink_to(home / "missing")
+
+    result = runner.invoke(
+        app,
+        [],
+        env={
+            "_LION_COMPLETE": "complete_zsh",
+            "_TYPER_COMPLETE_ARGS": f"lion dash lock --home {home} config-o",
+        },
+    )
+
+    assert result.exit_code == 0
+    assert "config-of-app.cfg" in result.output
+    assert "folder" not in result.output
+    assert "broken" not in result.output
+
+
+def test_dash_lock_completion_without_dash_is_silent(home: Path) -> None:
+    """A missing dash directory yields an empty completion, not an error."""
+    result = runner.invoke(
+        app,
+        [],
+        env={
+            "_LION_COMPLETE": "complete_zsh",
+            "_TYPER_COMPLETE_ARGS": f"lion dash lock --home {home} conf",
+        },
+    )
+
+    assert result.exit_code == 0
+    assert "error" not in result.stderr

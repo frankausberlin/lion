@@ -8,7 +8,7 @@ from typing import Annotated, NoReturn
 import typer
 
 from lion.dash.errors import DashError
-from lion.dash.registry import LockResult, list_entries, lock_entry, unlock_entry
+from lion.dash.registry import LockResult, list_entries, lock_entry, lockable_entry_names, unlock_entry
 from lion.output import display_path, display_text
 from lion.shlib.errors import ShlibError
 from lion.shlib.layout import ShlibLayout
@@ -46,9 +46,23 @@ def list_command(home: HomeOption = None) -> None:
         typer.echo(line)
 
 
+def _complete_lock_name(ctx: typer.Context, incomplete: str) -> list[str]:
+    """Suggest direct dash entry names that ``lion dash lock`` accepts."""
+    home = ctx.params.get("home")
+    try:
+        layout = ShlibLayout.from_option(home if isinstance(home, str) else None)
+        names = lockable_entry_names(layout)
+    except (DashError, ShlibError):
+        return []
+    return [name for name in names if name.startswith(incomplete)]
+
+
 @dash_app.command("lock")
 def lock_command(
-    name: Annotated[str, typer.Argument(help="Direct dash entry name to lock.")],
+    name: Annotated[
+        str,
+        typer.Argument(help="Direct dash entry name to lock.", autocompletion=_complete_lock_name),
+    ],
     home: HomeOption = None,
 ) -> None:
     """Copy the current target content to locks/<name>.lock."""
