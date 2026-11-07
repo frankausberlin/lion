@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated
 
 import typer
 
-from lion.output import display_text
-from lion.shlib.errors import ShlibError
-from lion.shlib.layout import ShlibLayout
+from lion.cli_common import fail, layout_or_exit
+from lion.output import color_enabled, display_text
 
 from .checks import collect_diagnosis, execute_fixes, plan_fixes
 from .model import DiagnosisReport
-from .render import color_enabled, render_report
+from .render import render_report
 
 HomeOption = Annotated[
     str | None,
@@ -51,12 +49,9 @@ def doctor_command(
     never touches a dash link, a changed target or a suspected secret.
     ``--deep`` adds the optional Gitleaks stage; it never runs automatically.
     """
-    try:
-        layout = ShlibLayout.from_option(home)
-    except ShlibError as exc:
-        _fail(exc)
+    layout = layout_or_exit(home)
     if fix and dry_run:
-        _fail_message("--fix and --dry-run are mutually exclusive")
+        fail("--fix and --dry-run are mutually exclusive")
 
     report = collect_diagnosis(layout, deep=deep)
     color = color_enabled(no_color)
@@ -101,16 +96,3 @@ def _print_report(report: DiagnosisReport, color: bool) -> None:
     """Print a rendered diagnosis."""
     for line in render_report(report, color=color):
         typer.echo(line)
-
-
-def _fail(error: ShlibError) -> NoReturn:
-    """Print a user-facing error and exit with status 2."""
-    _fail_message(str(error))
-
-
-def _fail_message(message: str, home: Path | None = None) -> NoReturn:
-    """Print a plain error message and exit with status 2."""
-    if home is not None:
-        message = display_text(message, home)
-    typer.echo(f"error: {message}", err=True)
-    raise typer.Exit(2)

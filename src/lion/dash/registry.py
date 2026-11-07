@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from lion.dash.errors import DashError
-from lion.shlib.files import atomic_write
+from lion.shlib.files import atomic_write, exists, link_target
 from lion.shlib.layout import ShlibLayout
 
 KIND_FILE = "file"
@@ -93,7 +93,7 @@ def list_entries(layout: ShlibLayout) -> tuple[DashEntry, ...]:
                 path=child,
                 target=target,
                 kind=kind,
-                locked=_exists(layout.lock_for(child.name)),
+                locked=exists(layout.lock_for(child.name)),
             )
         )
     return tuple(sorted(entries, key=lambda entry: entry.name))
@@ -278,16 +278,8 @@ def _classify(path: Path) -> tuple[str, Path | None]:
 
 
 def _link_target(path: Path) -> Path:
-    """Return the immediate link target, made absolute for relative links."""
+    """Return the immediate link target, translating read errors."""
     try:
-        raw = path.readlink()
+        return link_target(path)
     except OSError as exc:
         raise DashError(f"cannot read link {path}: {exc}") from exc
-    if raw.is_absolute():
-        return raw
-    return path.parent / raw
-
-
-def _exists(path: Path) -> bool:
-    """Return whether a path exists, including a dangling symlink."""
-    return path.exists() or path.is_symlink()

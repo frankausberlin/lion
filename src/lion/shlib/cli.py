@@ -2,13 +2,12 @@
 
 from __future__ import annotations
 
-import os
-import sys
-from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated
 
 import typer
 
+from lion.cli_common import fail, layout_or_exit
+from lion.output import color_enabled, display_path, display_text, short_digest
 from lion.shlib.bootstrap import ORIGINAL_NAME
 from lion.shlib.errors import ShlibError
 from lion.shlib.install import InstallPlan, InstallReport, apply_install, plan_install
@@ -52,14 +51,11 @@ NoColorOption = Annotated[
 @shlib_app.command("install")
 def install_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
     """Install the shlib layout and replace ~/.zshrc with the bootstrap block."""
-    try:
-        layout = ShlibLayout.from_option(home)
-    except ShlibError as exc:
-        _fail(exc)
+    layout = layout_or_exit(home, exit_code=1)
     try:
         plan = plan_install(layout)
     except ShlibError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home, exit_code=1)
 
     if dry_run:
         _print_install_plan(plan)
@@ -69,7 +65,7 @@ def install_command(home: HomeOption = None, dry_run: DryRunOption = False) -> N
     try:
         report = apply_install(plan)
     except ShlibError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home, exit_code=1)
     _print_install_report(report, layout)
     typer.echo("Start a new shell or run: source ~/.zshrc")
 
@@ -85,17 +81,14 @@ def uninstall_command(
     Owner-only export files are written to ``secrets.sh`` inside the backup and
     sourced from the flattened ``.zshrc`` instead of being inlined.
     """
-    try:
-        layout = ShlibLayout.from_option(home)
-    except ShlibError as exc:
-        _fail(exc)
+    layout = layout_or_exit(home, exit_code=1)
     try:
         plan = plan_uninstall(layout, force=force)
     except ShlibError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home, exit_code=1)
 
     for warning in plan.warnings:
-        typer.echo(f"warning: {_display_text(warning, layout.home)}")
+        typer.echo(f"warning: {display_text(warning, layout.home)}")
     _print_secret_notice(plan, dry_run=dry_run)
 
     if dry_run:
@@ -106,7 +99,7 @@ def uninstall_command(
     try:
         report = apply_uninstall(plan)
     except ShlibError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home, exit_code=1)
     _print_uninstall_report(report, layout)
     typer.echo("The former configuration was flattened, not restored.")
     typer.echo("Start a new shell or run: source ~/.zshrc")
@@ -115,13 +108,10 @@ def uninstall_command(
 @shlib_app.command("status")
 def status_command(home: HomeOption = None, no_color: NoColorOption = False) -> None:
     """Show installation, drift and cleanup state without changing anything."""
-    try:
-        layout = ShlibLayout.from_option(home)
-    except ShlibError as exc:
-        _fail(exc)
+    layout = layout_or_exit(home, exit_code=1)
 
     report = collect_status(layout)
-    for line in render_status(report, color=status_color_enabled(no_color)):
+    for line in render_status(report, color=color_enabled(no_color)):
         typer.echo(line)
     raise typer.Exit(report.exit_code)
 
@@ -134,20 +124,17 @@ def it_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
     afterwards. 99-unsorted.sh remains a cleanup file that the user must
     resolve and delete.
     """
-    try:
-        layout = ShlibLayout.from_option(home)
-    except ShlibError as exc:
-        _fail(exc)
+    layout = layout_or_exit(home, exit_code=1)
     try:
         plan = plan_it(layout)
     except ShlibError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home, exit_code=1)
 
     for warning in plan.warnings:
-        typer.echo(f"warning: {_display_text(warning, layout.home)}")
+        typer.echo(f"warning: {display_text(warning, layout.home)}")
 
     if plan.empty:
-        typer.echo(f"No appended content after the managed block in {_display(layout.zshrc, layout.home)}.")
+        typer.echo(f"No appended content after the managed block in {display_path(layout.zshrc, layout.home)}.")
         return
 
     if dry_run:
@@ -165,7 +152,7 @@ def it_command(home: HomeOption = None, dry_run: DryRunOption = False) -> None:
     try:
         report = apply_it(plan)
     except ShlibError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home, exit_code=1)
     if not report.already_captured:
         _print_it_capture(report, layout, prefix="Captured")
     _print_removal(report, layout, prefix="Removed")
@@ -177,18 +164,19 @@ def _print_it_capture(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix
     home = layout.home
     typer.echo(
         f"{prefix} {capture.line_end - capture.line_start + 1} line(s) from "
-        f"{_display(layout.zshrc, home)} into {_display(capture.target, home)}."
+        f"{display_path(layout.zshrc, home)} into {display_path(capture.target, home)}."
     )
     typer.echo(
         f"Tail: lines {capture.line_start}-{capture.line_end}, {capture.tail_bytes} bytes "
-        f"(sha256:{_short_hash(capture.tail_sha256)})"
+        f"(sha256:{short_digest(capture.tail_sha256)})"
     )
 
 
 def _print_already_captured(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:
     """Print that the target already contains the tail."""
     typer.echo(
-        f"Tail already captured in {_display(capture.target, layout.home)} (sha256:{_short_hash(capture.tail_sha256)})."
+        f"Tail already captured in {display_path(capture.target, layout.home)} "
+        f"(sha256:{short_digest(capture.tail_sha256)})."
     )
 
 
@@ -196,26 +184,17 @@ def _print_removal(capture: ItPlan | ItReport, layout: ShlibLayout, *, prefix: s
     """Print that the tail is or would be removed from ``.zshrc``."""
     state = "it would match the lock file" if future else "it now matches the lock file"
     typer.echo(
-        f"{prefix} lines {capture.line_start}-{capture.line_end} from {_display(layout.zshrc, layout.home)}; {state}."
+        f"{prefix} lines {capture.line_start}-{capture.line_end} from "
+        f"{display_path(layout.zshrc, layout.home)}; {state}."
     )
 
 
 def _print_cleanup_hint(capture: ItPlan | ItReport, layout: ShlibLayout) -> None:
     """Hint that the captured cleanup file still has to be resolved."""
     typer.echo(
-        f"hint: resolve {_display(capture.target, layout.home)} into sorted shlib files, then delete it; "
+        f"hint: resolve {display_path(capture.target, layout.home)} into sorted shlib files, then delete it; "
         "the status stays yellow until then."
     )
-
-
-def _short_hash(digest: str) -> str:
-    """Return the short form used in user-facing hash output."""
-    return digest[:12] + "…"
-
-
-def status_color_enabled(no_color: bool) -> bool:
-    """Return whether ANSI colors should be used."""
-    return not no_color and "NO_COLOR" not in os.environ and sys.stdout.isatty()
 
 
 def render_status(report: StatusReport, *, color: bool) -> list[str]:
@@ -236,7 +215,7 @@ def render_status(report: StatusReport, *, color: bool) -> list[str]:
         zshrc = f"{zshrc} ({report.zshrc_detail})"
 
     lines = [
-        f"shlib: {_display(report.layout.root, home)}",
+        f"shlib: {display_path(report.layout.root, home)}",
         f"installation: {_style(report.installation, installation_color, color)}",
         f"zshrc: {_style(zshrc, zshrc_color, color)}",
         f"exports: {report.exports} (owner-only: {report.owner_only_exports})",
@@ -259,7 +238,7 @@ def render_status(report: StatusReport, *, color: bool) -> list[str]:
             )
         )
     for issue in report.issues:
-        lines.append(_style(f"issue: {_display_text(issue, home)}", typer.colors.RED, color))
+        lines.append(_style(f"issue: {display_text(issue, home)}", typer.colors.RED, color))
     return lines
 
 
@@ -270,41 +249,16 @@ def _style(text: str, color: str, enabled: bool) -> str:
     return typer.style(text, fg=color)
 
 
-def _fail(error: ShlibError, home: Path | None = None) -> NoReturn:
-    """Print a user-facing error and exit with status 1."""
-    message = str(error)
-    if home is not None:
-        message = _display_text(message, home)
-    typer.echo(f"error: {message}", err=True)
-    raise typer.Exit(1)
-
-
-def _display(path: Path, home: Path) -> str:
-    """Return a path abbreviated with ``~`` when it is below ``home``."""
-    try:
-        relative = path.relative_to(home)
-    except ValueError:
-        return str(path)
-    if str(relative) == ".":
-        return "~"
-    return f"~/{relative}"
-
-
-def _display_text(text: str, home: Path) -> str:
-    """Abbreviate occurrences of ``home`` inside a message."""
-    return text.replace(str(home), "~")
-
-
 def _print_install_plan(plan: InstallPlan) -> None:
     """Print what an installation would do."""
     home = plan.layout.home
     typer.echo("Would create:")
     for directory in plan.directories:
-        typer.echo(f"  {_display(directory, home)}")
-    typer.echo(f"Would copy {_display(plan.zshrc, home)} to {_display(plan.original, home)}")
-    typer.echo(f"Would write lock file: {_display(plan.lock_file, home)}")
-    typer.echo(f"Would create redaction key: {_display(plan.redaction_key, home)} (mode 0600)")
-    typer.echo(f"Would replace {_display(plan.zshrc, home)} with the shlib bootstrap")
+        typer.echo(f"  {display_path(directory, home)}")
+    typer.echo(f"Would copy {display_path(plan.zshrc, home)} to {display_path(plan.original, home)}")
+    typer.echo(f"Would write lock file: {display_path(plan.lock_file, home)}")
+    typer.echo(f"Would create redaction key: {display_path(plan.redaction_key, home)} (mode 0600)")
+    typer.echo(f"Would replace {display_path(plan.zshrc, home)} with the shlib bootstrap")
 
 
 def _print_install_report(report: InstallReport, layout: ShlibLayout) -> None:
@@ -312,11 +266,11 @@ def _print_install_report(report: InstallReport, layout: ShlibLayout) -> None:
     home = layout.home
     typer.echo("Created:")
     for directory in report.directories:
-        typer.echo(f"  {_display(directory, home)}")
-    typer.echo(f"Copied {_display(layout.zshrc, home)} to {_display(report.original, home)}")
-    typer.echo(f"Wrote lock file: {_display(report.lock_file, home)}")
-    typer.echo(f"Wrote redaction key: {_display(report.redaction_key, home)} (mode 0600)")
-    typer.echo(f"Wrote shlib bootstrap to {_display(report.zshrc, home)}")
+        typer.echo(f"  {display_path(directory, home)}")
+    typer.echo(f"Copied {display_path(layout.zshrc, home)} to {display_path(report.original, home)}")
+    typer.echo(f"Wrote lock file: {display_path(report.lock_file, home)}")
+    typer.echo(f"Wrote redaction key: {display_path(report.redaction_key, home)} (mode 0600)")
+    typer.echo(f"Wrote shlib bootstrap to {display_path(report.zshrc, home)}")
 
 
 def _export_summary(plan: UninstallPlan | UninstallReport) -> str:
@@ -332,8 +286,8 @@ def _print_secret_notice(plan: UninstallPlan, *, dry_run: bool) -> None:
     if not plan.secret_names:
         return
     home = plan.layout.home
-    zshrc = _display(plan.zshrc, home)
-    secrets_path = _display(plan.secrets_path, home)
+    zshrc = display_path(plan.zshrc, home)
+    secrets_path = display_path(plan.secrets_path, home)
     count = len(plan.secret_names)
     if dry_run:
         flattened = f"{count} owner-only export file(s) would not be flattened into {zshrc}."
@@ -358,9 +312,10 @@ def _print_uninstall_plan(plan: UninstallPlan) -> None:
     home = plan.layout.home
     shlibs = len(plan.shlib_files)
     typer.echo(
-        f"Would write flattened {_display(plan.zshrc, home)} with {_export_summary(plan)} and {shlibs} shlib file(s)."
+        f"Would write flattened {display_path(plan.zshrc, home)} with "
+        f"{_export_summary(plan)} and {shlibs} shlib file(s)."
     )
-    typer.echo(f"Would move {_display(plan.layout.root, home)} to {_display(plan.backup, home)}")
+    typer.echo(f"Would move {display_path(plan.layout.root, home)} to {display_path(plan.backup, home)}")
 
 
 def _print_uninstall_report(report: UninstallReport, layout: ShlibLayout) -> None:
@@ -368,7 +323,7 @@ def _print_uninstall_report(report: UninstallReport, layout: ShlibLayout) -> Non
     home = layout.home
     shlibs = len(report.shlib_files)
     typer.echo(
-        f"Wrote flattened {_display(report.zshrc, home)} with {_export_summary(report)} and {shlibs} shlib file(s)."
+        f"Wrote flattened {display_path(report.zshrc, home)} with {_export_summary(report)} and {shlibs} shlib file(s)."
     )
-    typer.echo(f"Moved {_display(layout.root, home)} to {_display(report.backup, home)}")
-    typer.echo(f"Backup: {_display(report.backup, home)}")
+    typer.echo(f"Moved {display_path(layout.root, home)} to {display_path(report.backup, home)}")
+    typer.echo(f"Backup: {display_path(report.backup, home)}")

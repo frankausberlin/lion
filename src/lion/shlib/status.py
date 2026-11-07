@@ -8,6 +8,7 @@ from pathlib import Path
 
 from lion.shlib.bootstrap import BOOTSTRAP_BEGIN, ORIGINAL_NAME
 from lion.shlib.errors import ShlibError
+from lion.shlib.files import line_count
 from lion.shlib.it import UNSORTED_NAME
 from lion.shlib.layout import ShlibLayout
 from lion.shlib.reference import load_reference, split_tail
@@ -190,7 +191,7 @@ def _zshrc_state(layout: ShlibLayout, installation: str, issues: list[str]) -> t
         return "ok", None
     if not tail.strip():
         return "drift", "whitespace only"
-    return "drift", f"{_line_count(tail)} appended line(s)"
+    return "drift", f"{line_count(tail)} appended line(s)"
 
 
 def _count_exports(layout: ShlibLayout, issues: list[str]) -> tuple[int, int]:
@@ -287,11 +288,3 @@ def _count_backups(layout: ShlibLayout, issues: list[str]) -> int:
         issues.append(f"cannot list {layout.home}: {exc}")
         return 0
     return sum(1 for entry in entries if entry.name.startswith(".shlib.uninstalled-") and entry.is_dir())
-
-
-def _line_count(tail: bytes) -> int:
-    """Return the number of lines in ``tail``, including a last line without newline."""
-    count = tail.count(b"\n")
-    if tail and not tail.endswith(b"\n"):
-        count += 1
-    return count

@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Annotated, NoReturn
+from typing import Annotated
 
 import typer
 
+from lion.cli_common import fail, layout_or_exit
 from lion.dash.errors import DashError
 from lion.dash.registry import LockResult, list_entries, lock_entry, lockable_entry_names, unlock_entry
-from lion.output import display_path, display_text
+from lion.output import display_path, short_digest
 from lion.shlib.errors import ShlibError
 from lion.shlib.layout import ShlibLayout
 
@@ -28,11 +28,11 @@ HomeOption = Annotated[
 @dash_app.command("list")
 def list_command(home: HomeOption = None) -> None:
     """Show dash entries with lock state, type and target."""
-    layout = _layout(home)
+    layout = layout_or_exit(home)
     try:
         entries = list_entries(layout)
     except DashError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home)
 
     typer.echo(f"dash: {display_path(layout.dash, layout.home)}")
     if not entries:
@@ -66,11 +66,11 @@ def lock_command(
     home: HomeOption = None,
 ) -> None:
     """Copy the current target content to locks/<name>.lock."""
-    layout = _layout(home)
+    layout = layout_or_exit(home)
     try:
         result = lock_entry(layout, name)
     except DashError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home)
     _print_lock_result(result, layout)
 
 
@@ -80,11 +80,11 @@ def unlock_command(
     home: HomeOption = None,
 ) -> None:
     """Delete only locks/<name>.lock, never the dash link."""
-    layout = _layout(home)
+    layout = layout_or_exit(home)
     try:
         removed = unlock_entry(layout, name)
     except DashError as exc:
-        _fail(exc, layout.home)
+        fail(exc, layout.home)
     if removed:
         typer.echo(f"unlocked {name}")
     else:
@@ -96,22 +96,5 @@ def _print_lock_result(result: LockResult, layout: ShlibLayout) -> None:
     prefix = "updated" if result.updated else "locked"
     typer.echo(
         f"{prefix} {result.name}: {display_path(result.target, layout.home)} "
-        f"({result.size} bytes, sha256:{result.sha256[:12]})"
+        f"({result.size} bytes, sha256:{short_digest(result.sha256)})"
     )
-
-
-def _layout(home: str | None) -> ShlibLayout:
-    """Build the shlib layout or exit with an error."""
-    try:
-        return ShlibLayout.from_option(home)
-    except ShlibError as exc:
-        _fail(exc)
-
-
-def _fail(error: Exception, home: Path | None = None) -> NoReturn:
-    """Print a user-facing error and exit with status 2."""
-    message = str(error)
-    if home is not None:
-        message = display_text(message, home)
-    typer.echo(f"error: {message}", err=True)
-    raise typer.Exit(2)

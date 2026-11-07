@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from lion.shlib.errors import ShlibError
-from lion.shlib.files import atomic_write
+from lion.shlib.files import atomic_write, line_count
 from lion.shlib.layout import ShlibLayout
 from lion.shlib.reference import load_reference, split_tail
 
@@ -159,7 +159,7 @@ def plan_it(layout: ShlibLayout) -> ItPlan:
 
     digest = hashlib.sha256(tail).hexdigest()
     line_start = reference.data.count(b"\n") + 1
-    line_end = line_start + _line_count(tail) - 1
+    line_end = line_start + line_count(tail) - 1
     target = shlibs / UNSORTED_NAME
 
     if target.is_symlink():
@@ -247,14 +247,6 @@ def apply_it(plan: ItPlan) -> ItReport:
         wrote_zshrc=wrote_zshrc,
         warnings=plan.warnings,
     )
-
-
-def _line_count(tail: bytes) -> int:
-    """Return the number of lines in ``tail``, including a last line without newline."""
-    count = tail.count(b"\n")
-    if tail and not tail.endswith(b"\n"):
-        count += 1
-    return count
 
 
 def _contains_hash(existing: bytes, digest: str) -> bool:

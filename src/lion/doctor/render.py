@@ -2,9 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import sys
-
 from .model import ERROR, INFO, OK, WARNING, DiagnosisReport, Finding
 
 _SECTION_CODES = {
@@ -26,18 +23,6 @@ _COLORS = {
     OK: "\x1b[32m",
 }
 _RESET = "\x1b[0m"
-
-
-def color_enabled(no_color: bool) -> bool:
-    """Return whether ANSI colors should be used.
-
-    Args:
-        no_color: Value of the ``--no-color`` option.
-
-    Returns:
-        ``True`` only for a TTY without ``NO_COLOR`` and without ``--no-color``.
-    """
-    return not no_color and "NO_COLOR" not in os.environ and sys.stdout.isatty()
 
 
 def render_report(report: DiagnosisReport, *, color: bool) -> list[str]:

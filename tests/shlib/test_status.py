@@ -14,6 +14,7 @@ import pytest
 from typer.testing import CliRunner
 
 import lion.shlib.cli as shlib_cli
+from lion import output
 from lion.cli import app
 from lion.shlib.bootstrap import BOOTSTRAP, ORIGINAL_NAME
 from lion.shlib.install import apply_install, plan_install
@@ -653,14 +654,14 @@ def test_status_no_color_option(home: Path, layout: ShlibLayout) -> None:
 
 def test_status_helpers_honor_color_sources(home: Path, layout: ShlibLayout, monkeypatch: pytest.MonkeyPatch) -> None:
     """Explicit disabling, NO_COLOR and a non-tty all suppress colors."""
-    assert not shlib_cli.status_color_enabled(True)
+    assert not output.color_enabled(True)
 
     monkeypatch.setenv("NO_COLOR", "")
-    assert not shlib_cli.status_color_enabled(False)
+    assert not output.color_enabled(False)
 
     monkeypatch.delenv("NO_COLOR")
     monkeypatch.setattr(sys, "stdout", io.StringIO())
-    assert not shlib_cli.status_color_enabled(False)
+    assert not output.color_enabled(False)
 
 
 def test_status_renderer_marks_drift_yellow(home: Path, layout: ShlibLayout) -> None:

@@ -7,6 +7,7 @@ import stat
 from pathlib import Path
 
 from lion.output import display_path, short_hash
+from lion.shlib.files import exists, link_target
 from lion.shlib.layout import ShlibLayout
 from lion.watch.errors import WatchError
 from lion.watch.model import WatchFinding
@@ -56,7 +57,7 @@ def collect_dash_findings(
         if child.name.startswith("."):
             continue
         lock = layout.lock_for(child.name)
-        if not _exists(lock):
+        if not exists(lock):
             continue
         finding = _check_entry(layout, child.name, child, lock, render_diffs=render_diffs, max_bytes=max_bytes)
         if finding is not None:
@@ -211,14 +212,6 @@ def _show(path: Path, home: Path) -> str:
 def _link_target(path: Path) -> Path | None:
     """Return the immediate link target, or ``None`` if the link is unreadable."""
     try:
-        raw = path.readlink()
+        return link_target(path)
     except OSError:
         return None
-    if raw.is_absolute():
-        return raw
-    return path.parent / raw
-
-
-def _exists(path: Path) -> bool:
-    """Return whether a path exists, including a dangling symlink."""
-    return path.exists() or path.is_symlink()

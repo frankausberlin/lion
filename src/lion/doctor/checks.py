@@ -32,6 +32,7 @@ from lion.redaction import (
 )
 from lion.secret_prefixes import PrefixConfig, PrefixRule, effective_rules, load_prefixes
 from lion.shlib.bootstrap import ORIGINAL_NAME
+from lion.shlib.files import exists
 from lion.shlib.it import UNSORTED_NAME
 from lion.shlib.layout import ShlibLayout
 from lion.shlib.status import NOT_INSTALLED, StatusReport, collect_status
@@ -179,7 +180,7 @@ def plan_fixes(layout: ShlibLayout) -> FixPlan:
     if _is_real_directory(layout.dash) and _is_real_directory(layout.locks):
         for lock in _lock_files(layout.locks):
             name = lock.name[: -len(".lock")]
-            if not _exists(layout.dash / name):
+            if not exists(layout.dash / name):
                 actions.append(
                     FixAction(
                         kind="remove_lock",
@@ -589,7 +590,7 @@ def _lock_findings(layout: ShlibLayout) -> list[Finding]:
             continue
         if not dash_exists:
             continue
-        if not _exists(layout.dash / name):
+        if not exists(layout.dash / name):
             findings.append(
                 Finding(
                     code="locks.orphan",
@@ -902,8 +903,3 @@ def _lock_files(directory: Path) -> list[Path]:
             and child.is_file()
         )
     ]
-
-
-def _exists(path: Path) -> bool:
-    """Return whether a path exists, including a dangling symlink."""
-    return path.exists() or path.is_symlink()

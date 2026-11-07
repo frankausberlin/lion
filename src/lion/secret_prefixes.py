@@ -15,6 +15,8 @@ import stat
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from lion.output import display_path
+
 MAX_PREFIX_FILE_BYTES = 64 * 1024
 """Largest prefix overlay that is read, in bytes."""
 
@@ -321,11 +323,6 @@ def _display_path(path: Path | None, home: Path | None) -> str:
     """Return the overlay path for display without resolving anything."""
     if path is None:
         return "(builtin only)"
-    if home is not None:
-        try:
-            relative = path.relative_to(home)
-        except ValueError:
-            pass
-        else:
-            return "~" if str(relative) == "." else f"~/{relative}"
-    return str(path)
+    if home is None:
+        return str(path)
+    return display_path(path, home)

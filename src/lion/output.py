@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import sys
 from pathlib import Path
 
 
@@ -38,6 +40,18 @@ def display_text(text: str, home: Path) -> str:
     return text.replace(str(home), "~")
 
 
+def short_digest(digest: str) -> str:
+    """Return the short hex form used in user-facing output.
+
+    Args:
+        digest: Full hexadecimal digest.
+
+    Returns:
+        The first 12 hexadecimal characters, without an ellipsis.
+    """
+    return digest[:12]
+
+
 def short_hash(data: bytes) -> str:
     """Return the short SHA-256 form used in user-facing output.
 
@@ -47,4 +61,16 @@ def short_hash(data: bytes) -> str:
     Returns:
         The first 12 hexadecimal characters of the SHA-256 digest.
     """
-    return hashlib.sha256(data).hexdigest()[:12]
+    return short_digest(hashlib.sha256(data).hexdigest())
+
+
+def color_enabled(no_color: bool) -> bool:
+    """Return whether ANSI colors should be used.
+
+    Args:
+        no_color: Value of the ``--no-color`` option.
+
+    Returns:
+        ``True`` only for a TTY without ``NO_COLOR`` and without ``--no-color``.
+    """
+    return not no_color and "NO_COLOR" not in os.environ and sys.stdout.isatty()
